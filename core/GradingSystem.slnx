@@ -1,0 +1,27 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ApiGateway/ApiGateway.csproj" />
+  </Folder>
+  <Folder Name="/src/BuildingBlocks/">
+    <Project Path="src/BuildingBlocks/Contracts/Contracts.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/" />
+  <Folder Name="/src/Services/AcademicService/">
+    <Project Path="src/Services/AcademicService/AcademicService.API/AcademicService.API.csproj" />
+    <Project Path="src/Services/AcademicService/AcademicService.Application/AcademicService.Application.csproj" />
+    <Project Path="src/Services/AcademicService/AcademicService.Domain/AcademicService.Domain.csproj" />
+    <Project Path="src/Services/AcademicService/AcademicService.Infrastructure/AcademicService.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/GradingService/">
+    <Project Path="src/Services/GradingService/GradingService.API/GradingService.API.csproj" />
+    <Project Path="src/Services/GradingService/GradingService.Application/GradingService.Application.csproj" />
+    <Project Path="src/Services/GradingService/GradingService.Domain/GradingService.Domain.csproj" />
+    <Project Path="src/Services/GradingService/GradingService.Infrastructure/GradingService.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/IamService/">
+    <Project Path="src/Services/IamService/IamService.API/IamService.API.csproj" />
+    <Project Path="src/Services/IamService/IamService.Application/IamService.Application.csproj" />
+    <Project Path="src/Services/IamService/IamService.Domain/IamService.Domain.csproj" />
+    <Project Path="src/Services/IamService/IamService.Infrastructure/IamService.Infrastructure.csproj" />
+  </Folder>
+</Solution>

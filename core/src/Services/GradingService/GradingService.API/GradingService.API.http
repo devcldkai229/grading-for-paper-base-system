@@ -1,0 +1,6 @@
+@GradingService.API_HostAddress = http://localhost:5245
+
+GET {{GradingService.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
