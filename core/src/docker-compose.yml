@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:17.6
@@ -22,7 +20,7 @@ services:
     restart: always
     command: redis-server --requirepass rootpassword
     ports:
-      - "6379:6379"
+      - "6380:6379"
     volumes:
       - grading_redis_data:/data
     networks:
@@ -36,8 +34,8 @@ services:
       RABBITMQ_DEFAULT_USER: root
       RABBITMQ_DEFAULT_PASS: rootpassword
     ports:
-      - "5672:5672"   
-      - "15672:15672" 
+      - "5673:5672"
+      - "15673:15672"
     volumes:
       - grading_rabbitmq_data:/var/lib/rabbitmq
     networks:
