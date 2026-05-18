@@ -51,7 +51,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "IAM Service API v1"));
 }
 
-app.UseHttpsRedirection();
+// Note: No UseHttpsRedirection() — this service sits behind the API Gateway which handles HTTPS
 
 app.UseAuthentication();
 app.UseAuthorization();

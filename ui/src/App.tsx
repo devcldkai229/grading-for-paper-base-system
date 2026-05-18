@@ -1,14 +1,21 @@
+import { Routes, Route, Navigate } from "react-router-dom";
+import { GoogleOAuthProvider } from "@react-oauth/google";
+import { LoginPage } from "@/features/auth/pages/LoginPage";
+import { DashboardPage } from "@/features/auth/pages/DashboardPage";
+
+const GOOGLE_CLIENT_ID =
+  "757455269498-qnor5filnkt0njp5l2piu6pcqcphjf19.apps.googleusercontent.com";
+
 function App() {
   return (
-    <div className="flex min-h-svh flex-col items-center justify-center gap-4 bg-slate-950 text-slate-50">
-      <h1 className="text-3xl font-semibold tracking-tight">
-        Grading Paper System
-      </h1>
-      <p className="text-slate-400 text-sm">
-        React · TypeScript · Vite · Tailwind CSS
-      </p>
-    </div>
-  )
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    </GoogleOAuthProvider>
+  );
 }
 
-export default App
+export default App;
