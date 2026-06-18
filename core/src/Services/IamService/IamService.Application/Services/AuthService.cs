@@ -1,0 +1,100 @@
+using IamService.Application.Features.Auth;
+using IamService.Application.Interfaces;
+using IamService.Domain.Entities;
+using IamService.Domain.Enums;
+using System;
+using System.Threading.Tasks;
+
+namespace IamService.Application.Services
+{
+    public class AuthService : IAuthService
+    {
+        private readonly ITokenService _tokenService;
+        private readonly IUserRepository _userRepository;
+        private readonly IGoogleAuthService _googleAuthService;
+        private readonly IRefreshTokenRepository _refreshTokenRepository;
+
+        public AuthService(
+            ITokenService tokenService,
+            IUserRepository userRepository,
+            IGoogleAuthService googleAuthService,
+            IRefreshTokenRepository refreshTokenRepository)
+        {
+            _tokenService = tokenService;
+            _userRepository = userRepository;
+            _googleAuthService = googleAuthService;
+            _refreshTokenRepository = refreshTokenRepository;
+        }
+
+        public async Task<AuthResult> LoginAsync(string email, string password)
+        {
+            var user = await _userRepository.FindByEmailAsync(email);
+            if (user == null || user.PasswordHash == null || !BCrypt.Net.BCrypt.Verify(password, user.PasswordHash))
+            {
+                var authResult = new AuthResult { Success = false };
+                authResult.Errors.Add("Invalid email or password");
+                return authResult;
+            }
+
+            if (user.Status != UserStatus.Active)
+            {
+                var authResult = new AuthResult { Success = false };
+                authResult.Errors.Add("Account is not active");
+                return authResult;
+            }
+
+            return await _tokenService.GenerateTokensAsync(user);
+        }
+
+        public async Task<AuthResult> GoogleLoginAsync(string idToken)
+        {
+            var googleUser = await _googleAuthService.ValidateIdTokenAsync(idToken);
+            if (googleUser == null)
+            {
+                var result = new AuthResult { Success = false };
+                result.Errors.Add("Invalid Google token");
+                return result;
+            }
+
+            var user = await _userRepository.FindByGoogleIdAsync(googleUser.GoogleId)
+                    ?? await _userRepository.FindByEmailAsync(googleUser.Email);
+
+            if (user == null)
+            {
+                // Auto-register new Google user
+                user = new User
+                {
+                    Email = googleUser.Email,
+                    FullName = googleUser.FullName,
+                    GoogleId = googleUser.GoogleId,
+                    AvatarUrl = googleUser.AvatarUrl,
+                    LoginProvider = LoginProvider.Google,
+                    Status = UserStatus.Active,
+                    Role = UserRole.Lecturer
+                };
+                await _userRepository.AddAsync(user);
+            }
+            else if (user.GoogleId == null)
+            {
+                // Link existing account with Google
+                user.GoogleId = googleUser.GoogleId;
+                user.AvatarUrl = googleUser.AvatarUrl;
+                user.LoginProvider = LoginProvider.Google;
+                await _userRepository.UpdateAsync(user);
+            }
+
+            return await _tokenService.GenerateTokensAsync(user);
+        }
+
+        public async Task<AuthResult> RefreshTokenAsync(string token, string refreshToken)
+        {
+            return await _tokenService.VerifyAndGenerateTokenAsync(token, refreshToken);
+        }
+
+        public async Task<AuthResult> LogoutAsync(Guid userId)
+        {
+            await _refreshTokenRepository.RevokeAllByUserIdAsync(userId);
+            return new AuthResult { Success = true };
+        }
+    }
+}

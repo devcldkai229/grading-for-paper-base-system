@@ -1,0 +1,6 @@
+@ExamCatalogService.API_HostAddress = http://localhost:5101
+
+GET {{ExamCatalogService.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

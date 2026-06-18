@@ -1,12 +1,12 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
+﻿using NpgsqlTypes;
 
-namespace IamService.Domain.Enums
+namespace IamService.Domain.Enums;
+
+public enum LoginProvider
 {
-    public enum LoginProvider
-    {
-        PasswordAuth = 0,
-        Google = 1,
-    }
+    [PgName("password_auth")]
+    PasswordAuth = 0,
+
+    [PgName("google")]
+    Google = 1,
 }

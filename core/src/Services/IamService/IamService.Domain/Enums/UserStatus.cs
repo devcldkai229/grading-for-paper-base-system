@@ -1,8 +1,15 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
+﻿using NpgsqlTypes;
 
-namespace IamService.Domain.Enums
+namespace IamService.Domain.Enums;
+
+public enum UserStatus
 {
-    public enum UserStatus { Active, Inactive, Locked }
+    [PgName("active")]
+    Active,
+
+    [PgName("inactive")]
+    Inactive,
+
+    [PgName("locked")]
+    Locked
 }

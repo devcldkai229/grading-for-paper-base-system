@@ -1,6 +1,6 @@
-@GradingService.API_HostAddress = http://localhost:5245
+@GradingService.API_HostAddress = http://localhost:5058
 
-GET {{GradingService.API_HostAddress}}/weatherforecast/
+GET {{GradingService.API_HostAddress}}/api/health
 Accept: application/json
 
 ###
