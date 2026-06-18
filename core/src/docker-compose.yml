@@ -8,11 +8,9 @@ services:
       POSTGRES_PASSWORD: 12345
       POSTGRES_DB: grading_system_db
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - grading_postgres_data:/var/lib/postgresql/data
-    networks:
-      - grading_net
 
   redis:
     image: redis:7-alpine
@@ -23,8 +21,6 @@ services:
       - "6380:6379"
     volumes:
       - grading_redis_data:/data
-    networks:
-      - grading_net
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
@@ -38,31 +34,9 @@ services:
       - "15673:15672"
     volumes:
       - grading_rabbitmq_data:/var/lib/rabbitmq
-    networks:
-      - grading_net
-
-  minio:
-    image: minio/minio:latest
-    container_name: grading_minio
-    restart: always
-    environment:
-      MINIO_ROOT_USER: rootadmin
-      MINIO_ROOT_PASSWORD: rootpassword
-    command: server /data --console-address ":9001"
-    ports:
-      - "9000:9000" 
-      - "9001:9001" 
-    volumes:
-      - grading_minio_data:/data
-    networks:
-      - grading_net
 
 volumes:
   grading_postgres_data:
   grading_redis_data:
   grading_rabbitmq_data:
   grading_minio_data:
-
-networks:
-  grading_net:
-    driver: bridge

@@ -1,7 +1,7 @@
+using IamService.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 using Microsoft.Extensions.Configuration;
-using System.IO;
 
 namespace IamService.Infrastructure.Persistence;
 
@@ -14,9 +14,17 @@ public class IamDbContextFactory : IDesignTimeDbContextFactory<IamDbContext>
             .AddJsonFile("appsettings.json")
             .Build();
 
+        var connectionString = configuration.GetConnectionString("DefaultConnection")
+            ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection is missing.");
+
+        var dataSource = NpgsqlIamConfiguration.CreateDataSource(connectionString);
         var optionsBuilder = new DbContextOptionsBuilder<IamDbContext>();
-        var connectionString = configuration.GetConnectionString("DefaultConnection");
-        optionsBuilder.UseNpgsql(connectionString);
+        optionsBuilder.UseNpgsql(dataSource, npgsql =>
+        {
+            npgsql.MapEnum<LoginProvider>("login_provider");
+            npgsql.MapEnum<UserStatus>("user_status");
+            npgsql.MapEnum<UserRole>("user_role");
+        });
 
         return new IamDbContext(optionsBuilder.Options);
     }

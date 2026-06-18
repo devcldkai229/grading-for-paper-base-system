@@ -1,12 +1,12 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
+﻿using NpgsqlTypes;
 
-namespace IamService.Domain.Enums
+namespace IamService.Domain.Enums;
+
+public enum UserRole
 {
-    public enum UserRole
-    {
-        Lecture = 0,
-        Admin = 1
-    }
+    [PgName("lecturer")]
+    Lecturer = 0,
+
+    [PgName("admin")]
+    Admin = 1
 }

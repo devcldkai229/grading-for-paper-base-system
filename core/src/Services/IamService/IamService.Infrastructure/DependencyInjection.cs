@@ -13,8 +13,17 @@ public static class DependencyInjection
         var connectionString = configuration.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection is missing.");
 
+        var dataSource = Persistence.NpgsqlIamConfiguration.CreateDataSource(connectionString);
+        services.AddSingleton(dataSource);
         services.AddDbContext<Persistence.IamDbContext>(options =>
-            options.UseNpgsql(connectionString));
+            options.UseNpgsql(dataSource, npgsql =>
+            {
+                npgsql.MapEnum<Domain.Enums.LoginProvider>("login_provider");
+                npgsql.MapEnum<Domain.Enums.UserStatus>("user_status");
+                npgsql.MapEnum<Domain.Enums.UserRole>("user_role");
+            }));
+
+        services.AddSingleton(new IamDatabaseSettings(connectionString));
 
         // Repositories
         services.AddScoped<IamService.Application.Interfaces.IUserRepository, Persistence.Repositories.UserRepository>();
@@ -68,18 +77,18 @@ public static class DependencyInjection
     {
         using var scope = serviceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<Persistence.IamDbContext>();
+        var databaseSettings = scope.ServiceProvider.GetRequiredService<IamDatabaseSettings>();
         var logger = scope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<IamService.Infrastructure.Seed.IamDbContextSeed>>();
 
-        await EnsureDatabaseExistsAsync(context);
+        await EnsureDatabaseExistsAsync(databaseSettings.ConnectionString);
         await context.Database.MigrateAsync();
 
         // Seed initial data
         await IamService.Infrastructure.Seed.IamDbContextSeed.SeedAsync(context, logger);
     }
 
-    private static async Task EnsureDatabaseExistsAsync(Persistence.IamDbContext context)
+    private static async Task EnsureDatabaseExistsAsync(string connectionString)
     {
-        var connectionString = context.Database.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException("IAM database connection string is missing.");
