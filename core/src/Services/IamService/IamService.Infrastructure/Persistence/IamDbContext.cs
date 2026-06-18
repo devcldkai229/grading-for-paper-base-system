@@ -1,4 +1,5 @@
 using IamService.Domain.Entities;
+using IamService.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace IamService.Infrastructure.Persistence;
@@ -15,6 +16,10 @@ public class IamDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.HasPostgresEnum<LoginProvider>(name: "login_provider");
+        modelBuilder.HasPostgresEnum<UserStatus>(name: "user_status");
+        modelBuilder.HasPostgresEnum<UserRole>(name: "user_role");
+
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(IamDbContext).Assembly);
         base.OnModelCreating(modelBuilder);
     }

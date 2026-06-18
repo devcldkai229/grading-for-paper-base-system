@@ -1,19 +1,23 @@
-﻿using Contracts.Domain;
-using System;
-using System.Collections.Generic;
-using System.Text;
+using Contracts.Domain;
+using GradingService.Domain.Enums;
 
-namespace GradingService.Domain.Entities
+namespace GradingService.Domain.Entities;
+
+public class QuestionGradeDetail : Entity
 {
-    public class QuestionGradeDetail : Entity
-    {
-        public Guid GradingFormId { get; set; }
-        public string QuestionNumber { get; set; } 
+    public Guid GradingFormId { get; set; }
 
-        public decimal Score { get; set; }
+    public string QuestionNumber { get; set; } = string.Empty;
 
-        public decimal MaxScore { get; set; } // Điểm tối đa của câu hỏi này (để giáo viên dễ dàng so sánh)
+    public decimal Score { get; set; }
 
-        public string? QuestionComment { get; set; } // Nhận xét bài làm (cho riêng câu này)
-    }
+    public decimal MaxScore { get; set; }
+
+    public string? QuestionComment { get; set; }
+
+    public bool AiDrafted { get; set; }
+
+    public AiReviewStatus AiReviewStatus { get; set; } = AiReviewStatus.Pending;
+
+    public GradingForm GradingForm { get; set; } = null!;
 }

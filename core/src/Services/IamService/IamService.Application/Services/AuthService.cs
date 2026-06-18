@@ -70,7 +70,7 @@ namespace IamService.Application.Services
                     AvatarUrl = googleUser.AvatarUrl,
                     LoginProvider = LoginProvider.Google,
                     Status = UserStatus.Active,
-                    Role = UserRole.Lecture
+                    Role = UserRole.Lecturer
                 };
                 await _userRepository.AddAsync(user);
             }
