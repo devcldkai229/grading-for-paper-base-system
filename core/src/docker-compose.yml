@@ -12,6 +12,15 @@ services:
     volumes:
       - grading_postgres_data:/var/lib/postgresql/data
 
+  mongodb:
+      image: mongo:8.0
+      container_name: sync-mongodb
+      ports:
+        # Host 27018 avoids conflict with a local Windows MongoDB on 127.0.0.1:27017
+        - "27018:27017"
+      volumes:
+        - grading_mongodb_data:/data/db
+
   redis:
     image: redis:7-alpine
     container_name: grading_redis
@@ -39,4 +48,4 @@ volumes:
   grading_postgres_data:
   grading_redis_data:
   grading_rabbitmq_data:
-  grading_minio_data:
+  grading_mongodb_data:
