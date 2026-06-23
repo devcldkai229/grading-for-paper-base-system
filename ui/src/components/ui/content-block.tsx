@@ -1,13 +1,9 @@
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
 import { cn } from "@/lib/utils";
-
-export const contentBlockClass =
-  "rounded-xl border border-line bg-card shadow-[0_1px_2px_rgba(27,26,25,0.04)]";
-
-export const contentBlockInteractiveClass = cn(
+import {
   contentBlockClass,
-  "transition-all duration-200 hover:border-brand-red/50 hover:bg-brand-red/[0.03] hover:shadow-[0_2px_8px_rgba(215,38,61,0.08)]"
-);
+  contentBlockInteractiveClass,
+} from "@/components/ui/content-block-styles";
 
 interface ContentBlockProps extends HTMLAttributes<HTMLDivElement> {
   interactive?: boolean;
@@ -32,7 +28,7 @@ export function ContentBlock({
   );
 }
 
-interface ContentBlockButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {}
+type ContentBlockButtonProps = ButtonHTMLAttributes<HTMLButtonElement>;
 
 export function ContentBlockButton({
   className,

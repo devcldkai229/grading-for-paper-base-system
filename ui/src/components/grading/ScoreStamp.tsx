@@ -27,17 +27,17 @@ function HandUnderline() {
 }
 
 export function ScoreStamp({ total, max, label = "TỔNG" }: ScoreStampProps) {
-  const [displayTotal, setDisplayTotal] = useState(total);
+  const [animatedTotal, setAnimatedTotal] = useState(total);
   const reducedMotion =
     typeof window !== "undefined" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+  const displayTotal = reducedMotion ? total : animatedTotal;
+
   useEffect(() => {
-    if (reducedMotion) {
-      setDisplayTotal(total);
-      return;
-    }
-    const start = displayTotal;
+    if (reducedMotion) return;
+
+    const start = animatedTotal;
     const diff = total - start;
     if (Math.abs(diff) < 0.01) return;
 
@@ -46,9 +46,9 @@ export function ScoreStamp({ total, max, label = "TỔNG" }: ScoreStampProps) {
     const id = window.setInterval(() => {
       step += 1;
       const t = step / steps;
-      setDisplayTotal(start + diff * t);
+      setAnimatedTotal(start + diff * t);
       if (step >= steps) {
-        setDisplayTotal(total);
+        setAnimatedTotal(total);
         clearInterval(id);
       }
     }, 24);

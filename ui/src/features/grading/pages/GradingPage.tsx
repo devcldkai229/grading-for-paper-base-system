@@ -389,10 +389,12 @@ export function GradingPage() {
   };
 
   const handleSubmitRef = useRef(handleSubmit);
-  handleSubmitRef.current = handleSubmit;
-
   const persistMarksRef = useRef(persistMarks);
-  persistMarksRef.current = persistMarks;
+
+  useEffect(() => {
+    handleSubmitRef.current = handleSubmit;
+    persistMarksRef.current = persistMarks;
+  }, [handleSubmit, persistMarks]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
