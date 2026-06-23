@@ -35,6 +35,10 @@ public class QuestionConfiguration : IEntityTypeConfiguration<Question>
         builder.HasIndex(question => new { question.SubjectId, question.QuestionNumber })
             .IsUnique();
 
+        builder.Property(question => question.GroupLabel)
+            .HasColumnName("group_label")
+            .HasMaxLength(100);
+
         builder.Property(question => question.Label)
             .HasColumnName("label")
             .HasMaxLength(255);

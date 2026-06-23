@@ -1,4 +1,9 @@
+using BuildingBlocks.EfCore;
+using GradingService.Application.Interfaces;
 using GradingService.Domain.Enums;
+using GradingService.Infrastructure.Auth;
+using GradingService.Infrastructure.Clients;
+using GradingService.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -26,7 +31,69 @@ public static class DependencyInjection
 
         services.AddSingleton(new GradingDatabaseSettings(connectionString));
 
+        services.Configure<InternalAuthSettings>(configuration.GetSection(InternalAuthSettings.SectionName));
+
+        services.AddScoped<IGradingSessionService, GradingSessionService>();
+
+        RegisterInternalHttpClients(services, configuration);
+        RegisterJwtAuthentication(services, configuration);
+
         return services;
+    }
+
+    private static void RegisterInternalHttpClients(IServiceCollection services, IConfiguration configuration)
+    {
+        var internalApiKey = configuration.GetSection(InternalAuthSettings.SectionName)["ApiKey"]
+            ?? throw new InvalidOperationException($"{InternalAuthSettings.SectionName}:ApiKey is missing.");
+
+        var submissionUrl = configuration.GetValue<string>("SubmissionServiceUrl")
+            ?? throw new InvalidOperationException("SubmissionServiceUrl is missing.");
+        services.AddHttpClient<ISubmissionServiceClient, SubmissionServiceClient>(client =>
+        {
+            client.BaseAddress = new Uri(submissionUrl);
+            client.Timeout = TimeSpan.FromSeconds(10);
+            client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
+        });
+
+        var catalogUrl = configuration.GetValue<string>("ExamCatalogServiceUrl")
+            ?? throw new InvalidOperationException("ExamCatalogServiceUrl is missing.");
+        services.AddHttpClient<IExamCatalogServiceClient, ExamCatalogServiceClient>(client =>
+        {
+            client.BaseAddress = new Uri(catalogUrl);
+            client.Timeout = TimeSpan.FromSeconds(10);
+            client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
+        });
+    }
+
+    private static void RegisterJwtAuthentication(IServiceCollection services, IConfiguration configuration)
+    {
+        var jwtSettings = configuration.GetSection("JwtSettings");
+        var secret = jwtSettings["Secret"];
+        if (string.IsNullOrEmpty(secret)) return;
+
+        var key = System.Text.Encoding.ASCII.GetBytes(secret);
+        services.AddAuthentication(options =>
+        {
+            options.DefaultAuthenticateScheme = Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme;
+            options.DefaultChallengeScheme = Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme;
+        })
+        .AddJwtBearer(options =>
+        {
+            options.SaveToken = true;
+            options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+            {
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(key),
+                ValidateIssuer = true,
+                ValidIssuer = jwtSettings["Issuer"],
+                ValidateAudience = true,
+                ValidAudience = jwtSettings["Audience"],
+                ValidateLifetime = true,
+                ClockSkew = TimeSpan.Zero
+            };
+        });
+
+        services.AddAuthorization();
     }
 
     public static async Task MigrateGradingDatabaseAsync(this IServiceProvider serviceProvider)
@@ -34,53 +101,11 @@ public static class DependencyInjection
         using var scope = serviceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<Persistence.GradingDbContext>();
         var databaseSettings = scope.ServiceProvider.GetRequiredService<GradingDatabaseSettings>();
+        var logger = scope.ServiceProvider
+            .GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>()
+            .CreateLogger("Grading.DatabaseMigration");
 
-        await EnsureDatabaseExistsAsync(databaseSettings.ConnectionString);
-        await context.Database.MigrateAsync();
-    }
-
-    private static async Task EnsureDatabaseExistsAsync(string connectionString)
-    {
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            throw new InvalidOperationException("Grading database connection string is missing.");
-        }
-
-        var builder = new NpgsqlConnectionStringBuilder(connectionString);
-        if (string.IsNullOrWhiteSpace(builder.Database))
-        {
-            throw new InvalidOperationException("Grading database name is missing.");
-        }
-
-        var targetDatabase = builder.Database;
-        var maintenanceBuilder = new NpgsqlConnectionStringBuilder(builder.ConnectionString)
-        {
-            Database = "postgres"
-        };
-
-        await using var connection = new NpgsqlConnection(maintenanceBuilder.ConnectionString);
-        await connection.OpenAsync();
-
-        await using (var checkCommand = connection.CreateCommand())
-        {
-            checkCommand.CommandText = "SELECT 1 FROM pg_database WHERE datname = @databaseName";
-            checkCommand.Parameters.AddWithValue("databaseName", targetDatabase);
-
-            var existingDatabase = await checkCommand.ExecuteScalarAsync();
-            if (existingDatabase is not null)
-            {
-                return;
-            }
-        }
-
-        var quotedDatabaseName = QuoteIdentifier(targetDatabase);
-        await using var createCommand = connection.CreateCommand();
-        createCommand.CommandText = $"CREATE DATABASE {quotedDatabaseName}";
-        await createCommand.ExecuteNonQueryAsync();
-    }
-
-    private static string QuoteIdentifier(string identifier)
-    {
-        return $"\"{identifier.Replace("\"", "\"\"")}\"";
+        await PostgresDatabaseMigrator.MigrateAsync(
+            context, databaseSettings.ConnectionString, logger);
     }
 }

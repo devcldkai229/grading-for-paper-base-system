@@ -19,11 +19,19 @@ public class Subject : Entity
 
     public string? ExamPaperContentType { get; set; }
 
+    public string? ExamPaperPreviewS3Key { get; set; }
+
+    public string? ExamPaperPreviewContentType { get; set; }
+
     public string? RubricS3Key { get; set; }
 
     public string? RubricFileName { get; set; }
 
     public string? RubricContentType { get; set; }
+
+    public string? RubricPreviewS3Key { get; set; }
+
+    public string? RubricPreviewContentType { get; set; }
 
     public int RubricVersion { get; set; } = 1;
 

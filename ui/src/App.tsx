@@ -1,18 +1,101 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { GoogleOAuthProvider } from "@react-oauth/google";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { RoleRoute } from "@/components/auth/RoleRoute";
+import { AppLayout } from "@/components/layout/AppLayout";
+import { AdminLayout } from "@/components/layout/AdminLayout";
 import { LoginPage } from "@/features/auth/pages/LoginPage";
 import { DashboardPage } from "@/features/auth/pages/DashboardPage";
+import { AdminDashboardPage } from "@/features/admin/pages/AdminDashboardPage";
+import { SemestersPage } from "@/features/catalog/pages/SemestersPage";
+import { ExamsPage } from "@/features/catalog/pages/ExamsPage";
+import { SubjectsPage } from "@/features/catalog/pages/SubjectsPage";
+import { SubjectDetailPage } from "@/features/catalog/pages/SubjectDetailPage";
+import { AdminSubjectDetailPage } from "@/features/admin/pages/AdminSubjectDetailPage";
+import { BatchUploadPage } from "@/features/submission/pages/BatchUploadPage";
+import { SubmissionsPage } from "@/features/submission/pages/SubmissionsPage";
+import { SubmissionDetailPage } from "@/features/submission/pages/SubmissionDetailPage";
+import { GradingPage } from "@/features/grading/pages/GradingPage";
+import { authService } from "@/services/authService";
+import { getHomePath } from "@/lib/roles";
 
 const GOOGLE_CLIENT_ID =
   "757455269498-qnor5filnkt0njp5l2piu6pcqcphjf19.apps.googleusercontent.com";
+
+function HomeRedirect() {
+  const role = authService.decodeToken()?.role;
+  return (
+    <Navigate
+      to={authService.isAuthenticated() ? getHomePath(role) : "/login"}
+      replace
+    />
+  );
+}
 
 function App() {
   return (
     <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route path="/" element={<HomeRedirect />} />
+
+        <Route element={<ProtectedRoute />}>
+          <Route element={<RoleRoute allowed="admin" />}>
+            <Route element={<AdminLayout />}>
+              <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
+              <Route path="/admin/catalog/semesters" element={<SemestersPage />} />
+              <Route
+                path="/admin/catalog/semesters/:semesterId/exams"
+                element={<ExamsPage />}
+              />
+              <Route
+                path="/admin/catalog/semesters/:semesterId/exams/:examId/subjects"
+                element={<SubjectsPage />}
+              />
+              <Route
+                path="/admin/catalog/exams/:examId/subjects"
+                element={<SubjectsPage />}
+              />
+              <Route
+                path="/admin/catalog/subjects/:subjectId"
+                element={<AdminSubjectDetailPage />}
+              />
+            </Route>
+          </Route>
+
+          <Route element={<RoleRoute allowed="lecturer" />}>
+            <Route element={<AppLayout />}>
+              <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/catalog/semesters" element={<SemestersPage />} />
+              <Route
+                path="/catalog/semesters/:semesterId/exams"
+                element={<ExamsPage />}
+              />
+              <Route
+                path="/catalog/semesters/:semesterId/exams/:examId/subjects"
+                element={<SubjectsPage />}
+              />
+              <Route
+                path="/catalog/exams/:examId/subjects"
+                element={<SubjectsPage />}
+              />
+              <Route
+                path="/catalog/subjects/:subjectId"
+                element={<SubjectDetailPage />}
+              />
+              <Route path="/batches/upload" element={<BatchUploadPage />} />
+              <Route path="/submissions" element={<SubmissionsPage />} />
+              <Route
+                path="/submissions/:paperId"
+                element={<SubmissionDetailPage />}
+              />
+            </Route>
+          </Route>
+
+          <Route path="/grading/:assignmentId" element={<GradingPage />} />
+        </Route>
+
+        <Route path="*" element={<HomeRedirect />} />
       </Routes>
     </GoogleOAuthProvider>
   );

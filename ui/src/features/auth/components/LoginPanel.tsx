@@ -1,7 +1,7 @@
 import { GoogleLogin, type CredentialResponse } from "@react-oauth/google";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoginForm } from "@/features/auth/components/LoginForm";
 import { GraduationCap } from "lucide-react";
+import { PaperCard } from "@/components/ui/paper-card";
 
 interface LoginPanelProps {
   onSubmit: (email: string, password: string, rememberMe: boolean) => Promise<void>;
@@ -21,55 +21,54 @@ export function LoginPanel({
   return (
     <div className="w-full max-w-[420px] space-y-8">
       <div className="flex items-center gap-3 lg:hidden">
-        <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-primary/15 border border-primary/25">
-          <GraduationCap className="size-5 text-primary" />
+        <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-brand-red/10 border border-brand-red/20">
+          <GraduationCap className="size-5 text-brand-red" />
         </div>
-        <span className="text-lg font-semibold tracking-tight">
-          Grading System
+        <span className="font-display text-lg font-semibold tracking-tight text-ink">
+          GradePaper
         </span>
       </div>
 
-      <Card className="border-border/60 bg-card shadow-xl shadow-black/5">
-        <CardHeader className="space-y-1.5 pb-6">
-          <CardTitle className="text-2xl font-bold tracking-tight">
-            Welcome back
-          </CardTitle>
-          <CardDescription className="text-muted-foreground/80">
-            Sign in to your account to continue
-          </CardDescription>
-        </CardHeader>
+      <PaperCard blur className="shadow-md">
+        <div className="p-6 space-y-6">
+          <div className="space-y-1.5">
+            <h2 className="font-display text-2xl font-semibold tracking-tight text-ink">
+              Sign In
+            </h2>
+            <p className="text-sm text-ink-soft">
+              Sign in to grade exams and manage exams
+            </p>
+          </div>
 
-        <CardContent className="space-y-6">
           <LoginForm onSubmit={onSubmit} error={error} isLoading={isLoading} />
 
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t border-border/50" />
+              <span className="w-full border-t border-line" />
             </div>
             <div className="relative flex justify-center text-xs">
-              <span className="bg-card px-3 text-muted-foreground/60 uppercase tracking-widest">
-                or continue with
+              <span className="bg-card px-3 text-ink-soft uppercase tracking-widest">
+                or
               </span>
             </div>
           </div>
 
-          <div className="flex justify-center">
+          <div className="flex justify-center [&>div]:w-full [&>div]:flex [&>div]:justify-center">
             <GoogleLogin
               onSuccess={onGoogleSuccess}
               onError={onGoogleError}
               theme="outline"
               shape="rectangular"
               size="large"
-              width={380}
+              width={340}
               text="signin_with"
-              locale="en"
             />
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </PaperCard>
 
-      <p className="text-center text-xs text-muted-foreground/50">
-        By signing in, you agree to our Terms of Service and Privacy Policy.
+      <p className="text-center text-xs text-ink-soft/60">
+        By signing in, you agree to the terms of use.
       </p>
     </div>
   );

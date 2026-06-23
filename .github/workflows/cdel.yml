@@ -1,0 +1,148 @@
+name: CDelivery
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Continuous Delivery — đóng gói & đẩy image lên Amazon ECR.
+# Chạy SAU khi code đã vào main (PR đã qua CI nhờ branch protection).
+# Mỗi microservice = 1 image riêng (matrix) -> đúng tinh thần microservices.
+# Luồng mỗi service: build image -> Trivy scan -> (chỉ khi sạch) push ECR.
+# Xác thực AWS bằng GitHub OIDC (không lưu access key).
+# ──────────────────────────────────────────────────────────────────────────────
+on:
+  push:
+    branches: [ main ]
+    paths-ignore: [ "**/*.md", "database/**", "docs/**" ]
+  workflow_dispatch:
+
+concurrency:
+  group: delivery-${{ github.ref }}
+  cancel-in-progress: false   # KHÔNG hủy giữa chừng khi đang đẩy image
+
+permissions:
+  contents: read
+  id-token: write             # BẮT BUỘC để lấy credential tạm qua AWS OIDC
+
+env:
+  AWS_REGION: ap-southeast-1
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  # ── Backend: build từng .NET service thành image riêng ──────────────────────
+  backend-images:
+    name: ${{ matrix.name }} → ECR
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false        # 1 service lỗi không chặn các service khác
+      matrix:
+        include:
+          - { name: iam,          project: Services/IamService/IamService.API/IamService.API.csproj,                   dll: IamService.API.dll }
+          - { name: exam-catalog, project: Services/ExamCatalogService/ExamCatalogService.API/ExamCatalogService.API.csproj, dll: ExamCatalogService.API.dll }
+          - { name: submission,   project: Services/SubmissionService/SubmissionService.API/SubmissionService.API.csproj,     dll: SubmissionService.API.dll }
+          - { name: grading,      project: Services/GradingService/GradingService.API/GradingService.API.csproj,             dll: GradingService.API.dll }
+          - { name: reporting,    project: Services/ReportingService/ReportingService.API/ReportingService.API.csproj,         dll: ReportingService.API.dll }
+          - { name: notification, project: Services/NotificationService/NotificationService.API/NotificationService.API.csproj, dll: NotificationService.API.dll }
+          - { name: gateway,      project: ApiGateway/ApiGateway.csproj,                                              dll: ApiGateway.dll }
+    env:
+      REPO: gradepaper/${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Ensure ECR repository exists
+        run: |
+          aws ecr describe-repositories --repository-names "$REPO" --region "$AWS_REGION" >/dev/null 2>&1 \
+            || aws ecr create-repository --repository-name "$REPO" \
+                 --image-scanning-configuration scanOnPush=true \
+                 --region "$AWS_REGION" >/dev/null
+
+      - name: Build image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          docker build \
+            -f core/src/Dockerfile \
+            --build-arg PROJECT_PATH=${{ matrix.project }} \
+            --build-arg APP_DLL=${{ matrix.dll }} \
+            -t "$REGISTRY/$REPO:$IMAGE_TAG" \
+            -t "$REGISTRY/$REPO:latest" \
+            core/src
+
+      - name: Trivy scan (chặn HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.ecr.outputs.registry }}/gradepaper/${{ matrix.name }}:${{ env.IMAGE_TAG }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
+      - name: Push to ECR
+        if: success()
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          docker push "$REGISTRY/$REPO:$IMAGE_TAG"
+          docker push "$REGISTRY/$REPO:latest"
+
+  # ── Frontend: build image nginx riêng ───────────────────────────────────────
+  frontend-image:
+    name: frontend → ECR
+    runs-on: ubuntu-latest
+    env:
+      REPO: gradepaper/ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Ensure ECR repository exists
+        run: |
+          aws ecr describe-repositories --repository-names "$REPO" --region "$AWS_REGION" >/dev/null 2>&1 \
+            || aws ecr create-repository --repository-name "$REPO" \
+                 --image-scanning-configuration scanOnPush=true \
+                 --region "$AWS_REGION" >/dev/null
+
+      - name: Build image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          docker build \
+            -f ui/Dockerfile \
+            -t "$REGISTRY/$REPO:$IMAGE_TAG" \
+            -t "$REGISTRY/$REPO:latest" \
+            ui
+
+      - name: Trivy scan (chặn HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.ecr.outputs.registry }}/gradepaper/ui:${{ env.IMAGE_TAG }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
+      - name: Push to ECR
+        if: success()
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          docker push "$REGISTRY/$REPO:$IMAGE_TAG"
+          docker push "$REGISTRY/$REPO:latest"

@@ -50,10 +50,14 @@ CREATE TABLE subjects (
     exam_paper_s3_key       TEXT,
     exam_paper_file_name    VARCHAR(500),
     exam_paper_content_type VARCHAR(120),
+    exam_paper_preview_s3_key       TEXT,
+    exam_paper_preview_content_type VARCHAR(120),
     -- BAREM: 1 file (pdf/docx/image) — chỉ để hiển thị
     rubric_s3_key           TEXT,
     rubric_file_name        VARCHAR(500),
     rubric_content_type     VARCHAR(120),
+    rubric_preview_s3_key           TEXT,
+    rubric_preview_content_type     VARCHAR(120),
     rubric_version          INT          NOT NULL DEFAULT 1,  -- tăng khi upload barem mới (để AI re-index Qdrant)
     status               subject_status NOT NULL DEFAULT 'draft',
     created_at           TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
@@ -68,6 +72,7 @@ CREATE TABLE questions (
     id              UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     subject_id      UUID         NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
     question_number VARCHAR(20)  NOT NULL,              -- "1","2","Request 1"...
+    group_label     VARCHAR(100),                       -- nhãn nhóm hiển thị (vd "Req 1"); NULL = không nhóm
     label           VARCHAR(255),                       -- nhãn ngắn (tuỳ chọn)
     max_score       NUMERIC(5,2) NOT NULL CHECK (max_score > 0),
     order_index     INT          NOT NULL DEFAULT 0,

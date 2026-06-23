@@ -1,7 +1,8 @@
 import axios from "axios";
 import { authService } from "@/services/authService";
 
-const API_BASE_URL = "https://localhost:7133/api";
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5016/api";
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -60,6 +61,15 @@ api.interceptors.response.use(
         }
       } catch {
         authService.clearTokens();
+        if (!window.location.pathname.startsWith("/login")) {
+          window.location.href = "/login";
+        }
+      }
+    }
+
+    if (error.response?.status === 401 && !authService.getRefreshToken()) {
+      authService.clearTokens();
+      if (!window.location.pathname.startsWith("/login")) {
         window.location.href = "/login";
       }
     }

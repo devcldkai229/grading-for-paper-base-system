@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Stop all GradePaper microservices and API Gateway (by listening ports).
+  Stop all GradePaper microservices, API Gateway, and local AIGradingService.
 
 .PARAMETER StopDocker
   Also run docker compose down for infrastructure containers.
@@ -14,13 +14,28 @@ $ErrorActionPreference = "SilentlyContinue"
 
 $ScriptRoot = $PSScriptRoot
 $SrcRoot = Split-Path -Parent $ScriptRoot
-$ComposePath = Join-Path $SrcRoot "docker-compose.yml"
+$CoreRoot = Split-Path -Parent $SrcRoot
+$RepoRoot = Split-Path -Parent $CoreRoot
+$ComposePath = Join-Path $RepoRoot "infra/docker/docker-compose.yml"
+$PidDir = Join-Path $ScriptRoot ".pids"
 
-$Ports = @(5016, 5055, 5056, 5057, 5058, 5059, 5060)
+$Ports = @(5016, 5055, 5056, 5057, 5058, 5059, 5060, 8080)
 
 Write-Host "=== GradePaper - stop all services ===" -ForegroundColor Cyan
 
 $stopped = 0
+
+$aiPidFile = Join-Path $PidDir "AIGradingService.pid"
+if (Test-Path $aiPidFile) {
+    $aiPid = Get-Content $aiPidFile -Raw
+    if ($aiPid -and (Get-Process -Id $aiPid.Trim() -ErrorAction SilentlyContinue)) {
+        Write-Host "Stopping AIGradingService (PID $($aiPid.Trim()))..."
+        Stop-Process -Id $aiPid.Trim() -Force
+        $stopped++
+    }
+    Remove-Item $aiPidFile -Force
+}
+
 foreach ($port in $Ports) {
     $connections = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
     foreach ($conn in $connections) {
@@ -36,7 +51,7 @@ foreach ($port in $Ports) {
     }
 }
 
-Get-Job -Name "IamService", "ExamCatalogService", "SubmissionService", "GradingService", "ReportingService", "NotificationService", "ApiGateway" -ErrorAction SilentlyContinue |
+Get-Job -Name "IamService", "ExamCatalogService", "SubmissionService", "GradingService", "ReportingService", "NotificationService", "ApiGateway", "AIGradingService" -ErrorAction SilentlyContinue |
     ForEach-Object {
         Write-Host "Stopping job $($_.Name)..."
         Stop-Job $_

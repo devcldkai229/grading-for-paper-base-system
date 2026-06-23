@@ -257,13 +257,27 @@ namespace GradingService.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<string>("GroupLabel")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("group_label");
+
                     b.Property<Guid>("GradingFormId")
                         .HasColumnType("uuid")
                         .HasColumnName("grading_form_id");
 
+                    b.Property<string>("Label")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("label");
+
                     b.Property<decimal>("MaxScore")
                         .HasColumnType("numeric(5,2)")
                         .HasColumnName("max_score");
+
+                    b.Property<int>("OrderIndex")
+                        .HasColumnType("integer")
+                        .HasColumnName("order_index");
 
                     b.Property<string>("QuestionComment")
                         .HasColumnType("text")
@@ -295,6 +309,41 @@ namespace GradingService.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("CK_question_grade_details_score_range", "score >= 0 AND score <= max_score");
                         });
+                });
+
+            modelBuilder.Entity("GradingService.Domain.Entities.GradingResumePointer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AssignmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("assignment_id");
+
+                    b.Property<Guid>("BatchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("batch_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("TeacherId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("teacher_id");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TeacherId", "BatchId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_grading_resume_pointers_teacher_id_batch_id");
+
+                    b.ToTable("grading_resume_pointers", (string)null);
                 });
 
             modelBuilder.Entity("GradingService.Domain.Entities.GradingForm", b =>

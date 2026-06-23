@@ -7,10 +7,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="AspNetCore.HealthChecks.MongoDb" Version="9.0.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="7.2.0" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\..\BuildingBlocks\AspNetCore\AspNetCore.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\AwsS3\AwsS3.csproj" />
     <ProjectReference Include="..\SubmissionService.Application\SubmissionService.Application.csproj" />
     <ProjectReference Include="..\SubmissionService.Infrastructure\SubmissionService.Infrastructure.csproj" />
   </ItemGroup>

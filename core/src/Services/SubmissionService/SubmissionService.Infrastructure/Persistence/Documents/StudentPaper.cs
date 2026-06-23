@@ -26,6 +26,10 @@ public sealed class StudentPaper
     [BsonElement("alias_number")]
     public int? AliasNumber { get; set; }
 
+    [BsonElement("uploaded_by")]
+    [BsonRepresentation(BsonType.String)]
+    public Guid UploadedBy { get; set; }
+
     [BsonElement("status")]
     public PaperStatus Status { get; set; } = PaperStatus.ReadyToAssign;
 
