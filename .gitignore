@@ -496,3 +496,4 @@ $RECYCLE.BIN/
 *.docx
 /docs/*
 /infra/*
+/database/*
