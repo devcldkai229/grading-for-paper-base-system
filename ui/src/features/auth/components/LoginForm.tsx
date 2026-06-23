@@ -33,7 +33,7 @@ export function LoginForm({ onSubmit, error, isLoading }: LoginFormProps) {
 
       {/* Email Field */}
       <div className="space-y-2">
-        <Label htmlFor="email" className="text-sm font-medium text-foreground/80">
+        <Label htmlFor="email" className="text-sm font-medium text-ink">
           Email
         </Label>
         <div className="relative">
@@ -41,7 +41,7 @@ export function LoginForm({ onSubmit, error, isLoading }: LoginFormProps) {
           <Input
             id="email"
             type="email"
-            placeholder="name@example.com"
+            placeholder="email@example.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
@@ -53,7 +53,7 @@ export function LoginForm({ onSubmit, error, isLoading }: LoginFormProps) {
 
       {/* Password Field */}
       <div className="space-y-2">
-        <Label htmlFor="password" className="text-sm font-medium text-foreground/80">
+        <Label htmlFor="password" className="text-sm font-medium text-ink">
           Password
         </Label>
         <div className="relative">
@@ -61,7 +61,7 @@ export function LoginForm({ onSubmit, error, isLoading }: LoginFormProps) {
           <Input
             id="password"
             type={showPassword ? "text" : "password"}
-            placeholder="Enter your password"
+            placeholder="Enter password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
@@ -84,6 +84,7 @@ export function LoginForm({ onSubmit, error, isLoading }: LoginFormProps) {
         <Checkbox
           id="remember-me"
           checked={rememberMe}
+          className="border-2 border-brand-red/50"
           onCheckedChange={(checked) => setRememberMe(checked === true)}
           disabled={isLoading}
         />
@@ -105,10 +106,10 @@ export function LoginForm({ onSubmit, error, isLoading }: LoginFormProps) {
         {isLoading ? (
           <>
             <Loader2 className="size-4 animate-spin" />
-            <span>Signing in...</span>
+            <span>Đang đăng nhập...</span>
           </>
         ) : (
-          "Sign in"
+          "Sign In"
         )}
       </Button>
     </form>

@@ -16,6 +16,7 @@ public class GradingDbContext : DbContext
     public DbSet<GradingForm> GradingForms => Set<GradingForm>();
     public DbSet<QuestionGradeDetail> QuestionGradeDetails => Set<QuestionGradeDetail>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<GradingResumePointer> GradingResumePointers => Set<GradingResumePointer>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Stop all GradePaper microservices and API Gateway.
+# Stop all GradePaper microservices, API Gateway, and local AIGradingService.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SRC_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-COMPOSE_PATH="$SRC_ROOT/docker-compose.yml"
+CORE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_ROOT="$(cd "$CORE_ROOT/.." && pwd)"
+COMPOSE_PATH="$REPO_ROOT/infra/docker/docker-compose.yml"
 PID_DIR="$SCRIPT_DIR/.pids"
 
 STOP_DOCKER=false
@@ -20,7 +21,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-PORTS=(5016 5055 5056 5057 5058 5059 5060)
+PORTS=(5016 5055 5056 5057 5058 5059 5060 8080)
 
 echo "=== GradePaper — stop all services ==="
 

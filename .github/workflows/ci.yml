@@ -1,0 +1,148 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop, "feature/**" ]
+    paths-ignore: [ "**/*.md", "database/**", "docs/**", "infra/**" ]
+  pull_request:
+    branches: [ main, develop ]
+    paths-ignore: [ "**/*.md", "database/**", "docs/**", "infra/**" ]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_VERSION: "10.0.x"
+  NODE_VERSION: "20"
+  SOLUTION: core/GradingSystem.slnx
+
+jobs:
+  # ── Backend: .NET build & test ──────────────────────────────────────────────
+  backend:
+    name: Backend (.NET build & test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET ${{ env.DOTNET_VERSION }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: ${{ runner.os }}-nuget-
+
+      - name: Restore
+        run: dotnet restore ${{ env.SOLUTION }}
+
+      - name: Build (Release)
+        run: dotnet build ${{ env.SOLUTION }} --configuration Release --no-restore
+
+      # Chưa có test project -> bước này pass (0 test). Khi thêm *.Tests sẽ tự chạy.
+      - name: Test
+        run: >
+          dotnet test ${{ env.SOLUTION }}
+          --configuration Release
+          --no-build
+          --verbosity normal
+          --collect:"XPlat Code Coverage"
+
+  # ── Frontend: Vite/React lint & build ───────────────────────────────────────
+  frontend:
+    name: Frontend (lint & build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install deps (clean)
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+  # ── Code quality (SonarCloud) — OPTIONAL, KHÔNG chặn merge ───────────────────
+  # continue-on-error: true => kể cả khi chưa cấu hình Sonar, job này không làm đỏ PR.
+  # Cần secrets.SONAR_TOKEN + thay project-key/org-key bên dưới thì mới gửi report.
+  code-quality:
+    name: Code quality (Sonar, optional)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET ${{ env.DOTNET_VERSION }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install SonarScanner
+        run: dotnet tool install --global dotnet-sonarscanner
+
+      - name: Sonar begin
+        if: ${{ env.SONAR_TOKEN != '' }}
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          dotnet sonarscanner begin \
+            /k:"devcldkai229_grading-for-paper-base-system" \
+            /o:"devcldkai229" \
+            /d:sonar.scanner.skipJreProvisioning=true \
+            /d:sonar.token="$SONAR_TOKEN" \
+            /d:sonar.host.url="https://sonarcloud.io" \
+            /d:sonar.cs.opencover.reportsPaths="**/coverage.opencover.xml"
+
+      - name: Build (để Sonar phân tích)
+        if: ${{ env.SONAR_TOKEN != '' }}
+        run: dotnet build ${{ env.SOLUTION }} --configuration Release
+
+      - name: Sonar end
+        if: ${{ env.SONAR_TOKEN != '' }}
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
+
+  # ── Cổng tổng hợp: đặt JOB NÀY làm required status check trên main ───────────
+  ci-success:
+    name: CI success
+    runs-on: ubuntu-latest
+    needs: [ backend, frontend ]   # KHÔNG phụ thuộc code-quality (optional)
+    if: always()
+    steps:
+      - name: Verify required jobs passed
+        run: |
+          if [ "${{ needs.backend.result }}" != "success" ] || [ "${{ needs.frontend.result }}" != "success" ]; then
+            echo "Một job CI bắt buộc đã thất bại."; exit 1
+          fi
+          echo "Tất cả job CI bắt buộc đã pass."

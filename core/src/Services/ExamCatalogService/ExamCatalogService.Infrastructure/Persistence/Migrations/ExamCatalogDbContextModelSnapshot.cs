@@ -82,6 +82,11 @@ namespace ExamCatalogService.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<string>("GroupLabel")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("group_label");
+
                     b.Property<string>("Label")
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)")
@@ -200,6 +205,15 @@ namespace ExamCatalogService.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(500)")
                         .HasColumnName("exam_paper_file_name");
 
+                    b.Property<string>("ExamPaperPreviewContentType")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("exam_paper_preview_content_type");
+
+                    b.Property<string>("ExamPaperPreviewS3Key")
+                        .HasColumnType("text")
+                        .HasColumnName("exam_paper_preview_s3_key");
+
                     b.Property<string>("ExamPaperS3Key")
                         .HasColumnType("text")
                         .HasColumnName("exam_paper_s3_key");
@@ -219,6 +233,15 @@ namespace ExamCatalogService.Infrastructure.Persistence.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)")
                         .HasColumnName("rubric_file_name");
+
+                    b.Property<string>("RubricPreviewContentType")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("rubric_preview_content_type");
+
+                    b.Property<string>("RubricPreviewS3Key")
+                        .HasColumnType("text")
+                        .HasColumnName("rubric_preview_s3_key");
 
                     b.Property<string>("RubricS3Key")
                         .HasColumnType("text")

@@ -1,3 +1,6 @@
+using BuildingBlocks.AspNetCore.Extensions;
+using BuildingBlocks.AspNetCore.Health;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.OpenApi.Models;
 using ReportingService.Infrastructure;
 
@@ -11,6 +14,13 @@ builder.Services.AddSwaggerGen(c =>
 });
 builder.Services.AddReportingInfrastructure(builder.Configuration);
 
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+if (!string.IsNullOrWhiteSpace(connectionString))
+{
+    builder.Services.AddHealthChecks()
+        .AddNpgSql(connectionString, name: "postgres", tags: ["ready"]);
+}
+
 var app = builder.Build();
 
 await app.Services.MigrateReportingDatabaseAsync();
@@ -21,7 +31,16 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Reporting Service API v1"));
 }
 
+app.UseGlobalExceptionHandling();
+app.UseCorrelationId();
 app.UseAuthorization();
+
+app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready"),
+    ResponseWriter = HealthCheckResponseWriter.WriteMinimalJson
+});
 
 app.MapControllers();
 

@@ -9,6 +9,12 @@ public class QuestionGradeDetail : Entity
 
     public string QuestionNumber { get; set; } = string.Empty;
 
+    public string? GroupLabel { get; set; }
+
+    public string? Label { get; set; }
+
+    public int OrderIndex { get; set; }
+
     public decimal Score { get; set; }
 
     public decimal MaxScore { get; set; }

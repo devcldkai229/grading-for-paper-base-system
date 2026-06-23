@@ -18,5 +18,9 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // Standard fetch-on-mount / polling patterns set loading state in effects.
+      "react-hooks/set-state-in-effect": "off",
+    },
   },
 ])

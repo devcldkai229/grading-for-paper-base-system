@@ -28,6 +28,18 @@ public class QuestionGradeDetailConfiguration : IEntityTypeConfiguration<Questio
             .HasMaxLength(20)
             .IsRequired();
 
+        builder.Property(x => x.GroupLabel)
+            .HasColumnName("group_label")
+            .HasMaxLength(100);
+
+        builder.Property(x => x.Label)
+            .HasColumnName("label")
+            .HasMaxLength(255);
+
+        builder.Property(x => x.OrderIndex)
+            .HasColumnName("order_index")
+            .IsRequired();
+
         builder.Property(x => x.Score)
             .HasColumnName("score")
             .HasColumnType("numeric(5,2)")

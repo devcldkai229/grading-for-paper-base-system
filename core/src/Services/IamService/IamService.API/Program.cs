@@ -1,4 +1,7 @@
+using BuildingBlocks.AspNetCore.Extensions;
+using BuildingBlocks.AspNetCore.Health;
 using IamService.Infrastructure;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -40,6 +43,13 @@ builder.Services.AddSwaggerGen(c =>
 });
 builder.Services.AddIamInfrastructure(builder.Configuration);
 
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+if (!string.IsNullOrWhiteSpace(connectionString))
+{
+    builder.Services.AddHealthChecks()
+        .AddNpgSql(connectionString, name: "postgres", tags: ["ready"]);
+}
+
 var app = builder.Build();
 
 await app.Services.MigrateIamDatabaseAsync();
@@ -53,8 +63,18 @@ if (app.Environment.IsDevelopment())
 
 // Note: No UseHttpsRedirection() — this service sits behind the API Gateway which handles HTTPS
 
+app.UseGlobalExceptionHandling();
+app.UseCorrelationId();
+
 app.UseAuthentication();
 app.UseAuthorization();
+
+app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready"),
+    ResponseWriter = HealthCheckResponseWriter.WriteMinimalJson
+});
 
 app.MapControllers();
 

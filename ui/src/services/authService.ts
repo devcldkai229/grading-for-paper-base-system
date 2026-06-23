@@ -114,7 +114,17 @@ export const authService = {
           .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
           .join("")
       );
-      return JSON.parse(jsonPayload) as JwtPayload;
+      const raw = JSON.parse(jsonPayload) as Record<string, unknown>;
+      return {
+        sub: String(raw.sub ?? ""),
+        email: String(raw.email ?? raw.Email ?? ""),
+        name: raw.name ? String(raw.name) : raw.Name ? String(raw.Name) : undefined,
+        role: String(raw.role ?? raw.Role ?? ""),
+        jti: String(raw.jti ?? ""),
+        exp: Number(raw.exp ?? 0),
+        iss: String(raw.iss ?? ""),
+        aud: String(raw.aud ?? ""),
+      };
     } catch {
       return null;
     }
