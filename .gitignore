@@ -5,6 +5,18 @@
 
 # dotenv files
 .env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# ASP.NET local configuration (connection strings, JWT, API keys)
+**/appsettings.json
+**/appsettings.Development.json
+**/appsettings.*.local.json
+**/secrets.json
+**/secrets.*.json
 
 # User-specific files
 *.rsuser
@@ -480,6 +492,7 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
-/core/src/Services/IamService/IamService.API/appsettings.json
 *.md
 *.docx
+/docs/*
+/infra/*
