@@ -1,0 +1,74 @@
+version: '3.8'
+name: grading_system-containers
+
+services:
+  postgres:
+    image: postgres:17.6
+    container_name: grading_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 12345
+      POSTGRES_DB: grading_system_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - grading_postgres_data:/var/lib/postgresql/data
+
+  mongodb:
+      image: mongo:8.0
+      container_name: grading-mongodb
+      ports:
+        - "27018:27017"
+      volumes:
+        - grading_mongodb_data:/data/db
+
+  redis:
+    image: redis:7-alpine
+    container_name: grading_redis
+    restart: always
+    command: redis-server --requirepass rootpassword
+    ports:
+      - "6380:6379"
+    volumes:
+      - grading_redis_data:/data
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: grading_rabbitmq
+    restart: always
+    environment:
+      RABBITMQ_DEFAULT_USER: root
+      RABBITMQ_DEFAULT_PASS: rootpassword
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+    volumes:
+      - grading_rabbitmq_data:/var/lib/rabbitmq
+
+  qdrant:
+    image: qdrant/qdrant:v1.13.2
+    container_name: grading_qdrant
+    restart: always
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - grading_qdrant_data:/qdrant/storage
+
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    container_name: grading_gotenberg
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    command:
+      - "gotenberg"
+      - "--api-timeout=120s"
+
+volumes:
+  grading_postgres_data:
+  grading_redis_data:
+  grading_rabbitmq_data:
+  grading_mongodb_data:
+  grading_qdrant_data:
