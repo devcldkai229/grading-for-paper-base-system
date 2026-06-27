@@ -33,7 +33,7 @@ $SrcRoot = Split-Path -Parent $ScriptRoot
 $CoreRoot = Split-Path -Parent $SrcRoot
 $RepoRoot = Split-Path -Parent $CoreRoot
 $SolutionPath = Join-Path $CoreRoot "GradingSystem.slnx"
-$ComposePath = Join-Path $RepoRoot "infra/docker/docker-compose.yml"
+$ComposePath = Join-Path $SrcRoot "docker-compose.yml"
 $AiRoot = Join-Path $RepoRoot "ai"
 $PidDir = Join-Path $ScriptRoot ".pids"
 

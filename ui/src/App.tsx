@@ -7,6 +7,7 @@ import { AdminLayout } from "@/components/layout/AdminLayout";
 import { LoginPage } from "@/features/auth/pages/LoginPage";
 import { DashboardPage } from "@/features/auth/pages/DashboardPage";
 import { AdminDashboardPage } from "@/features/admin/pages/AdminDashboardPage";
+import { AdminUsersPage } from "@/features/admin/pages/AdminUsersPage";
 import { SemestersPage } from "@/features/catalog/pages/SemestersPage";
 import { ExamsPage } from "@/features/catalog/pages/ExamsPage";
 import { SubjectsPage } from "@/features/catalog/pages/SubjectsPage";
@@ -43,6 +44,7 @@ function App() {
           <Route element={<RoleRoute allowed="admin" />}>
             <Route element={<AdminLayout />}>
               <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
+              <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/catalog/semesters" element={<SemestersPage />} />
               <Route
                 path="/admin/catalog/semesters/:semesterId/exams"

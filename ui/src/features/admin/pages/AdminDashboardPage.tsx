@@ -1,5 +1,6 @@
+
 import { useNavigate } from "react-router-dom";
-import { BookOpen, CalendarRange, FileStack } from "lucide-react";
+import { CalendarRange, FileStack, Users } from "lucide-react";
 import { LecturerPageShell } from "@/components/layout/LecturerPageShell";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ContentBlockButton } from "@/components/ui/content-block";
@@ -15,10 +16,10 @@ const quickLinks = [
     borderAccent: "border-t-brand-red/60",
   },
   {
-    title: "Danh mục thi",
-    description: "Đi tới danh sách học kỳ",
-    to: "/admin/catalog/semesters",
-    icon: BookOpen,
+    title: "Quản lý tài khoản",
+    description: "CRUD, phân quyền & kích hoạt tài khoản",
+    to: "/admin/users",
+    icon: Users,
     accent: "text-brand-orange",
     borderAccent: "border-t-brand-orange/60",
   },

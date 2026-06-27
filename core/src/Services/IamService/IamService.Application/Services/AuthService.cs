@@ -59,6 +59,13 @@ namespace IamService.Application.Services
             var user = await _userRepository.FindByGoogleIdAsync(googleUser.GoogleId)
                     ?? await _userRepository.FindByEmailAsync(googleUser.Email);
 
+            if (user != null && user.Status != UserStatus.Active)
+            {
+                var result = new AuthResult { Success = false };
+                result.Errors.Add("Account is not active");
+                return result;
+            }
+
             if (user == null)
             {
                 // Auto-register new Google user

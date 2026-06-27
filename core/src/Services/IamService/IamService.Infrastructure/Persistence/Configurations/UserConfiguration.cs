@@ -69,6 +69,12 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(user => user.UpdatedAt)
             .HasColumnName("updated_at");
 
+        builder.Property(user => user.IsDeleted)
+            .HasColumnName("is_deleted")
+            .HasDefaultValue(false);
+
+        builder.HasQueryFilter(user => !user.IsDeleted);
+
         builder.HasIndex(user => user.Role)
             .HasDatabaseName("idx_users_role");
 

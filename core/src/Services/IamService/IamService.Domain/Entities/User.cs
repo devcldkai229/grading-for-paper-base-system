@@ -28,10 +28,31 @@ public class User : Entity
 
     public DateTime? LastLoginAt { get; set; }
 
+    public bool IsDeleted { get; set; } = false;
+
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
 
     public void Deactivate()
     {
+        Status = UserStatus.Inactive;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void Activate()
+    {
+        Status = UserStatus.Active;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void Lock()
+    {
+        Status = UserStatus.Locked;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void SoftDelete()
+    {
+        IsDeleted = true;
         Status = UserStatus.Inactive;
         UpdatedAt = DateTime.UtcNow;
     }
