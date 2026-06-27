@@ -51,7 +51,7 @@ export function AdminUsersPage() {
       setUsers(result.items);
       setTotalPages(result.totalPages);
       setTotalCount(result.totalCount);
-    } catch (err) {
+    } catch {
       setError("Không tải được danh sách tài khoản. Vui lòng thử lại.");
       setUsers([]);
     } finally {
@@ -142,7 +142,7 @@ export function AdminUsersPage() {
     try {
       await userService.deleteUser(u.id);
       await load();
-    } catch (err) {
+    } catch {
       alert("Xóa tài khoản thất bại.");
     }
   };
