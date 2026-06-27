@@ -160,6 +160,11 @@ public class TokenService : ITokenService
                 return new AuthResult { Success = false, Errors = ["User not found"] };
             }
 
+            if (user.Status != IamService.Domain.Enums.UserStatus.Active)
+            {
+                return new AuthResult { Success = false, Errors = ["Account is not active"] };
+            }
+
             return await GenerateTokensAsync(user);
         }
         catch (Exception ex)

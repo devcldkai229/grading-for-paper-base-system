@@ -38,6 +38,7 @@ public static class DependencyInjection
         services.AddScoped<IamService.Application.Interfaces.ITokenService, Services.TokenService>();
         services.AddScoped<IamService.Application.Interfaces.IGoogleAuthService, Services.GoogleAuthService>();
         services.AddScoped<IamService.Application.Interfaces.IAuthService, IamService.Application.Services.AuthService>();
+        services.AddScoped<IamService.Application.Interfaces.IUserService, IamService.Application.Services.UserService>();
 
         // JWT Authentication middleware
         var jwtSettings = configuration.GetSection("JwtSettings").Get<Services.JwtSettings>();
@@ -70,6 +71,13 @@ public static class DependencyInjection
                 options.TokenValidationParameters = tokenValidationParameters;
             });
         }
+
+        services.AddAuthorization(options =>
+        {
+            options.AddPolicy("AdminOnly", policy =>
+                policy.RequireAssertion(ctx =>
+                    ctx.User.HasClaim(c => c.Type == "Role" && c.Value == "Admin")));
+        });
 
         return services;
     }
