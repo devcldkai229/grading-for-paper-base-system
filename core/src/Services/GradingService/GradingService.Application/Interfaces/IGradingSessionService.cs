@@ -13,4 +13,6 @@ public interface IGradingSessionService
 
     Task<(SubmitResultDto? Result, bool Forbidden, bool NotFound)> SubmitAsync(
         Guid assignmentId, Guid teacherId, CancellationToken ct = default);
+
+    Task<byte[]?> ExportGradesAsync(Guid subjectId, CancellationToken ct = default);
 }
