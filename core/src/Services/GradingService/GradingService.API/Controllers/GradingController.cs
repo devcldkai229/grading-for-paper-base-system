@@ -150,6 +150,24 @@ public class GradingController : ControllerBase
         });
     }
 
+    [HttpGet("subjects/{subjectId:guid}/export")]
+    public async Task<IActionResult> ExportGrades(Guid subjectId, CancellationToken ct = default)
+    {
+        var bytes = await _gradingSessionService.ExportGradesAsync(subjectId, ct);
+        if (bytes is null)
+        {
+            return NotFound(new ApiResponse<object>
+            {
+                StatusCode = 404,
+                Message = "No grades found for this subject",
+                Data = null,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"Subject_Grades_{subjectId}.xlsx");
+    }
+
     private Guid GetUserId()
     {
         var raw = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
@@ -158,3 +176,4 @@ public class GradingController : ControllerBase
         return Guid.Parse(raw);
     }
 }
+

@@ -407,4 +407,66 @@ public class GradingSessionService : IGradingSessionService
                 q.QuestionComment
             })
         });
+
+    public async Task<byte[]?> ExportGradesAsync(Guid subjectId, CancellationToken ct = default)
+    {
+        var assignments = await _db.GradingAssignments
+            .AsNoTracking()
+            .Include(a => a.GradingForm!)
+                .ThenInclude(f => f.QuestionGradeDetails)
+            .Where(a => a.SubjectId == subjectId)
+            .ToListAsync(ct);
+
+        if (assignments.Count == 0) return null;
+
+        // Fetch paper summaries in parallel to get student alias & alias numbers
+        var paperTasks = assignments.Select(async a =>
+        {
+            var summary = await _submissionClient.GetPaperSummaryAsync(a.StudentPaperId, ct);
+            return new { PaperId = a.StudentPaperId, Summary = summary };
+        });
+        var paperSummaries = await Task.WhenAll(paperTasks);
+        var paperMap = paperSummaries
+            .Where(x => x.Summary is not null)
+            .ToDictionary(x => x.PaperId, x => x.Summary!);
+
+        // Extract and logically order all unique question numbers by their order index
+        var questionNumbers = assignments
+            .SelectMany(a => a.GradingForm?.QuestionGradeDetails ?? Enumerable.Empty<QuestionGradeDetail>())
+            .GroupBy(q => q.QuestionNumber)
+            .Select(g => new { QuestionNumber = g.Key, OrderIndex = g.Min(q => q.OrderIndex) })
+            .OrderBy(x => x.OrderIndex)
+            .ThenBy(x => x.QuestionNumber)
+            .Select(x => x.QuestionNumber)
+            .ToList();
+
+        var rows = new List<Dictionary<string, object>>();
+        foreach (var a in assignments)
+        {
+            var row = new Dictionary<string, object>();
+            paperMap.TryGetValue(a.StudentPaperId, out var paper);
+
+            row["SBD/Bí danh"] = paper?.AliasNumber != null ? $"Student_{paper.AliasNumber:D4}" : (object)"";
+            row["Số Thứ Tự"] = paper?.AliasNumber ?? (object)"";
+            row["Tên Học Sinh (Alias)"] = paper?.StudentAlias ?? "";
+            row["Trạng Thái Chấm"] = ToStatusLabel(a.Status);
+            row["Tổng Điểm"] = a.GradingForm?.TotalScore ?? 0;
+            row["Nhận Xét Chung"] = a.GradingForm?.PaperComment ?? "";
+
+            foreach (var qNum in questionNumbers)
+            {
+                var q = a.GradingForm?.QuestionGradeDetails
+                    .FirstOrDefault(x => x.QuestionNumber == qNum);
+                row[$"Điểm - Câu {qNum}"] = q != null ? q.Score : 0;
+                row[$"Nhận xét - Câu {qNum}"] = q?.QuestionComment ?? "";
+            }
+
+            rows.Add(row);
+        }
+
+        using var memoryStream = new System.IO.MemoryStream();
+        MiniExcelLibs.MiniExcel.SaveAs(memoryStream, rows);
+        return memoryStream.ToArray();
+    }
 }
+

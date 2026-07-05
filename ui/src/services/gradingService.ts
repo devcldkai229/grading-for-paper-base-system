@@ -40,4 +40,12 @@ export const gradingService = {
     );
     return res.data.data;
   },
+
+  async exportGrades(subjectId: string): Promise<Blob> {
+    const res = await api.get(`/grading/subjects/${subjectId}/export`, {
+      responseType: "blob",
+    });
+    return res.data;
+  },
 };
+

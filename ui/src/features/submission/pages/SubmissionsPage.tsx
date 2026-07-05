@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { submissionService } from "@/services/submissionService";
+import { gradingService } from "@/services/gradingService";
 import { startGradingFlow } from "@/lib/startGradingFlow";
 import { loadGradingQueue } from "@/lib/gradingQueue";
 import type { StudentPaper } from "@/types/submission";
@@ -36,7 +37,26 @@ export function SubmissionsPage() {
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [startingGrading, setStartingGrading] = useState(false);
   const [gradingError, setGradingError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const navigate = useNavigate();
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const blob = await gradingService.exportGrades(subjectId);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `Subject_Grades_${subjectId}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode?.removeChild(link);
+    } catch {
+      alert("Xuất điểm Excel thất bại.");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   useEffect(() => {
     if (!subjectId) {
@@ -105,6 +125,13 @@ export function SubmissionsPage() {
               : canResumeGrading
                 ? "Tiếp tục chấm bài"
                 : "Tiến hành chấm bài"}
+          </button>
+          <button
+            onClick={() => void handleExport()}
+            disabled={exporting}
+            className="px-5 py-2.5 bg-secondary text-ink border border-line hover:bg-paper/80 disabled:opacity-50 rounded-lg text-sm font-medium"
+          >
+            {exporting ? "Đang xuất..." : "Xuất điểm Excel"}
           </button>
           {gradingError && (
             <span className="text-sm text-destructive">{gradingError}</span>
