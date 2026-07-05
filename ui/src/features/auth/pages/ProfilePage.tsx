@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { KeyRound, ShieldAlert, CheckCircle2, XCircle, Camera, Loader2, User as UserIcon } from "lucide-react";
+import { isAxiosError } from "axios";
 import { authService } from "@/services/authService";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +9,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import type { User } from "@/types/user";
 
 export function ProfilePage() {
-  const userToken = authService.decodeToken();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Profile fields state
@@ -95,8 +95,8 @@ export function ProfilePage() {
         window.dispatchEvent(new Event("profile-updated"));
         setProfileSuccess("Ảnh đại diện đã được cập nhật thành công!");
       }
-    } catch (err: any) {
-      const apiMsg = err.response?.data?.message;
+    } catch (err) {
+      const apiMsg = isAxiosError(err) ? err.response?.data?.message : null;
       setProfileError(apiMsg || "Tải lên ảnh đại diện thất bại.");
     } finally {
       setUploadingAvatar(false);
@@ -132,8 +132,8 @@ export function ProfilePage() {
         JSON.stringify({ fullName: updated.fullName, avatarUrl: updated.avatarUrl })
       );
       window.dispatchEvent(new Event("profile-updated"));
-    } catch (err: any) {
-      const apiMsg = err.response?.data?.message;
+    } catch (err) {
+      const apiMsg = isAxiosError(err) ? err.response?.data?.message : null;
       setProfileError(apiMsg || "Lưu thông tin cá nhân thất bại.");
     } finally {
       setSavingProfile(false);
@@ -178,8 +178,8 @@ export function ProfilePage() {
       } else {
         setPasswordError(result.errors.join(", ") || "Đổi mật khẩu thất bại");
       }
-    } catch (err: any) {
-      const apiMsg = err.response?.data?.message;
+    } catch (err) {
+      const apiMsg = isAxiosError(err) ? err.response?.data?.message : null;
       setPasswordError(apiMsg || "Có lỗi xảy ra trong quá trình đổi mật khẩu.");
     } finally {
       setChangingPassword(false);
