@@ -34,3 +34,14 @@ export interface PagedResult<T> {
   totalCount: number;
   totalPages: number;
 }
+
+export interface AuditLog {
+  id: string;
+  userId?: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  oldValue?: string;
+  newValue?: string;
+  createdAt: string;
+}

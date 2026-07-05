@@ -29,7 +29,10 @@ namespace IamService.API.Controller
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginRequest request)
         {
-            var result = await _authService.LoginAsync(request.Email, request.Password);
+            var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
+            var userAgent = Request.Headers["User-Agent"].ToString() ?? "Unknown";
+
+            var result = await _authService.LoginAsync(request.Email, request.Password, ipAddress, userAgent);
             if (!result.Success)
             {
                 return BadRequest(new ApiResponse<AuthResult>
@@ -53,7 +56,10 @@ namespace IamService.API.Controller
         [HttpPost("google")]
         public async Task<IActionResult> GoogleLogin([FromBody] GoogleLoginRequest request)
         {
-            var result = await _authService.GoogleLoginAsync(request.IdToken);
+            var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
+            var userAgent = Request.Headers["User-Agent"].ToString() ?? "Unknown";
+
+            var result = await _authService.GoogleLoginAsync(request.IdToken, ipAddress, userAgent);
             if (!result.Success)
             {
                 return BadRequest(new ApiResponse<AuthResult>
@@ -345,6 +351,55 @@ namespace IamService.API.Controller
 
             var fileBytes = System.IO.File.ReadAllBytes(filePath);
             return base.File(fileBytes, contentType);
+        }
+
+        [HttpPost("forgot-password")]
+        public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.Email))
+            {
+                return BadRequest(new ApiResponse<object>
+                {
+                    StatusCode = 400,
+                    Message = "Email không được để trống.",
+                    Data = null!,
+                    ResponsedAt = DateTime.UtcNow
+                });
+            }
+
+            var token = await _authService.GeneratePasswordResetTokenAsync(request.Email.Trim());
+            
+            return Ok(new ApiResponse<object>
+            {
+                StatusCode = 200,
+                Message = "Yêu cầu khôi phục mật khẩu đã được xử lý. Vui lòng kiểm tra email.",
+                Data = new { resetToken = token },
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        [HttpPost("reset-password")]
+        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
+        {
+            var result = await _authService.ResetPasswordAsync(request.Token, request.NewPassword);
+            if (!result.Success)
+            {
+                return BadRequest(new ApiResponse<AuthResult>
+                {
+                    StatusCode = 400,
+                    Message = string.Join(", ", result.Errors),
+                    Data = result,
+                    ResponsedAt = DateTime.UtcNow
+                });
+            }
+
+            return Ok(new ApiResponse<AuthResult>
+            {
+                StatusCode = 200,
+                Message = "Mật khẩu đã được đặt lại thành công.",
+                Data = result,
+                ResponsedAt = DateTime.UtcNow
+            });
         }
     }
 }

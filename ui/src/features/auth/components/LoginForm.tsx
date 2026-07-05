@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -79,21 +80,29 @@ export function LoginForm({ onSubmit, error, isLoading }: LoginFormProps) {
         </div>
       </div>
 
-      {/* Remember Me */}
-      <div className="flex items-center gap-2">
-        <Checkbox
-          id="remember-me"
-          checked={rememberMe}
-          className="border-2 border-brand-red/50"
-          onCheckedChange={(checked) => setRememberMe(checked === true)}
-          disabled={isLoading}
-        />
-        <Label
-          htmlFor="remember-me"
-          className="text-sm font-normal text-muted-foreground cursor-pointer select-none"
+      {/* Remember Me & Forgot Password */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="remember-me"
+            checked={rememberMe}
+            className="border-2 border-brand-red/50"
+            onCheckedChange={(checked) => setRememberMe(checked === true)}
+            disabled={isLoading}
+          />
+          <Label
+            htmlFor="remember-me"
+            className="text-sm font-normal text-muted-foreground cursor-pointer select-none"
+          >
+            Remember me
+          </Label>
+        </div>
+        <Link
+          to="/forgot-password"
+          className="text-sm font-medium text-brand-red hover:underline"
         >
-          Remember me
-        </Label>
+          Forgot password?
+        </Link>
       </div>
 
       {/* Submit Button */}

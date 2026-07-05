@@ -11,5 +11,13 @@ namespace IamService.Application.Interfaces
         Task<UserDto> CreateUserAsync(CreateUserRequest request, Guid adminId);
         Task<UserDto?> UpdateUserAsync(Guid id, UpdateUserRequest request, Guid adminId);
         Task<bool> DeleteUserAsync(Guid id, Guid adminId);
+        Task<PagedResult<AuditLogDto>> GetAuditLogsAsync(
+            int page, 
+            int pageSize, 
+            Guid? userId, 
+            string? action, 
+            string? entityType, 
+            DateTime? startDate, 
+            DateTime? endDate);
     }
 }

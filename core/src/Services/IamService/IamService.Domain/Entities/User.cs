@@ -28,6 +28,10 @@ public class User : Entity
 
     public DateTime? LastLoginAt { get; set; }
 
+    public string? ResetToken { get; set; }
+
+    public DateTime? ResetTokenExpiresAt { get; set; }
+
     public bool IsDeleted { get; set; } = false;
 
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();

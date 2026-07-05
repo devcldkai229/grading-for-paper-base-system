@@ -180,5 +180,58 @@ namespace IamService.Infrastructure.Persistence.Repositories
             await _context.AuditLogs.AddAsync(auditLog);
             await _context.SaveChangesAsync();
         }
+
+        public async Task<(System.Collections.Generic.IEnumerable<AuditLog> Items, int TotalCount)> GetAuditLogsPagedAsync(
+            int page, 
+            int pageSize, 
+            Guid? userId, 
+            string? action, 
+            string? entityType, 
+            DateTime? startDate, 
+            DateTime? endDate)
+        {
+            var query = _context.AuditLogs.AsQueryable();
+
+            if (userId.HasValue)
+            {
+                query = query.Where(l => l.UserId == userId.Value);
+            }
+
+            if (!string.IsNullOrWhiteSpace(action))
+            {
+                var lowerAction = action.ToLower();
+                query = query.Where(l => l.Action.ToLower().Contains(lowerAction));
+            }
+
+            if (!string.IsNullOrWhiteSpace(entityType))
+            {
+                var lowerEntityType = entityType.ToLower();
+                query = query.Where(l => l.EntityType.ToLower().Contains(lowerEntityType));
+            }
+
+            if (startDate.HasValue)
+            {
+                query = query.Where(l => l.CreatedAt >= startDate.Value);
+            }
+
+            if (endDate.HasValue)
+            {
+                query = query.Where(l => l.CreatedAt <= endDate.Value);
+            }
+
+            var totalCount = await query.CountAsync();
+            var items = await query
+                .OrderByDescending(l => l.CreatedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            return (items, totalCount);
+        }
+
+        public async Task<User?> FindByResetTokenAsync(string token)
+        {
+            return await _context.Users.FirstOrDefaultAsync(u => u.ResetToken == token);
+        }
     }
 }

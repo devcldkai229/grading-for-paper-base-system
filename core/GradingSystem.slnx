@@ -27,6 +27,8 @@
 
     <Project Path="src/Services/IamService/IamService.Infrastructure/IamService.Infrastructure.csproj" />
 
+    <Project Path="src/Services/IamService/IamService.UnitTests/IamService.UnitTests.csproj" />
+
   </Folder>
 
   <Folder Name="/src/Services/ExamCatalogService/">

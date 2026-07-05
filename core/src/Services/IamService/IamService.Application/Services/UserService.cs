@@ -214,6 +214,37 @@ namespace IamService.Application.Services
             return true;
         }
 
+        public async Task<PagedResult<AuditLogDto>> GetAuditLogsAsync(
+            int page, 
+            int pageSize, 
+            Guid? userId, 
+            string? action, 
+            string? entityType, 
+            DateTime? startDate, 
+            DateTime? endDate)
+        {
+            var result = await _userRepository.GetAuditLogsPagedAsync(page, pageSize, userId, action, entityType, startDate, endDate);
+            var dtos = System.Linq.Enumerable.Select(result.Items, l => new AuditLogDto
+            {
+                Id = l.Id,
+                UserId = l.UserId,
+                Action = l.Action,
+                EntityType = l.EntityType,
+                EntityId = l.EntityId,
+                OldValue = l.OldValue,
+                NewValue = l.NewValue,
+                CreatedAt = l.CreatedAt
+            });
+
+            return new PagedResult<AuditLogDto>
+            {
+                Items = dtos,
+                Page = page,
+                PageSize = pageSize,
+                TotalCount = result.TotalCount
+            };
+        }
+
         private static UserDto MapToDto(User user)
         {
             return new UserDto

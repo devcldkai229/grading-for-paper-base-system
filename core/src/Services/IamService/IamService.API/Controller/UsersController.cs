@@ -159,5 +159,25 @@ namespace IamService.API.Controller
                 ResponsedAt = DateTime.UtcNow
             });
         }
+
+        [HttpGet("audit-logs")]
+        public async Task<IActionResult> GetAuditLogs(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 10,
+            [FromQuery] Guid? userId = null,
+            [FromQuery] string? action = null,
+            [FromQuery] string? entityType = null,
+            [FromQuery] DateTime? startDate = null,
+            [FromQuery] DateTime? endDate = null)
+        {
+            var logs = await _userService.GetAuditLogsAsync(page, pageSize, userId, action, entityType, startDate, endDate);
+            return Ok(new ApiResponse<PagedResult<AuditLogDto>>
+            {
+                StatusCode = 200,
+                Message = "Audit logs retrieved successfully",
+                Data = logs,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
     }
 }

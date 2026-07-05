@@ -18,6 +18,9 @@ import { SubmissionsPage } from "@/features/submission/pages/SubmissionsPage";
 import { SubmissionDetailPage } from "@/features/submission/pages/SubmissionDetailPage";
 import { GradingPage } from "@/features/grading/pages/GradingPage";
 import { ProfilePage } from "@/features/auth/pages/ProfilePage";
+import { ForgotPasswordPage } from "@/features/auth/pages/ForgotPasswordPage";
+import { ResetPasswordPage } from "@/features/auth/pages/ResetPasswordPage";
+import { AdminAuditLogsPage } from "@/features/admin/pages/AdminAuditLogsPage";
 import { authService } from "@/services/authService";
 import { getHomePath } from "@/lib/roles";
 
@@ -39,6 +42,8 @@ function App() {
     <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/" element={<HomeRedirect />} />
 
         <Route element={<ProtectedRoute />}>
@@ -46,6 +51,7 @@ function App() {
             <Route element={<AdminLayout />}>
               <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
               <Route path="/admin/users" element={<AdminUsersPage />} />
+              <Route path="/admin/audit-logs" element={<AdminAuditLogsPage />} />
               <Route path="/admin/catalog/semesters" element={<SemestersPage />} />
               <Route
                 path="/admin/catalog/semesters/:semesterId/exams"

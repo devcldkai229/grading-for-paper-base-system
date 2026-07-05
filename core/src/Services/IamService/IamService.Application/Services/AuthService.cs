@@ -28,13 +28,33 @@ namespace IamService.Application.Services
             _refreshTokenRepository = refreshTokenRepository;
         }
 
-        public async Task<AuthResult> LoginAsync(string email, string password)
+        private async Task AuditLoginAsync(Guid? userId, string email, bool success, string ipAddress, string userAgent, string? reason = null)
+        {
+            var auditLog = new AuditLog
+            {
+                UserId = userId,
+                Action = success ? "LoginSuccess" : "LoginFailed",
+                EntityType = "Auth",
+                EntityId = userId ?? Guid.Empty,
+                NewValue = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    Email = email,
+                    IP = ipAddress,
+                    Device = userAgent,
+                    Reason = reason
+                })
+            };
+            await _userRepository.AddAuditLogAsync(auditLog);
+        }
+
+        public async Task<AuthResult> LoginAsync(string email, string password, string ipAddress, string userAgent)
         {
             var user = await _userRepository.FindByEmailAsync(email);
             if (user == null || user.PasswordHash == null || !BCrypt.Net.BCrypt.Verify(password, user.PasswordHash))
             {
                 var authResult = new AuthResult { Success = false };
                 authResult.Errors.Add("Invalid email or password");
+                await AuditLoginAsync(null, email, false, ipAddress, userAgent, "Invalid email or password");
                 return authResult;
             }
 
@@ -42,13 +62,19 @@ namespace IamService.Application.Services
             {
                 var authResult = new AuthResult { Success = false };
                 authResult.Errors.Add("Account is not active");
+                await AuditLoginAsync(user.Id, email, false, ipAddress, userAgent, "Account is not active");
                 return authResult;
             }
 
-            return await _tokenService.GenerateTokensAsync(user);
+            user.RecordLogin();
+            await _userRepository.UpdateAsync(user);
+
+            var tokens = await _tokenService.GenerateTokensAsync(user);
+            await AuditLoginAsync(user.Id, email, true, ipAddress, userAgent);
+            return tokens;
         }
 
-        public async Task<AuthResult> GoogleLoginAsync(string idToken)
+        public async Task<AuthResult> GoogleLoginAsync(string idToken, string ipAddress, string userAgent)
         {
             GoogleUserInfo? googleUser;
             try
@@ -59,6 +85,7 @@ namespace IamService.Application.Services
             {
                 var result = new AuthResult { Success = false };
                 result.Errors.Add(ex.Message);
+                await AuditLoginAsync(null, "GoogleTokenValidation", false, ipAddress, userAgent, ex.Message);
                 return result;
             }
 
@@ -66,6 +93,7 @@ namespace IamService.Application.Services
             {
                 var result = new AuthResult { Success = false };
                 result.Errors.Add("Invalid Google token");
+                await AuditLoginAsync(null, "GoogleTokenValidation", false, ipAddress, userAgent, "Invalid Google token");
                 return result;
             }
 
@@ -76,6 +104,7 @@ namespace IamService.Application.Services
             {
                 var result = new AuthResult { Success = false };
                 result.Errors.Add("Account is not active");
+                await AuditLoginAsync(user.Id, googleUser.Email, false, ipAddress, userAgent, "Account is not active");
                 return result;
             }
 
@@ -103,7 +132,12 @@ namespace IamService.Application.Services
                 await _userRepository.UpdateAsync(user);
             }
 
-            return await _tokenService.GenerateTokensAsync(user);
+            user.RecordLogin();
+            await _userRepository.UpdateAsync(user);
+
+            var tokens = await _tokenService.GenerateTokensAsync(user);
+            await AuditLoginAsync(user.Id, googleUser.Email, true, ipAddress, userAgent);
+            return tokens;
         }
 
         public async Task<AuthResult> RefreshTokenAsync(string token, string refreshToken)
@@ -216,6 +250,89 @@ namespace IamService.Application.Services
             await _userRepository.AddAuditLogAsync(auditLog);
 
             return MapToDto(user);
+        }
+
+        public async Task<string?> GeneratePasswordResetTokenAsync(string email)
+        {
+            var user = await _userRepository.FindByEmailAsync(email);
+            if (user == null || user.IsDeleted) return null;
+
+            var token = Guid.NewGuid().ToString("N");
+            user.ResetToken = token;
+            user.ResetTokenExpiresAt = DateTime.UtcNow.AddHours(1);
+
+            await _userRepository.UpdateAsync(user);
+
+            var auditLog = new AuditLog
+            {
+                UserId = null,
+                Action = "ForgotPasswordRequested",
+                EntityType = "User",
+                EntityId = user.Id,
+                NewValue = System.Text.Json.JsonSerializer.Serialize(new { Email = email, ExpiresAt = user.ResetTokenExpiresAt })
+            };
+            await _userRepository.AddAuditLogAsync(auditLog);
+
+            return token;
+        }
+
+        public async Task<AuthResult> ResetPasswordAsync(string token, string newPassword)
+        {
+            var result = new AuthResult { Success = false };
+
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                result.Errors.Add("Mã khôi phục không hợp lệ.");
+                return result;
+            }
+
+            var user = await _userRepository.FindByResetTokenAsync(token);
+            if (user == null || user.IsDeleted || user.ResetTokenExpiresAt < DateTime.UtcNow)
+            {
+                result.Errors.Add("Mã khôi phục không hợp lệ hoặc đã hết hạn.");
+                return result;
+            }
+
+            if (string.IsNullOrWhiteSpace(newPassword) || newPassword.Length < 8)
+            {
+                result.Errors.Add("Mật khẩu mới phải có ít nhất 8 ký tự.");
+            }
+            else
+            {
+                bool hasUpper = newPassword.Any(char.IsUpper);
+                bool hasLower = newPassword.Any(char.IsLower);
+                bool hasDigit = newPassword.Any(char.IsDigit);
+                bool hasSpecial = newPassword.Any(c => !char.IsLetterOrDigit(c));
+
+                if (!hasUpper || !hasLower || !hasDigit || !hasSpecial)
+                {
+                    result.Errors.Add("Mật khẩu mới phải chứa ít nhất 1 chữ hoa, 1 chữ thường, 1 chữ số và 1 ký tự đặc biệt.");
+                }
+            }
+
+            if (result.Errors.Count > 0)
+            {
+                return result;
+            }
+
+            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
+            user.ResetToken = null;
+            user.ResetTokenExpiresAt = null;
+
+            await _userRepository.UpdateAsync(user);
+
+            var auditLog = new AuditLog
+            {
+                UserId = user.Id,
+                Action = "ResetPassword",
+                EntityType = "User",
+                EntityId = user.Id,
+                NewValue = "Password reset successfully"
+            };
+            await _userRepository.AddAuditLogAsync(auditLog);
+
+            result.Success = true;
+            return result;
         }
 
         private static UserDto MapToDto(User user)

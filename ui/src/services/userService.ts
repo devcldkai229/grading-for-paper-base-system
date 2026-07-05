@@ -1,8 +1,32 @@
 import api from "@/lib/api";
 import type { ApiResponse } from "@/types/auth";
-import type { User, PagedResult, UserRole, UserStatus } from "@/types/user";
+import type { User, PagedResult, UserRole, UserStatus, AuditLog } from "@/types/user";
 
 export const userService = {
+  async getAuditLogs(
+    page: number = 1,
+    pageSize: number = 10,
+    filters: {
+      userId?: string;
+      action?: string;
+      entityType?: string;
+      startDate?: string;
+      endDate?: string;
+    } = {}
+  ): Promise<PagedResult<AuditLog>> {
+    const params = new URLSearchParams();
+    params.append("page", String(page));
+    params.append("pageSize", String(pageSize));
+    if (filters.userId) params.append("userId", filters.userId);
+    if (filters.action) params.append("action", filters.action);
+    if (filters.entityType) params.append("entityType", filters.entityType);
+    if (filters.startDate) params.append("startDate", filters.startDate);
+    if (filters.endDate) params.append("endDate", filters.endDate);
+
+    const res = await api.get<ApiResponse<PagedResult<AuditLog>>>("/users/audit-logs", { params });
+    return res.data.data;
+  },
+
   async getUsers(
     page: number = 1,
     pageSize: number = 10,
