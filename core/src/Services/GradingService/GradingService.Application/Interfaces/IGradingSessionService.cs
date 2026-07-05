@@ -8,7 +8,7 @@ public interface IGradingSessionService
 
     Task<GradingSessionDto?> GetSessionAsync(Guid assignmentId, Guid teacherId, CancellationToken ct = default);
 
-    Task<(SaveMarksResultDto? Result, bool Conflict)> SaveMarksAsync(
+    Task<(SaveMarksResultDto? Result, bool Conflict, string? Error)> SaveMarksAsync(
         Guid assignmentId, Guid teacherId, SaveMarksRequest request, CancellationToken ct = default);
 
     Task<(SubmitResultDto? Result, bool Forbidden, bool NotFound)> SubmitAsync(

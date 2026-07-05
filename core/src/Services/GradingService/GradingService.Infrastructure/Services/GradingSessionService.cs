@@ -109,7 +109,7 @@ public class GradingSessionService : IGradingSessionService
             questions);
     }
 
-    public async Task<(SaveMarksResultDto? Result, bool Conflict)> SaveMarksAsync(
+    public async Task<(SaveMarksResultDto? Result, bool Conflict, string? Error)> SaveMarksAsync(
         Guid assignmentId, Guid teacherId, SaveMarksRequest request, CancellationToken ct = default)
     {
         var assignment = await _db.GradingAssignments
@@ -117,11 +117,24 @@ public class GradingSessionService : IGradingSessionService
                 .ThenInclude(f => f.QuestionGradeDetails)
             .FirstOrDefaultAsync(a => a.Id == assignmentId && a.TeacherId == teacherId, ct);
 
-        if (assignment?.GradingForm is null) return (null, false);
-        if (assignment.Status == GradingProgressStatus.Submitted) return (null, false);
+        if (assignment?.GradingForm is null) return (null, false, null);
+        if (assignment.Status == GradingProgressStatus.Submitted) return (null, false, "Session is already submitted");
 
         var form = assignment.GradingForm;
-        if (form.RowVersion != request.RowVersion) return (null, true);
+        if (form.RowVersion != request.RowVersion) return (null, true, null);
+
+        // Validation: Scores validated 0..max per leaf
+        foreach (var input in request.Questions)
+        {
+            var detail = form.QuestionGradeDetails
+                .FirstOrDefault(q => q.QuestionNumber == input.QuestionNumber);
+            if (detail is null) continue;
+
+            if (input.Score < 0 || input.Score > detail.MaxScore)
+            {
+                return (null, false, $"Score for question {input.QuestionNumber} must be between 0 and {detail.MaxScore}.");
+            }
+        }
 
         var oldSnapshot = SerializeForm(form);
 
@@ -131,8 +144,7 @@ public class GradingSessionService : IGradingSessionService
                 .FirstOrDefault(q => q.QuestionNumber == input.QuestionNumber);
             if (detail is null) continue;
 
-            var clamped = Math.Clamp(input.Score, 0, detail.MaxScore);
-            detail.Score = clamped;
+            detail.Score = input.Score;
             detail.QuestionComment = input.QuestionComment;
         }
 
@@ -155,11 +167,11 @@ public class GradingSessionService : IGradingSessionService
         try
         {
             await _db.SaveChangesAsync(ct);
-            return (new SaveMarksResultDto(form.RowVersion), false);
+            return (new SaveMarksResultDto(form.RowVersion), false, null);
         }
         catch (DbUpdateConcurrencyException)
         {
-            return (null, true);
+            return (null, true, null);
         }
     }
 

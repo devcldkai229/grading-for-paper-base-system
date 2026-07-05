@@ -78,7 +78,7 @@ public class GradingController : ControllerBase
         CancellationToken ct = default)
     {
         var teacherId = GetUserId();
-        var (result, conflict) = await _gradingSessionService.SaveMarksAsync(
+        var (result, conflict, error) = await _gradingSessionService.SaveMarksAsync(
             assignmentId, teacherId, request, ct);
 
         if (conflict)
@@ -87,6 +87,17 @@ public class GradingController : ControllerBase
             {
                 StatusCode = 409,
                 Message = "Grading form was modified by another session. Please reload.",
+                Data = null,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        if (error is not null)
+        {
+            return BadRequest(new ApiResponse<object>
+            {
+                StatusCode = 400,
+                Message = error,
                 Data = null,
                 ResponsedAt = DateTime.UtcNow
             });
