@@ -1,4 +1,5 @@
 using IamService.Application.Features.Auth;
+using IamService.Application.Features.Users;
 using IamService.Application.Interfaces;
 using IamService.Domain.Entities;
 using IamService.Domain.Enums;
@@ -170,6 +171,69 @@ namespace IamService.Application.Services
 
             result.Success = true;
             return result;
+        }
+
+        public async Task<UserDto?> GetProfileAsync(Guid userId)
+        {
+            var user = await _userRepository.FindByIdAsync(userId);
+            if (user == null || user.IsDeleted) return null;
+
+            return MapToDto(user);
+        }
+
+        public async Task<UserDto?> UpdateProfileAsync(Guid userId, string fullName, string? phoneNumber, string? avatarUrl)
+        {
+            var user = await _userRepository.FindByIdAsync(userId);
+            if (user == null || user.IsDeleted) return null;
+
+            var oldState = new
+            {
+                user.FullName,
+                user.PhoneNumber,
+                user.AvatarUrl
+            };
+
+            user.FullName = fullName;
+            user.PhoneNumber = phoneNumber;
+            user.AvatarUrl = avatarUrl;
+
+            await _userRepository.UpdateAsync(user);
+
+            var auditLog = new AuditLog
+            {
+                UserId = userId,
+                Action = "UpdateProfile",
+                EntityType = "User",
+                EntityId = userId,
+                OldValue = System.Text.Json.JsonSerializer.Serialize(oldState),
+                NewValue = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    user.FullName,
+                    user.PhoneNumber,
+                    user.AvatarUrl
+                })
+            };
+            await _userRepository.AddAuditLogAsync(auditLog);
+
+            return MapToDto(user);
+        }
+
+        private static UserDto MapToDto(User user)
+        {
+            return new UserDto
+            {
+                Id = user.Id,
+                Email = user.Email,
+                FullName = user.FullName,
+                PhoneNumber = user.PhoneNumber,
+                MarkerCode = user.MarkerCode,
+                AvatarUrl = user.AvatarUrl,
+                Role = user.Role,
+                Status = user.Status,
+                LastLoginAt = user.LastLoginAt,
+                CreatedAt = user.CreatedAt,
+                UpdatedAt = user.UpdatedAt
+            };
         }
     }
 }

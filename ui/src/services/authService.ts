@@ -1,5 +1,6 @@
 import api from "@/lib/api";
 import type { ApiResponse, AuthResult, JwtPayload } from "@/types/auth";
+import type { User } from "@/types/user";
 
 const TOKEN_KEY = "access_token";
 const REFRESH_KEY = "refresh_token";
@@ -62,6 +63,27 @@ export const authService = {
     const response = await api.post<ApiResponse<AuthResult>>("/auth/change-password", {
       currentPassword,
       newPassword,
+    });
+    return response.data.data;
+  },
+
+  async getProfile(): Promise<User> {
+    const response = await api.get<ApiResponse<User>>("/auth/profile");
+    return response.data.data;
+  },
+
+  async updateProfile(data: { fullName: string; phoneNumber?: string; avatarUrl?: string }): Promise<User> {
+    const response = await api.put<ApiResponse<User>>("/auth/profile", data);
+    return response.data.data;
+  },
+
+  async uploadAvatar(file: File): Promise<{ avatarUrl: string }> {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await api.post<ApiResponse<{ avatarUrl: string }>>("/auth/profile/avatar", formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
     });
     return response.data.data;
   },

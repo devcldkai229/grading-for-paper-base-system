@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   BookOpen,
@@ -6,6 +7,7 @@ import {
   LayoutDashboard,
   LogOut,
   Upload,
+  User as UserIcon,
 } from "lucide-react";
 import { authService } from "@/services/authService";
 import { Button } from "@/components/ui/button";
@@ -21,6 +23,53 @@ const navItems = [
 export function AppLayout() {
   const navigate = useNavigate();
   const user = authService.decodeToken();
+
+  const [profileName, setProfileName] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState("");
+
+  useEffect(() => {
+    if (!user) return;
+    
+    const cached = localStorage.getItem("user_profile_cache");
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      setProfileName(parsed.fullName || user.name || user.email.split("@")[0]);
+      setAvatarUrl(parsed.avatarUrl || "");
+    } else {
+      setProfileName(user.name || user.email.split("@")[0]);
+      setAvatarUrl("");
+      
+      authService.getProfile().then(data => {
+        setProfileName(data.fullName || user.name || user.email.split("@")[0]);
+        setAvatarUrl(data.avatarUrl || "");
+        localStorage.setItem(
+          "user_profile_cache",
+          JSON.stringify({ fullName: data.fullName, avatarUrl: data.avatarUrl })
+        );
+      }).catch(() => {});
+    }
+
+    const handleProfileUpdate = () => {
+      const updatedCache = localStorage.getItem("user_profile_cache");
+      if (updatedCache) {
+        const parsed = JSON.parse(updatedCache);
+        setProfileName(parsed.fullName || user.name || user.email.split("@")[0]);
+        setAvatarUrl(parsed.avatarUrl || "");
+      }
+    };
+
+    window.addEventListener("profile-updated", handleProfileUpdate);
+    return () => window.removeEventListener("profile-updated", handleProfileUpdate);
+  }, [user]);
+
+  const getAvatarFullUrl = (url?: string) => {
+    if (!url) return "";
+    if (url.startsWith("http://") || url.startsWith("https://")) {
+      return url;
+    }
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:5016/api";
+    return `${baseUrl}${url}`;
+  };
 
   const handleLogout = async () => {
     await authService.logout();
@@ -71,13 +120,26 @@ export function AppLayout() {
           {user && (
             <NavLink
               to="/profile"
-              className="block px-2 py-2 rounded-lg border border-line bg-secondary/50 hover:bg-secondary hover:border-brand-red/30 transition-colors cursor-pointer"
+              className="flex items-center gap-3 px-2.5 py-2 rounded-lg border border-line bg-secondary/50 hover:bg-secondary hover:border-brand-red/30 transition-colors cursor-pointer"
               title="Xem hồ sơ cá nhân"
             >
-              <p className="text-sm font-medium truncate text-ink">
-                {user.name || user.email.split("@")[0]}
-              </p>
-              <p className="text-xs text-ink-soft truncate">{user.email}</p>
+              <div className="h-9 w-9 rounded-full border border-line bg-secondary/80 flex items-center justify-center font-display font-semibold text-brand-red overflow-hidden shrink-0">
+                {avatarUrl ? (
+                  <img
+                    src={getAvatarFullUrl(avatarUrl)}
+                    alt="Avatar"
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <UserIcon className="h-4 w-4 text-ink-soft" />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold truncate text-ink">
+                  {profileName}
+                </p>
+                <p className="text-xs text-ink-soft truncate">{user.email}</p>
+              </div>
             </NavLink>
           )}
           <Button
