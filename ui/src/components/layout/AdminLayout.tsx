@@ -59,12 +59,16 @@ export function AdminLayout() {
 
         <div className="p-4 border-t border-line space-y-3">
           {user && (
-            <div className="px-2 py-2 rounded-lg border border-line bg-secondary/50">
+            <NavLink
+              to="/admin/profile"
+              className="block px-2 py-2 rounded-lg border border-line bg-secondary/50 hover:bg-secondary hover:border-brand-red/30 transition-colors cursor-pointer"
+              title="Xem hồ sơ cá nhân"
+            >
               <p className="text-sm font-medium truncate text-ink">
                 {user.name || user.email.split("@")[0]}
               </p>
               <p className="text-xs text-ink-soft truncate">{user.email}</p>
-            </div>
+            </NavLink>
           )}
           <Button
             variant="outline"

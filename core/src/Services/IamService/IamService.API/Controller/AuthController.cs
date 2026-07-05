@@ -117,5 +117,42 @@ namespace IamService.API.Controller
                 ResponsedAt = DateTime.UtcNow
             });
         }
+
+        [Authorize]
+        [HttpPost("change-password")]
+        public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
+        {
+            var userIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(userIdStr) || !Guid.TryParse(userIdStr, out var userId))
+            {
+                return Unauthorized(new ApiResponse<object>
+                {
+                    StatusCode = 401,
+                    Message = "Unauthorized",
+                    Data = null!,
+                    ResponsedAt = DateTime.UtcNow
+                });
+            }
+
+            var result = await _authService.ChangePasswordAsync(userId, request.CurrentPassword, request.NewPassword);
+            if (!result.Success)
+            {
+                return BadRequest(new ApiResponse<AuthResult>
+                {
+                    StatusCode = 400,
+                    Message = string.Join(", ", result.Errors),
+                    Data = result,
+                    ResponsedAt = DateTime.UtcNow
+                });
+            }
+
+            return Ok(new ApiResponse<AuthResult>
+            {
+                StatusCode = 200,
+                Message = "Password changed successfully",
+                Data = result,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
     }
 }

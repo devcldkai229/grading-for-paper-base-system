@@ -17,6 +17,7 @@ import { BatchUploadPage } from "@/features/submission/pages/BatchUploadPage";
 import { SubmissionsPage } from "@/features/submission/pages/SubmissionsPage";
 import { SubmissionDetailPage } from "@/features/submission/pages/SubmissionDetailPage";
 import { GradingPage } from "@/features/grading/pages/GradingPage";
+import { ProfilePage } from "@/features/auth/pages/ProfilePage";
 import { authService } from "@/services/authService";
 import { getHomePath } from "@/lib/roles";
 
@@ -62,6 +63,7 @@ function App() {
                 path="/admin/catalog/subjects/:subjectId"
                 element={<AdminSubjectDetailPage />}
               />
+              <Route path="/admin/profile" element={<ProfilePage />} />
             </Route>
           </Route>
 
@@ -91,6 +93,7 @@ function App() {
                 path="/submissions/:paperId"
                 element={<SubmissionDetailPage />}
               />
+              <Route path="/profile" element={<ProfilePage />} />
             </Route>
           </Route>
 

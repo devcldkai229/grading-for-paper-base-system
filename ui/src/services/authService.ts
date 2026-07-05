@@ -58,6 +58,14 @@ export const authService = {
     this.clearTokens();
   },
 
+  async changePassword(currentPassword: string, newPassword: string): Promise<AuthResult> {
+    const response = await api.post<ApiResponse<AuthResult>>("/auth/change-password", {
+      currentPassword,
+      newPassword,
+    });
+    return response.data.data;
+  },
+
   // ---- Token management ----
 
   saveTokens(

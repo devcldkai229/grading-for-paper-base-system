@@ -10,5 +10,6 @@ namespace IamService.Application.Interfaces
         Task<AuthResult> GoogleLoginAsync(string idToken);
         Task<AuthResult> RefreshTokenAsync(string token, string refreshToken);
         Task<AuthResult> LogoutAsync(System.Guid userId);
+        Task<AuthResult> ChangePasswordAsync(System.Guid userId, string currentPassword, string newPassword);
     }
 }
