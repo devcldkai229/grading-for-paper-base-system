@@ -34,3 +34,27 @@ export interface SubjectGradingProgress {
 export interface GradingProgressDashboard {
   subjects: SubjectGradingProgress[];
 }
+
+export interface ScoreHistogramBucket {
+  rangeStart: number;
+  rangeEnd: number;
+  count: number;
+}
+
+export interface SubjectScoreDistribution {
+  subjectId: string;
+  subjectCode: string;
+  title: string | null;
+  examName: string;
+  semesterCode: string;
+  maxScore: number;
+  submittedCount: number;
+  scoreAvg: number | null;
+  scoreMin: number | null;
+  scoreMax: number | null;
+  histogram: ScoreHistogramBucket[];
+}
+
+export interface ScoreDistributionReport {
+  subjects: SubjectScoreDistribution[];
+}

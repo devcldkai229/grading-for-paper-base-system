@@ -63,6 +63,28 @@ public class GradingServiceClient : IGradingServiceClient
         }
     }
 
+    public async Task<ScoreDistributionDashboardClientDto?> GetScoreDistributionAsync(
+        IReadOnlyCollection<Guid>? subjectIds, CancellationToken ct = default)
+    {
+        try
+        {
+            var query = subjectIds is { Count: > 0 }
+                ? "?" + string.Join("&", subjectIds.Select(id => $"subjectIds={id}"))
+                : string.Empty;
+
+            var response = await _httpClient.GetAsync($"/api/internal/grading/score-distribution{query}", ct);
+            response.EnsureSuccessStatusCode();
+
+            var payload = await response.Content.ReadFromJsonAsync<Envelope<ScoreDistributionDashboardClientDto>>(JsonOptions, ct);
+            return payload?.Data;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            _logger.LogError(ex, "GradingService unreachable for score distribution report");
+            return null;
+        }
+    }
+
     private sealed class Envelope<T>
     {
         [JsonPropertyName("data")]

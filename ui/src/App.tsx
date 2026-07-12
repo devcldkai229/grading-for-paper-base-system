@@ -25,6 +25,7 @@ import { AdminAuditLogsPage } from "@/features/admin/pages/AdminAuditLogsPage";
 import { AdminOverridePage } from "@/features/admin/pages/AdminOverridePage";
 import { AdminFeedbackExportPage } from "@/features/admin/pages/AdminFeedbackExportPage";
 import { AdminGradingProgressPage } from "@/features/admin/pages/AdminGradingProgressPage";
+import { AdminScoreDistributionPage } from "@/features/admin/pages/AdminScoreDistributionPage";
 import { authService } from "@/services/authService";
 import { getHomePath } from "@/lib/roles";
 
@@ -59,6 +60,7 @@ function App() {
               <Route path="/admin/grading/override" element={<AdminOverridePage />} />
               <Route path="/admin/reports/feedback-export" element={<AdminFeedbackExportPage />} />
               <Route path="/admin/reports/grading-progress" element={<AdminGradingProgressPage />} />
+              <Route path="/admin/reports/score-distribution" element={<AdminScoreDistributionPage />} />
               <Route path="/admin/catalog/semesters" element={<SemestersPage />} />
               <Route
                 path="/admin/catalog/semesters/:semesterId/exams"

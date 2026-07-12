@@ -20,13 +20,52 @@ public class ReportsController : ControllerBase
 
     private readonly IFeedbackReportService _feedbackReportService;
     private readonly IGradingProgressService _gradingProgressService;
+    private readonly IScoreDistributionService _scoreDistributionService;
 
     public ReportsController(
         IFeedbackReportService feedbackReportService,
-        IGradingProgressService gradingProgressService)
+        IGradingProgressService gradingProgressService,
+        IScoreDistributionService scoreDistributionService)
     {
         _feedbackReportService = feedbackReportService;
         _gradingProgressService = gradingProgressService;
+        _scoreDistributionService = scoreDistributionService;
+    }
+
+    /// <summary>
+    /// Admin-only. Score distribution report: a 10-bucket histogram plus min/avg/max per subject.
+    /// Optionally scoped to a semester and/or exam.
+    /// </summary>
+    [HttpGet("score-distribution")]
+    public async Task<IActionResult> GetScoreDistribution(
+        [FromQuery] Guid? semesterId,
+        [FromQuery] Guid? examId,
+        CancellationToken ct = default)
+    {
+        if (!IsAdmin())
+        {
+            return Forbid();
+        }
+
+        var (result, error) = await _scoreDistributionService.GetDistributionAsync(semesterId, examId, ct);
+        if (error is not null)
+        {
+            return StatusCode(503, new ApiResponse<object>
+            {
+                StatusCode = 503,
+                Message = error,
+                Data = null,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        return Ok(new ApiResponse<ScoreDistributionResultDto>
+        {
+            StatusCode = 200,
+            Message = "Score distribution report retrieved successfully",
+            Data = result!,
+            ResponsedAt = DateTime.UtcNow
+        });
     }
 
     /// <summary>

@@ -761,6 +761,39 @@ public class GradingSessionService : IGradingSessionService
             throughput, lastActivity, estimatedFinish);
     }
 
+    public async Task<ScoreDistributionDashboardDto> GetScoreDistributionAsync(
+        IReadOnlyCollection<Guid>? subjectIds, CancellationToken ct = default)
+    {
+        var query = _db.GradingAssignments.AsNoTracking()
+            .Where(a => a.Status == GradingProgressStatus.Submitted && a.GradingForm != null);
+
+        if (subjectIds is { Count: > 0 })
+        {
+            query = query.Where(a => subjectIds.Contains(a.SubjectId));
+        }
+
+        var rows = await query
+            .Select(a => new { a.SubjectId, Score = a.GradingForm!.TotalScore })
+            .ToListAsync(ct);
+
+        var subjects = rows
+            .GroupBy(r => r.SubjectId)
+            .Select(g =>
+            {
+                var scores = g.Select(r => r.Score).ToList();
+                return new SubjectScoreDistributionDto(
+                    g.Key,
+                    scores.Count,
+                    Math.Round(scores.Average(), 2),
+                    scores.Min(),
+                    scores.Max(),
+                    scores);
+            })
+            .ToList();
+
+        return new ScoreDistributionDashboardDto(subjects);
+    }
+
     public async Task<SubjectFeedbackExportDto> GetReleasableFeedbackAsync(Guid subjectId, CancellationToken ct = default)
     {
         var assignments = await _db.GradingAssignments

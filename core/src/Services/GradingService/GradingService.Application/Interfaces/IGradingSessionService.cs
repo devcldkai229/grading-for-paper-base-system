@@ -63,4 +63,12 @@ public interface IGradingSessionService
     /// </summary>
     Task<GradingProgressDashboardDto> GetProgressDashboardAsync(
         IReadOnlyCollection<Guid>? subjectIds, CancellationToken ct = default);
+
+    /// <summary>
+    /// Raw submitted scores + min/avg/max per subject, for the admin score distribution report.
+    /// Pass <paramref name="subjectIds"/> to scope to a specific set of subjects (e.g. resolved
+    /// from a semester/exam filter); null/empty means every subject with at least one submitted paper.
+    /// </summary>
+    Task<ScoreDistributionDashboardDto> GetScoreDistributionAsync(
+        IReadOnlyCollection<Guid>? subjectIds, CancellationToken ct = default);
 }

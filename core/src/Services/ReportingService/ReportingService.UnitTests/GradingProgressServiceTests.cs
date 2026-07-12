@@ -14,7 +14,7 @@ namespace ReportingService.UnitTests
     public class GradingProgressServiceTests
     {
         private static SubjectFilterResultClientDto MakeSubject(Guid id, string code = "PRN232") =>
-            new(id, code, "Title", Guid.NewGuid(), "FE Exam", Guid.NewGuid(), "SP26");
+            new(id, code, "Title", Guid.NewGuid(), "FE Exam", Guid.NewGuid(), "SP26", 10m);
 
         private static SubjectProgressClientDto MakeProgress(Guid subjectId, int total, int completed) =>
             new(subjectId, total, completed, 0, total - completed,

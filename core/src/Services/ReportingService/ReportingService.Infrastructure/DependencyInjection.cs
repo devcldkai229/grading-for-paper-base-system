@@ -25,6 +25,7 @@ public static class DependencyInjection
 
         services.AddScoped<Application.Interfaces.IFeedbackReportService, Services.FeedbackReportService>();
         services.AddScoped<Application.Interfaces.IGradingProgressService, Services.GradingProgressService>();
+        services.AddScoped<Application.Interfaces.IScoreDistributionService, Services.ScoreDistributionService>();
         RegisterGradingServiceClient(services, configuration);
         RegisterExamCatalogServiceClient(services, configuration);
         RegisterJwtAuthentication(services, configuration);

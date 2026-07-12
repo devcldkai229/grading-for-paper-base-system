@@ -62,7 +62,8 @@ public record SubjectFilterResultClientDto(
     Guid ExamId,
     string ExamName,
     Guid SemesterId,
-    string SemesterCode
+    string SemesterCode,
+    decimal MaxScore
 );
 
 /// <summary>One subject's grading progress dashboard row — subject metadata merged with progress numbers.</summary>
@@ -87,4 +88,44 @@ public record GradingProgressSubjectDto(
 
 public record GradingProgressDashboardResultDto(
     IReadOnlyList<GradingProgressSubjectDto> Subjects
+);
+
+/// <summary>Raw submitted scores + min/avg/max for one subject (mirrors GradingService's DTO).</summary>
+public record SubjectScoreDistributionClientDto(
+    Guid SubjectId,
+    int SubmittedCount,
+    decimal? ScoreAvg,
+    decimal? ScoreMin,
+    decimal? ScoreMax,
+    IReadOnlyList<decimal> Scores
+);
+
+public record ScoreDistributionDashboardClientDto(
+    IReadOnlyList<SubjectScoreDistributionClientDto> Subjects
+);
+
+/// <summary>One histogram bar: papers whose score falls in [RangeStart, RangeEnd).</summary>
+public record ScoreHistogramBucketDto(
+    decimal RangeStart,
+    decimal RangeEnd,
+    int Count
+);
+
+/// <summary>One subject's score distribution report row — subject metadata, stats and histogram.</summary>
+public record SubjectScoreDistributionResultDto(
+    Guid SubjectId,
+    string SubjectCode,
+    string? Title,
+    string ExamName,
+    string SemesterCode,
+    decimal MaxScore,
+    int SubmittedCount,
+    decimal? ScoreAvg,
+    decimal? ScoreMin,
+    decimal? ScoreMax,
+    IReadOnlyList<ScoreHistogramBucketDto> Histogram
+);
+
+public record ScoreDistributionResultDto(
+    IReadOnlyList<SubjectScoreDistributionResultDto> Subjects
 );

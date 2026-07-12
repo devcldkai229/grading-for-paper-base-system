@@ -191,3 +191,18 @@ public record SubjectProgressDto(
 public record GradingProgressDashboardDto(
     IReadOnlyList<SubjectProgressDto> Subjects
 );
+
+/// <summary>Raw submitted scores for one subject, for the admin score distribution report.
+/// Bucketing into a histogram happens in ReportingService (it knows the subject's MaxScore).</summary>
+public record SubjectScoreDistributionDto(
+    Guid SubjectId,
+    int SubmittedCount,
+    decimal? ScoreAvg,
+    decimal? ScoreMin,
+    decimal? ScoreMax,
+    IReadOnlyList<decimal> Scores
+);
+
+public record ScoreDistributionDashboardDto(
+    IReadOnlyList<SubjectScoreDistributionDto> Subjects
+);

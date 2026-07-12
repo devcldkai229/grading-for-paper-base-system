@@ -40,4 +40,16 @@ public class InternalReportsController : ControllerBase
         var result = await _gradingSessionService.GetProgressDashboardAsync(subjectIds, ct);
         return Ok(new { data = result, responsedAt = DateTime.UtcNow });
     }
+
+    /// <summary>
+    /// Raw submitted scores + min/avg/max per subject, for the admin score distribution report.
+    /// Pass one or more <paramref name="subjectIds"/> to scope the result (e.g. resolved from a
+    /// semester/exam filter); omit to cover every subject with at least one submitted paper.
+    /// </summary>
+    [HttpGet("~/api/internal/grading/score-distribution")]
+    public async Task<IActionResult> GetScoreDistribution([FromQuery] Guid[]? subjectIds, CancellationToken ct = default)
+    {
+        var result = await _gradingSessionService.GetScoreDistributionAsync(subjectIds, ct);
+        return Ok(new { data = result, responsedAt = DateTime.UtcNow });
+    }
 }

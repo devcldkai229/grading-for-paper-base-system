@@ -17,4 +17,12 @@ public interface IGradingServiceClient
     /// </summary>
     Task<GradingProgressDashboardClientDto?> GetProgressDashboardAsync(
         IReadOnlyCollection<Guid>? subjectIds, CancellationToken ct = default);
+
+    /// <summary>
+    /// Raw submitted scores + min/avg/max per subject, scoped to <paramref name="subjectIds"/>
+    /// (null/empty = every subject with at least one submitted paper). Returns null if
+    /// GradingService is unreachable — callers must fail closed.
+    /// </summary>
+    Task<ScoreDistributionDashboardClientDto?> GetScoreDistributionAsync(
+        IReadOnlyCollection<Guid>? subjectIds, CancellationToken ct = default);
 }
