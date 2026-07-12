@@ -94,3 +94,18 @@ public record CreateFileBatchResultDto(
     Guid BatchId,
     Guid PaperId
 );
+
+public record PaperFileRefDto(
+    Guid FileId,
+    string S3Key
+);
+
+/// <summary>Everything needed to authorize and perform a paper deletion (files to purge from S3 included).</summary>
+public record PaperDeletionInfoDto(
+    Guid PaperId,
+    Guid BatchId,
+    Guid SubjectId,
+    Guid UploadedBy,
+    string Status,
+    IReadOnlyList<PaperFileRefDto> Files
+);

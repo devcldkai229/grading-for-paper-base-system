@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SubmissionService.Application;
 using SubmissionService.Application.Interfaces;
+using SubmissionService.Domain.Enums;
 using SubmissionService.Domain.Messages;
 using System.Security.Claims;
 
@@ -20,17 +21,20 @@ public class BatchesController : ControllerBase
     private readonly IStudentPaperRepository _paperRepository;
     private readonly IS3Service _s3Service;
     private readonly IPublishEndpoint _publishEndpoint;
+    private readonly ISubmissionAuditLogRepository _auditLogRepository;
 
     public BatchesController(
         IBatchRepository batchRepository,
         IStudentPaperRepository paperRepository,
         IPublishEndpoint publishEndpoint,
-        IS3Service s3Service)
+        IS3Service s3Service,
+        ISubmissionAuditLogRepository auditLogRepository)
     {
         _batchRepository = batchRepository;
         _paperRepository = paperRepository;
         _publishEndpoint = publishEndpoint;
         _s3Service = s3Service;
+        _auditLogRepository = auditLogRepository;
     }
 
     /// <summary>
@@ -261,6 +265,95 @@ public class BatchesController : ControllerBase
             StatusCode = 202,
             Message = "Batch retry accepted. Processing will begin shortly.",
             Data = new { batchId = batch.Id },
+            ResponsedAt = DateTime.UtcNow
+        });
+    }
+
+    /// <summary>
+    /// Delete a batch, its papers, and their files — only while none of its papers has started
+    /// grading yet. Lecturers may only delete their own batches; Admins may delete any batch.
+    /// Purges S3 objects (zip + every paper file) before removing the DB records, and records
+    /// an audit log entry for the deletion.
+    /// </summary>
+    [HttpDelete("{batchId:guid}")]
+    public async Task<IActionResult> DeleteBatch(Guid batchId, CancellationToken ct = default)
+    {
+        var batch = await _batchRepository.GetBatchAsync(batchId, ct);
+        if (batch is null)
+        {
+            return NotFound(new ApiResponse<object>
+            {
+                StatusCode = 404,
+                Message = "Batch not found",
+                Data = null!,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value;
+        if (!Guid.TryParse(userIdString, out var userId))
+        {
+            return Unauthorized(new ApiResponse<object>
+            {
+                StatusCode = 401,
+                Message = "Invalid user ID",
+                Data = null!,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        // TokenService issues the role claim with literal Type "Role" — see SubmissionsController for details.
+        var role = User.FindFirst("Role")?.Value;
+        if (!string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase) && userId != batch.UploadedBy)
+        {
+            return Forbid();
+        }
+
+        if (batch.Status == BatchStatus.Extracting.ToString())
+        {
+            return Conflict(new ApiResponse<object>
+            {
+                StatusCode = 409,
+                Message = "Batch is still being processed; try again once it finishes.",
+                Data = null!,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        var papers = await _paperRepository.GetPapersForDeletionAsync(batchId, ct);
+        if (papers.Any(p => p.Status != PaperStatus.ReadyToAssign.ToString()))
+        {
+            return Conflict(new ApiResponse<object>
+            {
+                StatusCode = 409,
+                Message = "Batch has papers that already started grading; it can no longer be deleted.",
+                Data = null!,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        foreach (var file in papers.SelectMany(p => p.Files))
+        {
+            await _s3Service.DeleteAsync(file.S3Key, ct);
+        }
+        if (!string.IsNullOrEmpty(batch.ZipS3Key))
+        {
+            await _s3Service.DeleteAsync(batch.ZipS3Key, ct);
+        }
+
+        await _paperRepository.DeletePapersByBatchAsync(batchId, ct);
+        await _batchRepository.DeleteBatchRecordAsync(batchId, ct);
+
+        await _auditLogRepository.LogAsync(
+            "DeleteBatch", "Batch", batchId, batch.SubjectId, userId,
+            $"Deleted batch '{batch.ZipFileName}' ({papers.Count} paper(s))", ct);
+
+        return Ok(new ApiResponse<object>
+        {
+            StatusCode = 200,
+            Message = "Batch deleted successfully",
+            Data = null!,
             ResponsedAt = DateTime.UtcNow
         });
     }

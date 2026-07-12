@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
+import { isAxiosError } from "axios";
 import { submissionService } from "@/services/submissionService";
 import { catalogService } from "@/services/catalogService";
 import { startGradingFlow } from "@/lib/startGradingFlow";
@@ -28,6 +29,7 @@ export function BatchUploadPage() {
   const [startingGrading, setStartingGrading] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [pollKey, setPollKey] = useState(0);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     setSubjectId(querySubjectId);
@@ -113,6 +115,28 @@ export function BatchUploadPage() {
       setError(msg);
     } finally {
       setRetrying(false);
+    }
+  }, [batchId]);
+
+  const handleDeleteBatch = useCallback(async () => {
+    if (!batchId) return;
+    if (!window.confirm("Xóa batch này cùng toàn bộ bài làm đã tải lên? Hành động này không thể hoàn tác.")) {
+      return;
+    }
+    setError(null);
+    setDeleting(true);
+    try {
+      await submissionService.deleteBatch(batchId);
+      setBatchId(null);
+      setBatchStatus(null);
+      setFile(null);
+    } catch (err: unknown) {
+      const msg = isAxiosError(err)
+        ? err.response?.data?.message ?? "Không thể xóa batch."
+        : "Không thể xóa batch.";
+      setError(msg);
+    } finally {
+      setDeleting(false);
     }
   }, [batchId]);
 
@@ -347,6 +371,16 @@ export function BatchUploadPage() {
                   {startingGrading ? "Đang khởi tạo..." : "Tiến hành chấm bài"}
                 </button>
               </>
+            )}
+            {(batchStatus?.status === "Ready" || batchStatus?.status === "Failed") && (
+              <button
+                type="button"
+                onClick={() => void handleDeleteBatch()}
+                disabled={deleting}
+                className="w-full py-3 mt-2 border border-destructive/30 text-destructive hover:bg-destructive/10 disabled:opacity-50 rounded-lg font-medium transition-colors"
+              >
+                {deleting ? "Đang xóa..." : "Xóa batch"}
+              </button>
             )}
             {error && (
               <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-sm">

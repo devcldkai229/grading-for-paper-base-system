@@ -54,6 +54,7 @@ public static class DependencyInjection
         // Repositories
         services.AddScoped<Application.Interfaces.IBatchRepository, Repositories.BatchRepository>();
         services.AddScoped<Application.Interfaces.IStudentPaperRepository, Repositories.StudentPaperRepository>();
+        services.AddScoped<Application.Interfaces.ISubmissionAuditLogRepository, Repositories.SubmissionAuditLogRepository>();
 
         // S3 (AWS) — required for upload/parse/pre-signed URLs
         services.AddAwsS3Client(configuration);

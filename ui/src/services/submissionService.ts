@@ -67,4 +67,12 @@ export const submissionService = {
     );
     return res.data.data;
   },
+
+  async deleteBatch(batchId: string): Promise<void> {
+    await api.delete<ApiResponse<null>>(`/batches/${batchId}`);
+  },
+
+  async deleteSubmission(paperId: string): Promise<void> {
+    await api.delete<ApiResponse<null>>(`/submissions/${paperId}`);
+  },
 };

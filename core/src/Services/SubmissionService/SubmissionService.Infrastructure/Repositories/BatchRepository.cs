@@ -114,6 +114,12 @@ public class BatchRepository : IBatchRepository
         return result.ModifiedCount > 0;
     }
 
+    public async Task<bool> DeleteBatchRecordAsync(Guid batchId, CancellationToken ct = default)
+    {
+        var result = await Collection.DeleteOneAsync(b => b.Id == batchId, ct);
+        return result.DeletedCount > 0;
+    }
+
     public async Task<BatchDto> CreateFileBatchAsync(Guid subjectId, Guid uploadedBy, CancellationToken ct = default)
     {
         var batch = new SubmissionBatch

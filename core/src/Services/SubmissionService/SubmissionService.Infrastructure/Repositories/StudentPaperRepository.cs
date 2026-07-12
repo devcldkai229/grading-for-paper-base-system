@@ -174,4 +174,55 @@ public class StudentPaperRepository : IStudentPaperRepository
 
         return (file.S3Key, file.FileName ?? "unknown", file.ContentType);
     }
+
+    public async Task<PaperDeletionInfoDto?> GetPaperForDeletionAsync(Guid paperId, CancellationToken ct = default)
+    {
+        var paper = await PapersCollection.Find(p => p.Id == paperId).FirstOrDefaultAsync(ct);
+        if (paper is null) return null;
+
+        var files = await FilesCollection.Find(f => f.StudentPaperId == paperId).ToListAsync(ct);
+
+        return new PaperDeletionInfoDto(
+            paper.Id, paper.BatchId, paper.SubjectId, paper.UploadedBy, paper.Status.ToString(),
+            files.Select(f => new PaperFileRefDto(f.Id, f.S3Key)).ToList());
+    }
+
+    public async Task<IReadOnlyList<PaperDeletionInfoDto>> GetPapersForDeletionAsync(Guid batchId, CancellationToken ct = default)
+    {
+        var papers = await PapersCollection.Find(p => p.BatchId == batchId).ToListAsync(ct);
+        if (papers.Count == 0) return [];
+
+        var paperIds = papers.Select(p => p.Id).ToList();
+        var files = await FilesCollection
+            .Find(Builders<PaperFile>.Filter.In(f => f.StudentPaperId, paperIds))
+            .ToListAsync(ct);
+        var filesByPaper = files.GroupBy(f => f.StudentPaperId)
+            .ToDictionary(g => g.Key, g => g.Select(f => new PaperFileRefDto(f.Id, f.S3Key)).ToList());
+
+        return papers.Select(p => new PaperDeletionInfoDto(
+            p.Id, p.BatchId, p.SubjectId, p.UploadedBy, p.Status.ToString(),
+            (IReadOnlyList<PaperFileRefDto>)filesByPaper.GetValueOrDefault(p.Id, [])
+        )).ToList();
+    }
+
+    public async Task DeletePaperAsync(Guid paperId, CancellationToken ct = default)
+    {
+        await FilesCollection.DeleteManyAsync(f => f.StudentPaperId == paperId, ct);
+        await PapersCollection.DeleteOneAsync(p => p.Id == paperId, ct);
+    }
+
+    public async Task DeletePapersByBatchAsync(Guid batchId, CancellationToken ct = default)
+    {
+        var paperIds = await PapersCollection.Find(p => p.BatchId == batchId)
+            .Project(p => p.Id)
+            .ToListAsync(ct);
+
+        if (paperIds.Count > 0)
+        {
+            await FilesCollection.DeleteManyAsync(
+                Builders<PaperFile>.Filter.In(f => f.StudentPaperId, paperIds), ct);
+        }
+
+        await PapersCollection.DeleteManyAsync(p => p.BatchId == batchId, ct);
+    }
 }

@@ -19,6 +19,7 @@ namespace SubmissionService.UnitTests
         private readonly IStudentPaperRepository _paperRepository;
         private readonly IPublishEndpoint _publishEndpoint;
         private readonly IS3Service _s3Service;
+        private readonly ISubmissionAuditLogRepository _auditLogRepository;
         private readonly BatchesController _controller;
 
         public BatchRetryTests()
@@ -27,9 +28,10 @@ namespace SubmissionService.UnitTests
             _paperRepository = Substitute.For<IStudentPaperRepository>();
             _publishEndpoint = Substitute.For<IPublishEndpoint>();
             _s3Service = Substitute.For<IS3Service>();
+            _auditLogRepository = Substitute.For<ISubmissionAuditLogRepository>();
 
             _controller = new BatchesController(
-                _batchRepository, _paperRepository, _publishEndpoint, _s3Service);
+                _batchRepository, _paperRepository, _publishEndpoint, _s3Service, _auditLogRepository);
         }
 
         private static BatchDto MakeBatch(Guid id, Guid subjectId, Guid uploadedBy, string status) =>

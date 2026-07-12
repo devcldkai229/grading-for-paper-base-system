@@ -24,4 +24,7 @@ public interface IBatchRepository
     /// retried by a concurrent request, or still processing) — callers should treat false as "no-op".
     /// </summary>
     Task<bool> TryMarkFailedForRetryAsync(Guid batchId, CancellationToken ct = default);
+
+    /// <summary>Removes the batch record. Caller must have already verified gradability and purged S3/paper data.</summary>
+    Task<bool> DeleteBatchRecordAsync(Guid batchId, CancellationToken ct = default);
 }
