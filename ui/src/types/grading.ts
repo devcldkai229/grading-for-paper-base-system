@@ -57,3 +57,48 @@ export interface SaveMarksResult {
 export interface SubmitResult {
   nextAssignmentId: string | null;
 }
+
+export interface OverrideMarksPayload {
+  reason: string;
+  paperComment: string;
+  internalComment: string;
+  questions: {
+    questionNumber: string;
+    score: number;
+    questionComment: string;
+  }[];
+}
+
+export interface OverrideMarksResult {
+  rowVersion: number;
+  totalScore: number;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  userId: string;
+  action: string;
+  oldValue: string | null;
+  newValue: string | null;
+  reason: string | null;
+  createdAt: string;
+}
+
+export interface UpcomingDeadline {
+  subjectId: string;
+  subjectCode: string;
+  examName: string;
+  examEndDate: string;
+  totalCount: number;
+  submittedCount: number;
+  remainingCount: number;
+  nextAssignmentId: string | null;
+}
+
+export interface MyProgress {
+  totalAssignments: number;
+  submittedCount: number;
+  remainingCount: number;
+  nextAssignmentId: string | null;
+  upcomingDeadlines: UpcomingDeadline[];
+}

@@ -72,15 +72,35 @@ public class GradingSessionService : IGradingSessionService
 
         if (assignment?.GradingForm is null) return null;
 
+        var dto = await BuildSessionDtoAsync(assignment, ct);
+        if (dto is null) return null;
+
+        await UpsertResumePointerAsync(teacherId, dto.BatchId, assignmentId, ct);
+        return dto;
+    }
+
+    public async Task<GradingSessionDto?> GetAssignmentForOverrideAsync(Guid assignmentId, CancellationToken ct = default)
+    {
+        var assignment = await _db.GradingAssignments
+            .AsNoTracking()
+            .Include(a => a.GradingForm!)
+                .ThenInclude(f => f.QuestionGradeDetails)
+            .FirstOrDefaultAsync(a => a.Id == assignmentId, ct);
+
+        if (assignment?.GradingForm is null) return null;
+
+        return await BuildSessionDtoAsync(assignment, ct);
+    }
+
+    private async Task<GradingSessionDto?> BuildSessionDtoAsync(GradingAssignment assignment, CancellationToken ct)
+    {
         var grid = await _catalogClient.GetGradingGridAsync(assignment.SubjectId, ct);
         if (grid is null) return null;
 
         var paper = await _submissionClient.GetPaperSummaryAsync(assignment.StudentPaperId, ct);
         if (paper is null) return null;
 
-        await UpsertResumePointerAsync(teacherId, paper.BatchId, assignmentId, ct);
-
-        var questions = assignment.GradingForm.QuestionGradeDetails
+        var questions = assignment.GradingForm!.QuestionGradeDetails
             .OrderBy(q => q.OrderIndex)
             .ThenBy(q => q.QuestionNumber)
             .Select(q => new QuestionMarkDto(
@@ -173,6 +193,100 @@ public class GradingSessionService : IGradingSessionService
         {
             return (null, true, null);
         }
+    }
+
+    public async Task<(OverrideMarksResultDto? Result, bool NotFound, string? Error)> OverrideMarksAsync(
+        Guid assignmentId, Guid actingUserId, bool isAdmin, OverrideMarksRequest request, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.Reason))
+        {
+            return (null, false, "A reason is required to override scores.");
+        }
+
+        var query = _db.GradingAssignments
+            .Include(a => a.GradingForm!)
+                .ThenInclude(f => f.QuestionGradeDetails)
+            .Where(a => a.Id == assignmentId);
+
+        if (!isAdmin)
+        {
+            query = query.Where(a => a.TeacherId == actingUserId);
+        }
+
+        var assignment = await query.FirstOrDefaultAsync(ct);
+        if (assignment?.GradingForm is null) return (null, true, null);
+
+        var form = assignment.GradingForm;
+
+        // Validation: Scores validated 0..max per leaf (same rule as a normal save).
+        foreach (var input in request.Questions)
+        {
+            var detail = form.QuestionGradeDetails
+                .FirstOrDefault(q => q.QuestionNumber == input.QuestionNumber);
+            if (detail is null) continue;
+
+            if (input.Score < 0 || input.Score > detail.MaxScore)
+            {
+                return (null, false, $"Score for question {input.QuestionNumber} must be between 0 and {detail.MaxScore}.");
+            }
+        }
+
+        var oldSnapshot = SerializeForm(form);
+
+        foreach (var input in request.Questions)
+        {
+            var detail = form.QuestionGradeDetails
+                .FirstOrDefault(q => q.QuestionNumber == input.QuestionNumber);
+            if (detail is null) continue;
+
+            detail.Score = input.Score;
+            detail.QuestionComment = input.QuestionComment;
+        }
+
+        form.PaperComment = request.PaperComment;
+        form.InternalComment = request.InternalComment;
+        form.TotalScore = form.QuestionGradeDetails.Sum(q => q.Score);
+        form.RowVersion++;
+
+        _db.AuditLogs.Add(new AuditLog
+        {
+            UserId = actingUserId,
+            Action = "ScoreOverridden",
+            EntityType = "GradingForm",
+            EntityId = form.Id,
+            OldValue = oldSnapshot,
+            NewValue = SerializeForm(form),
+            Reason = request.Reason
+        });
+
+        await _db.SaveChangesAsync(ct);
+        return (new OverrideMarksResultDto(form.RowVersion, form.TotalScore), false, null);
+    }
+
+    public async Task<(IReadOnlyList<AuditLogEntryDto>? Result, bool NotFound)> GetAuditTrailAsync(
+        Guid assignmentId, Guid actingUserId, bool isAdmin, CancellationToken ct = default)
+    {
+        var query = _db.GradingAssignments
+            .Include(a => a.GradingForm)
+            .Where(a => a.Id == assignmentId);
+
+        if (!isAdmin)
+        {
+            query = query.Where(a => a.TeacherId == actingUserId);
+        }
+
+        var assignment = await query.AsNoTracking().FirstOrDefaultAsync(ct);
+        if (assignment?.GradingForm is null) return (null, true);
+
+        var entries = await _db.AuditLogs
+            .AsNoTracking()
+            .Where(l => l.EntityType == "GradingForm" && l.EntityId == assignment.GradingForm.Id)
+            .OrderByDescending(l => l.CreatedAt)
+            .Select(l => new AuditLogEntryDto(
+                l.Id, l.UserId, l.Action, l.OldValue, l.NewValue, l.Reason, l.CreatedAt))
+            .ToListAsync(ct);
+
+        return (entries, false);
     }
 
     public async Task<(SubmitResultDto? Result, bool Forbidden, bool NotFound)> SubmitAsync(

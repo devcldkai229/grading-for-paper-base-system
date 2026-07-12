@@ -58,6 +58,25 @@ public record SaveMarksResultDto(int RowVersion);
 
 public record SubmitResultDto(Guid? NextAssignmentId);
 
+public record OverrideMarksRequest(
+    IReadOnlyList<QuestionMarkInput> Questions,
+    string? PaperComment,
+    string? InternalComment,
+    string Reason
+);
+
+public record OverrideMarksResultDto(int RowVersion, decimal TotalScore);
+
+public record AuditLogEntryDto(
+    Guid Id,
+    Guid UserId,
+    string Action,
+    string? OldValue,
+    string? NewValue,
+    string? Reason,
+    DateTime CreatedAt
+);
+
 public record BatchPapersClientDto(
     Guid BatchId,
     Guid SubjectId,

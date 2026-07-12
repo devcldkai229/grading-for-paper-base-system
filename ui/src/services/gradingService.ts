@@ -1,7 +1,11 @@
 import api from "@/lib/api";
 import type { ApiResponse } from "@/types/auth";
 import type {
+  AuditLogEntry,
   GradingSession,
+  MyProgress,
+  OverrideMarksPayload,
+  OverrideMarksResult,
   SaveMarksPayload,
   SaveMarksResult,
   StartBatchResult,
@@ -9,6 +13,11 @@ import type {
 } from "@/types/grading";
 
 export const gradingService = {
+  async getMyProgress(): Promise<MyProgress> {
+    const res = await api.get<ApiResponse<MyProgress>>("/grading/my-progress");
+    return res.data.data;
+  },
+
   async startBatch(batchId: string): Promise<StartBatchResult> {
     const res = await api.post<ApiResponse<StartBatchResult>>(
       `/grading/batches/${batchId}/start`
@@ -37,6 +46,31 @@ export const gradingService = {
   async submit(assignmentId: string): Promise<SubmitResult> {
     const res = await api.post<ApiResponse<SubmitResult>>(
       `/grading/sessions/${assignmentId}/submit`
+    );
+    return res.data.data;
+  },
+
+  async getAssignmentForOverride(assignmentId: string): Promise<GradingSession> {
+    const res = await api.get<ApiResponse<GradingSession>>(
+      `/grading/assignments/${assignmentId}`
+    );
+    return res.data.data;
+  },
+
+  async overrideMarks(
+    assignmentId: string,
+    payload: OverrideMarksPayload
+  ): Promise<OverrideMarksResult> {
+    const res = await api.put<ApiResponse<OverrideMarksResult>>(
+      `/grading/assignments/${assignmentId}/override`,
+      payload
+    );
+    return res.data.data;
+  },
+
+  async getAuditLog(assignmentId: string): Promise<AuditLogEntry[]> {
+    const res = await api.get<ApiResponse<AuditLogEntry[]>>(
+      `/grading/assignments/${assignmentId}/audit-log`
     );
     return res.data.data;
   },
