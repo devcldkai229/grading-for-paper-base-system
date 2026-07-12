@@ -9,4 +9,12 @@ public interface IGradingServiceClient
     /// is unreachable — callers must fail closed (report generation fails rather than returns partial data).
     /// </summary>
     Task<SubjectFeedbackClientDto?> GetReleasableFeedbackAsync(Guid subjectId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Grading progress (completion %, throughput, ETA) per subject and per lecturer, scoped to
+    /// <paramref name="subjectIds"/> (null/empty = every subject with at least one assignment).
+    /// Returns null if GradingService is unreachable — callers must fail closed.
+    /// </summary>
+    Task<GradingProgressDashboardClientDto?> GetProgressDashboardAsync(
+        IReadOnlyCollection<Guid>? subjectIds, CancellationToken ct = default);
 }

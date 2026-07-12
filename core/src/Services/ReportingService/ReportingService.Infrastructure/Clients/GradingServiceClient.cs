@@ -41,6 +41,28 @@ public class GradingServiceClient : IGradingServiceClient
         }
     }
 
+    public async Task<GradingProgressDashboardClientDto?> GetProgressDashboardAsync(
+        IReadOnlyCollection<Guid>? subjectIds, CancellationToken ct = default)
+    {
+        try
+        {
+            var query = subjectIds is { Count: > 0 }
+                ? "?" + string.Join("&", subjectIds.Select(id => $"subjectIds={id}"))
+                : string.Empty;
+
+            var response = await _httpClient.GetAsync($"/api/internal/grading/progress{query}", ct);
+            response.EnsureSuccessStatusCode();
+
+            var payload = await response.Content.ReadFromJsonAsync<Envelope<GradingProgressDashboardClientDto>>(JsonOptions, ct);
+            return payload?.Data;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            _logger.LogError(ex, "GradingService unreachable for grading progress dashboard");
+            return null;
+        }
+    }
+
     private sealed class Envelope<T>
     {
         [JsonPropertyName("data")]

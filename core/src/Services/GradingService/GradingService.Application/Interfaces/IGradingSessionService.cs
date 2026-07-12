@@ -53,4 +53,14 @@ public interface IGradingSessionService
     /// Consumed by ReportingService's student feedback export (service-to-service, internal API key).
     /// </summary>
     Task<SubjectFeedbackExportDto> GetReleasableFeedbackAsync(Guid subjectId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Admin grading progress dashboard: completion %, throughput (papers/hour, based on
+    /// GradingForm.SubmittedAt in the last 24h) and a projected ETA, broken down per subject and
+    /// per lecturer within each subject. Pass <paramref name="subjectIds"/> to scope to a specific
+    /// set of subjects (e.g. resolved from a semester/exam filter); null/empty means "all subjects
+    /// that have at least one grading assignment".
+    /// </summary>
+    Task<GradingProgressDashboardDto> GetProgressDashboardAsync(
+        IReadOnlyCollection<Guid>? subjectIds, CancellationToken ct = default);
 }

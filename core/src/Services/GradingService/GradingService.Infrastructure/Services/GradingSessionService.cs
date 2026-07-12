@@ -651,6 +651,116 @@ public class GradingSessionService : IGradingSessionService
         return new MyProgressDto(total, submitted, remaining, nextAssignmentId, upcomingDeadlines);
     }
 
+    // Rolling window used to compute "papers/hour" throughput and, from it, an ETA.
+    private static readonly TimeSpan ThroughputWindow = TimeSpan.FromHours(24);
+
+    private sealed record ProgressRow(
+        Guid SubjectId, Guid TeacherId, GradingProgressStatus Status,
+        DateTime? SubmittedAt, decimal? TotalScore);
+
+    public async Task<GradingProgressDashboardDto> GetProgressDashboardAsync(
+        IReadOnlyCollection<Guid>? subjectIds, CancellationToken ct = default)
+    {
+        var query = _db.GradingAssignments.AsNoTracking().AsQueryable();
+        if (subjectIds is { Count: > 0 })
+        {
+            query = query.Where(a => subjectIds.Contains(a.SubjectId));
+        }
+
+        var rows = await query
+            .Select(a => new ProgressRow(
+                a.SubjectId,
+                a.TeacherId,
+                a.Status,
+                a.GradingForm != null ? a.GradingForm.SubmittedAt : null,
+                a.GradingForm != null ? (decimal?)a.GradingForm.TotalScore : null))
+            .ToListAsync(ct);
+
+        var now = DateTime.UtcNow;
+        var windowStart = now - ThroughputWindow;
+
+        var subjects = rows
+            .GroupBy(r => r.SubjectId)
+            .Select(subjectGroup =>
+            {
+                var lecturers = subjectGroup
+                    .GroupBy(r => r.TeacherId)
+                    .Select(teacherGroup => BuildLecturerProgress(teacherGroup.Key, teacherGroup.ToList(), now, windowStart))
+                    .OrderByDescending(l => l.AssignedCount)
+                    .ToList();
+
+                var total = subjectGroup.Count();
+                var completed = subjectGroup.Count(r => r.Status == GradingProgressStatus.Submitted);
+                var drafting = subjectGroup.Count(r => r.Status == GradingProgressStatus.Drafting);
+                var notStarted = total - completed - drafting;
+                var scores = subjectGroup
+                    .Where(r => r.Status == GradingProgressStatus.Submitted && r.TotalScore.HasValue)
+                    .Select(r => r.TotalScore!.Value)
+                    .ToList();
+
+                // Subject-level throughput = combined rate of every lecturer working on it.
+                var throughput = lecturers.Sum(l => l.ThroughputPerHour ?? 0);
+                var remaining = total - completed;
+                DateTime? estimatedFinish = throughput > 0 && remaining > 0
+                    ? now.AddHours((double)(remaining / throughput))
+                    : null;
+
+                return new SubjectProgressDto(
+                    subjectGroup.Key,
+                    total,
+                    completed,
+                    drafting,
+                    notStarted,
+                    total == 0 ? 0 : Math.Round(100m * completed / total, 1),
+                    scores.Count > 0 ? Math.Round(scores.Average(), 2) : null,
+                    scores.Count > 0 ? scores.Min() : null,
+                    scores.Count > 0 ? scores.Max() : null,
+                    throughput > 0 ? Math.Round(throughput, 2) : null,
+                    estimatedFinish,
+                    lecturers);
+            })
+            .OrderBy(s => s.CompletionPercent)
+            .ToList();
+
+        return new GradingProgressDashboardDto(subjects);
+    }
+
+    private static LecturerProgressDto BuildLecturerProgress(
+        Guid teacherId, IReadOnlyList<ProgressRow> rows, DateTime now, DateTime windowStart)
+    {
+        var assigned = rows.Count;
+        var completed = rows.Count(r => r.Status == GradingProgressStatus.Submitted);
+        var drafting = rows.Count(r => r.Status == GradingProgressStatus.Drafting);
+        var notStarted = assigned - completed - drafting;
+
+        var completedScores = rows
+            .Where(r => r.Status == GradingProgressStatus.Submitted && r.TotalScore.HasValue)
+            .Select(r => r.TotalScore!.Value)
+            .ToList();
+
+        var submittedTimestamps = rows
+            .Where(r => r.SubmittedAt.HasValue)
+            .Select(r => r.SubmittedAt!.Value)
+            .ToList();
+
+        var lastActivity = submittedTimestamps.Count > 0 ? submittedTimestamps.Max() : (DateTime?)null;
+
+        var completedInWindow = submittedTimestamps.Count(t => t >= windowStart);
+        decimal? throughput = completedInWindow > 0
+            ? Math.Round(completedInWindow / (decimal)ThroughputWindow.TotalHours, 2)
+            : null;
+
+        var remaining = assigned - completed;
+        DateTime? estimatedFinish = throughput is > 0 && remaining > 0
+            ? now.AddHours((double)(remaining / throughput.Value))
+            : null;
+
+        return new LecturerProgressDto(
+            teacherId, assigned, completed, drafting, notStarted,
+            completedScores.Count > 0 ? Math.Round(completedScores.Average(), 2) : null,
+            throughput, lastActivity, estimatedFinish);
+    }
+
     public async Task<SubjectFeedbackExportDto> GetReleasableFeedbackAsync(Guid subjectId, CancellationToken ct = default)
     {
         var assignments = await _db.GradingAssignments

@@ -158,3 +158,36 @@ public record SubjectQuestionClientDto(
     decimal MaxScore,
     int OrderIndex
 );
+
+/// <summary>One lecturer's grading progress within a single subject.</summary>
+public record LecturerProgressDto(
+    Guid TeacherId,
+    int AssignedCount,
+    int CompletedCount,
+    int DraftingCount,
+    int NotStartedCount,
+    decimal? AvgScore,
+    decimal? ThroughputPerHour,
+    DateTime? LastActivityAt,
+    DateTime? EstimatedFinish
+);
+
+/// <summary>Aggregate grading progress for one subject, broken down per lecturer.</summary>
+public record SubjectProgressDto(
+    Guid SubjectId,
+    int TotalPapers,
+    int CompletedPapers,
+    int DraftingPapers,
+    int NotStartedPapers,
+    decimal CompletionPercent,
+    decimal? ScoreAvg,
+    decimal? ScoreMin,
+    decimal? ScoreMax,
+    decimal? ThroughputPerHour,
+    DateTime? EstimatedFinish,
+    IReadOnlyList<LecturerProgressDto> Lecturers
+);
+
+public record GradingProgressDashboardDto(
+    IReadOnlyList<SubjectProgressDto> Subjects
+);

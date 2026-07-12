@@ -58,4 +58,20 @@ public class InternalSubjectsController : ControllerBase
 
         return Ok(new { data = info, responsedAt = DateTime.UtcNow });
     }
+
+    /// <summary>
+    /// Lists every subject matching an optional semester/exam filter (unpaginated — bounded by how
+    /// many subjects an exam catalog realistically has). Consumed by ReportingService to resolve
+    /// which subjects fall under a semester/exam filter for the admin grading progress dashboard.
+    /// </summary>
+    [HttpGet("search")]
+    public async Task<IActionResult> SearchSubjects(
+        [FromQuery] Guid? semesterId, [FromQuery] Guid? examId, CancellationToken ct = default)
+    {
+        var (items, _) = await _repository.SearchSubjectsAsync(
+            code: null, semesterId, examId, status: null, restrictToSubjectIds: null,
+            page: 1, pageSize: 1000, ct);
+
+        return Ok(new { data = items, responsedAt = DateTime.UtcNow });
+    }
 }

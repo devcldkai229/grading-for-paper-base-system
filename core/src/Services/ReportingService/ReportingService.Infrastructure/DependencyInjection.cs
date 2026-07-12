@@ -24,19 +24,24 @@ public static class DependencyInjection
         services.AddSingleton(new ReportingDatabaseSettings(connectionString));
 
         services.AddScoped<Application.Interfaces.IFeedbackReportService, Services.FeedbackReportService>();
+        services.AddScoped<Application.Interfaces.IGradingProgressService, Services.GradingProgressService>();
         RegisterGradingServiceClient(services, configuration);
+        RegisterExamCatalogServiceClient(services, configuration);
         RegisterJwtAuthentication(services, configuration);
         RegisterAuthorization(services);
 
         return services;
     }
 
-    private static void RegisterGradingServiceClient(IServiceCollection services, IConfiguration configuration)
-    {
-        var internalApiKey = Environment.GetEnvironmentVariable("INTERNAL_API_KEY")
+    private static string GetInternalApiKey(IConfiguration configuration) =>
+        Environment.GetEnvironmentVariable("INTERNAL_API_KEY")
             ?? configuration.GetSection("InternalAuth")["ApiKey"]
             ?? throw new InvalidOperationException(
                 "Internal API key missing. Set INTERNAL_API_KEY or InternalAuth:ApiKey.");
+
+    private static void RegisterGradingServiceClient(IServiceCollection services, IConfiguration configuration)
+    {
+        var internalApiKey = GetInternalApiKey(configuration);
 
         var gradingServiceUrl = configuration.GetValue<string>("GradingServiceUrl")
             ?? throw new InvalidOperationException(
@@ -45,6 +50,22 @@ public static class DependencyInjection
         services.AddHttpClient<Application.Interfaces.IGradingServiceClient, Clients.GradingServiceClient>(client =>
         {
             client.BaseAddress = new Uri(gradingServiceUrl);
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
+        });
+    }
+
+    private static void RegisterExamCatalogServiceClient(IServiceCollection services, IConfiguration configuration)
+    {
+        var internalApiKey = GetInternalApiKey(configuration);
+
+        var examCatalogServiceUrl = configuration.GetValue<string>("ExamCatalogServiceUrl")
+            ?? throw new InvalidOperationException(
+                "ExamCatalogServiceUrl is missing. It is required for the grading progress dashboard's semester/exam filter.");
+
+        services.AddHttpClient<Application.Interfaces.IExamCatalogServiceClient, Clients.ExamCatalogServiceClient>(client =>
+        {
+            client.BaseAddress = new Uri(examCatalogServiceUrl);
             client.Timeout = TimeSpan.FromSeconds(30);
             client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
         });

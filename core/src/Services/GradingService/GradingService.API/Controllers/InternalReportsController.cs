@@ -28,4 +28,16 @@ public class InternalReportsController : ControllerBase
         var result = await _gradingSessionService.GetReleasableFeedbackAsync(subjectId, ct);
         return Ok(new { data = result, responsedAt = DateTime.UtcNow });
     }
+
+    /// <summary>
+    /// Admin grading progress dashboard (completion %, throughput, ETA) per subject and per lecturer.
+    /// Pass one or more <paramref name="subjectIds"/> to scope the result (e.g. resolved from a
+    /// semester/exam filter); omit to cover every subject with at least one grading assignment.
+    /// </summary>
+    [HttpGet("~/api/internal/grading/progress")]
+    public async Task<IActionResult> GetProgressDashboard([FromQuery] Guid[]? subjectIds, CancellationToken ct = default)
+    {
+        var result = await _gradingSessionService.GetProgressDashboardAsync(subjectIds, ct);
+        return Ok(new { data = result, responsedAt = DateTime.UtcNow });
+    }
 }

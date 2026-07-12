@@ -1,7 +1,24 @@
 import { isAxiosError } from "axios";
 import api from "@/lib/api";
+import type { ApiResponse } from "@/types/auth";
+import type { GradingProgressDashboard } from "@/types/reporting";
 
 export const reportingService = {
+  async getGradingProgressDashboard(
+    semesterId?: string,
+    examId?: string
+  ): Promise<GradingProgressDashboard> {
+    const params: Record<string, string> = {};
+    if (semesterId) params.semesterId = semesterId;
+    if (examId) params.examId = examId;
+
+    const res = await api.get<ApiResponse<GradingProgressDashboard>>(
+      "/reports/grading-progress",
+      { params }
+    );
+    return res.data.data;
+  },
+
   async exportFeedback(subjectId: string, mappingFile: File): Promise<Blob> {
     const formData = new FormData();
     formData.append("aliasMapping", mappingFile);

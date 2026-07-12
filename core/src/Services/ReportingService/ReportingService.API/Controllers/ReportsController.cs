@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ReportingService.Application.DTOs;
 using ReportingService.Application.Interfaces;
 using System.Security.Claims;
 
@@ -18,10 +19,50 @@ public class ReportsController : ControllerBase
     };
 
     private readonly IFeedbackReportService _feedbackReportService;
+    private readonly IGradingProgressService _gradingProgressService;
 
-    public ReportsController(IFeedbackReportService feedbackReportService)
+    public ReportsController(
+        IFeedbackReportService feedbackReportService,
+        IGradingProgressService gradingProgressService)
     {
         _feedbackReportService = feedbackReportService;
+        _gradingProgressService = gradingProgressService;
+    }
+
+    /// <summary>
+    /// Admin-only. Grading progress dashboard: completion %, throughput and ETA per subject and
+    /// per lecturer. Optionally scoped to a semester and/or exam.
+    /// </summary>
+    [HttpGet("grading-progress")]
+    public async Task<IActionResult> GetGradingProgress(
+        [FromQuery] Guid? semesterId,
+        [FromQuery] Guid? examId,
+        CancellationToken ct = default)
+    {
+        if (!IsAdmin())
+        {
+            return Forbid();
+        }
+
+        var (result, error) = await _gradingProgressService.GetDashboardAsync(semesterId, examId, ct);
+        if (error is not null)
+        {
+            return StatusCode(503, new ApiResponse<object>
+            {
+                StatusCode = 503,
+                Message = error,
+                Data = null,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        return Ok(new ApiResponse<GradingProgressDashboardResultDto>
+        {
+            StatusCode = 200,
+            Message = "Grading progress dashboard retrieved successfully",
+            Data = result!,
+            ResponsedAt = DateTime.UtcNow
+        });
     }
 
     /// <summary>
