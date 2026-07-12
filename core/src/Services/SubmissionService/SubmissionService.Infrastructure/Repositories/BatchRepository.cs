@@ -50,11 +50,12 @@ public class BatchRepository : IBatchRepository
         if (batch is null) return null;
 
         return new BatchStatusDto(batch.Id, batch.Status.ToString(),
-            batch.TotalPapers, batch.ErrorMessage);
+            batch.TotalPapers, batch.ErrorMessage, MapDuplicateWarnings(batch.DuplicateWarnings));
     }
 
     public async Task UpdateBatchStatusAsync(Guid batchId, BatchStatus status,
-        int? totalPapers = null, string? errorMessage = null, CancellationToken ct = default)
+        int? totalPapers = null, string? errorMessage = null,
+        IReadOnlyList<DuplicateFileWarningDto>? duplicateWarnings = null, CancellationToken ct = default)
     {
         var updateDef = Builders<SubmissionBatch>.Update
             .Set(b => b.Status, status)
@@ -66,8 +67,28 @@ public class BatchRepository : IBatchRepository
         if (errorMessage is not null)
             updateDef = updateDef.Set(b => b.ErrorMessage, errorMessage);
 
+        if (duplicateWarnings is not null)
+        {
+            updateDef = updateDef.Set(b => b.DuplicateWarnings, duplicateWarnings.Select(w => new DuplicateFileWarning
+            {
+                ContentHash = w.ContentHash,
+                Files = w.Files.Select(f => new DuplicateFileEntry
+                {
+                    StudentPaperId = f.PaperId,
+                    StudentAlias = f.StudentAlias,
+                    FileName = f.FileName
+                }).ToList()
+            }).ToList());
+        }
+
         await Collection.UpdateOneAsync(b => b.Id == batchId, updateDef, cancellationToken: ct);
     }
+
+    private static List<DuplicateFileWarningDto> MapDuplicateWarnings(List<DuplicateFileWarning> warnings) =>
+        warnings.Select(w => new DuplicateFileWarningDto(
+            w.ContentHash,
+            w.Files.Select(f => new DuplicateFileEntryDto(f.StudentPaperId, f.StudentAlias, f.FileName)).ToList()
+        )).ToList();
 
     public async Task<BatchDto?> GetBatchAsync(Guid batchId, CancellationToken ct = default)
     {

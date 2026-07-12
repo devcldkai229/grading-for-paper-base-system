@@ -16,7 +16,20 @@ public record BatchStatusDto(
     Guid Id,
     string Status,
     int TotalPapers,
-    string? ErrorMessage
+    string? ErrorMessage,
+    IReadOnlyList<DuplicateFileWarningDto> DuplicateWarnings
+);
+
+public record DuplicateFileEntryDto(
+    Guid PaperId,
+    string? StudentAlias,
+    string? FileName
+);
+
+/// <summary>Files sharing the same content hash within a batch. Informational only — never blocks upload.</summary>
+public record DuplicateFileWarningDto(
+    string ContentHash,
+    IReadOnlyList<DuplicateFileEntryDto> Files
 );
 
 public record StudentPaperDto(

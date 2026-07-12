@@ -27,6 +27,10 @@ public sealed class PaperFile
     [BsonElement("size_bytes")]
     public long? SizeBytes { get; set; }
 
+    /// <summary>SHA-256 hex digest of the file content, used for duplicate detection within a batch.</summary>
+    [BsonElement("content_hash")]
+    public string? ContentHash { get; set; }
+
     [BsonElement("order_index")]
     public int OrderIndex { get; set; }
 

@@ -11,7 +11,8 @@ public interface IBatchRepository
     Task<BatchStatusDto?> GetBatchStatusAsync(Guid batchId, CancellationToken ct = default);
 
     Task UpdateBatchStatusAsync(Guid batchId, BatchStatus status, int? totalPapers = null,
-        string? errorMessage = null, CancellationToken ct = default);
+        string? errorMessage = null, IReadOnlyList<DuplicateFileWarningDto>? duplicateWarnings = null,
+        CancellationToken ct = default);
 
     Task<BatchDto?> GetBatchAsync(Guid batchId, CancellationToken ct = default);
 

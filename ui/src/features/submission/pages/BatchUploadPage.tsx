@@ -299,6 +299,23 @@ export function BatchUploadPage() {
                 {batchStatus.errorMessage}
               </div>
             )}
+            {batchStatus && batchStatus.duplicateWarnings.length > 0 && (
+              <div className="p-3 bg-brand-orange/10 border border-brand-orange/30 rounded-lg text-sm space-y-2">
+                <p className="font-medium text-brand-orange">
+                  Phát hiện {batchStatus.duplicateWarnings.length} nhóm file trùng nội dung
+                </p>
+                <ul className="space-y-1 text-ink-soft">
+                  {batchStatus.duplicateWarnings.map((warning) => (
+                    <li key={warning.contentHash}>
+                      {warning.files
+                        .map((f) => f.studentAlias ?? f.fileName ?? "?")
+                        .join(", ")}{" "}
+                      có nội dung giống hệt nhau
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {batchStatus?.status === "Failed" && (
               <button
                 type="button"
