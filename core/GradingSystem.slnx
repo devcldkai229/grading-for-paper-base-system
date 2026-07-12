@@ -69,6 +69,8 @@
 
     <Project Path="src/Services/GradingService/GradingService.Infrastructure/GradingService.Infrastructure.csproj" />
 
+    <Project Path="src/Services/GradingService/GradingService.UnitTests/GradingService.UnitTests.csproj" />
+
   </Folder>
 
   <Folder Name="/src/Services/ReportingService/">

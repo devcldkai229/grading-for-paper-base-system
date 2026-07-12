@@ -245,6 +245,21 @@ public class ExamCatalogRepository : IExamCatalogRepository
             .FirstOrDefaultAsync(ct);
     }
 
+    public async Task<SubjectExamInfoDto?> GetSubjectExamInfoAsync(
+        Guid subjectId, CancellationToken ct = default)
+    {
+        return await _context.Subjects
+            .AsNoTracking()
+            .Where(s => s.Id == subjectId)
+            .Select(s => new SubjectExamInfoDto(
+                s.Id,
+                s.SubjectCode,
+                s.ExamId,
+                s.Exam.Name,
+                s.Exam.EndDate))
+            .FirstOrDefaultAsync(ct);
+    }
+
     public async Task<(string S3Key, string FileName, string ContentType)?> GetExamPaperInfoAsync(
         Guid subjectId, CancellationToken ct = default)
     {

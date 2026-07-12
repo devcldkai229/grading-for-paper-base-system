@@ -42,4 +42,20 @@ public class InternalSubjectsController : ControllerBase
 
         return Ok(new { data = grid, responsedAt = DateTime.UtcNow });
     }
+
+    /// <summary>
+    /// Minimal exam context for a subject (code, exam name, exam end date).
+    /// Consumed by GradingService to surface upcoming grading deadlines on a lecturer's dashboard.
+    /// </summary>
+    [HttpGet("{subjectId:guid}/exam-info")]
+    public async Task<IActionResult> GetExamInfo(Guid subjectId, CancellationToken ct = default)
+    {
+        var info = await _repository.GetSubjectExamInfoAsync(subjectId, ct);
+        if (info is null)
+        {
+            return NotFound(new { statusCode = 404, message = "Subject not found", responsedAt = DateTime.UtcNow });
+        }
+
+        return Ok(new { data = info, responsedAt = DateTime.UtcNow });
+    }
 }

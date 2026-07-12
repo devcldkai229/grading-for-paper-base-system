@@ -480,5 +480,61 @@ public class GradingSessionService : IGradingSessionService
         MiniExcelLibs.MiniExcel.SaveAs(memoryStream, rows);
         return memoryStream.ToArray();
     }
+
+    public async Task<MyProgressDto> GetMyProgressAsync(Guid teacherId, CancellationToken ct = default)
+    {
+        var assignments = await _db.GradingAssignments
+            .AsNoTracking()
+            .Where(a => a.TeacherId == teacherId)
+            .Select(a => new { a.Id, a.SubjectId, a.Status, a.CreatedAt })
+            .ToListAsync(ct);
+
+        var total = assignments.Count;
+        var submitted = assignments.Count(a => a.Status == GradingProgressStatus.Submitted);
+        var remaining = total - submitted;
+
+        var subjectsWithRemainingWork = assignments
+            .GroupBy(a => a.SubjectId)
+            .Select(g => new
+            {
+                SubjectId = g.Key,
+                Total = g.Count(),
+                Submitted = g.Count(a => a.Status == GradingProgressStatus.Submitted),
+                NextAssignmentId = g
+                    .Where(a => a.Status != GradingProgressStatus.Submitted)
+                    .OrderBy(a => a.CreatedAt)
+                    .Select(a => (Guid?)a.Id)
+                    .FirstOrDefault()
+            })
+            .Where(g => g.Submitted < g.Total)
+            .ToList();
+
+        var deadlineTasks = subjectsWithRemainingWork.Select(async s =>
+        {
+            var info = await _catalogClient.GetExamInfoAsync(s.SubjectId, ct);
+            return info?.ExamEndDate is null
+                ? null
+                : new UpcomingDeadlineDto(
+                    s.SubjectId,
+                    info.SubjectCode,
+                    info.ExamName,
+                    info.ExamEndDate.Value,
+                    s.Total,
+                    s.Submitted,
+                    s.Total - s.Submitted,
+                    s.NextAssignmentId);
+        });
+
+        var upcomingDeadlines = (await Task.WhenAll(deadlineTasks))
+            .Where(d => d is not null)
+            .Select(d => d!)
+            .OrderBy(d => d.ExamEndDate)
+            .ToList();
+
+        var nextAssignmentId = upcomingDeadlines.FirstOrDefault()?.NextAssignmentId
+            ?? subjectsWithRemainingWork.Select(s => s.NextAssignmentId).FirstOrDefault(id => id.HasValue);
+
+        return new MyProgressDto(total, submitted, remaining, nextAssignmentId, upcomingDeadlines);
+    }
 }
 

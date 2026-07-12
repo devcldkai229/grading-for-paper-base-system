@@ -15,4 +15,12 @@ public interface IGradingSessionService
         Guid assignmentId, Guid teacherId, CancellationToken ct = default);
 
     Task<byte[]?> ExportGradesAsync(Guid subjectId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Aggregate grading progress for a lecturer's dashboard: done/total counters, upcoming exam
+    /// deadlines for subjects that still have ungraded papers (soonest first), and a quick-link
+    /// assignment id to resume grading (the next ungraded paper for the most urgent deadline, or
+    /// any remaining one if no subject has a known deadline).
+    /// </summary>
+    Task<MyProgressDto> GetMyProgressAsync(Guid teacherId, CancellationToken ct = default);
 }

@@ -36,6 +36,13 @@ public interface IExamCatalogRepository
         Guid subjectId, CancellationToken ct = default);
 
     /// <summary>
+    /// Minimal exam context for a subject — used by GradingService (internal, service-to-service)
+    /// to surface upcoming grading deadlines without exposing the full subject/exam graph.
+    /// </summary>
+    Task<SubjectExamInfoDto?> GetSubjectExamInfoAsync(
+        Guid subjectId, CancellationToken ct = default);
+
+    /// <summary>
     /// Returns preview (s3Key, displayFileName, previewContentType, originalContentType) for inline viewing.
     /// </summary>
     Task<(string S3Key, string FileName, string ContentType, string OriginalContentType)?> GetExamPaperViewInfoAsync(

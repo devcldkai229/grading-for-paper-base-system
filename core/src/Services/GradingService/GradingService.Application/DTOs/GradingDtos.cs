@@ -83,6 +83,33 @@ public record SubjectGradingGridClientDto(
     IReadOnlyList<SubjectQuestionClientDto> Questions
 );
 
+public record SubjectExamInfoClientDto(
+    Guid SubjectId,
+    string SubjectCode,
+    Guid ExamId,
+    string ExamName,
+    DateOnly? ExamEndDate
+);
+
+public record MyProgressDto(
+    int TotalAssignments,
+    int SubmittedCount,
+    int RemainingCount,
+    Guid? NextAssignmentId,
+    IReadOnlyList<UpcomingDeadlineDto> UpcomingDeadlines
+);
+
+public record UpcomingDeadlineDto(
+    Guid SubjectId,
+    string SubjectCode,
+    string ExamName,
+    DateOnly ExamEndDate,
+    int TotalCount,
+    int SubmittedCount,
+    int RemainingCount,
+    Guid? NextAssignmentId
+);
+
 public record SubjectQuestionClientDto(
     string QuestionNumber,
     string? GroupLabel,

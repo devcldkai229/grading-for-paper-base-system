@@ -35,6 +35,14 @@ public record SubjectSummaryDto(
     DateTime CreatedAt
 );
 
+public record SubjectExamInfoDto(
+    Guid SubjectId,
+    string SubjectCode,
+    Guid ExamId,
+    string ExamName,
+    DateOnly? ExamEndDate
+);
+
 public record SubjectSearchResultDto(
     Guid Id,
     Guid ExamId,

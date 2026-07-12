@@ -161,6 +161,25 @@ public class GradingController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Aggregate grading progress for the caller: done/total counters, upcoming exam deadlines
+    /// for subjects that still have ungraded papers, and a quick-link assignment id to resume.
+    /// </summary>
+    [HttpGet("my-progress")]
+    public async Task<IActionResult> GetMyProgress(CancellationToken ct = default)
+    {
+        var teacherId = GetUserId();
+        var result = await _gradingSessionService.GetMyProgressAsync(teacherId, ct);
+
+        return Ok(new ApiResponse<MyProgressDto>
+        {
+            StatusCode = 200,
+            Message = "Progress retrieved",
+            Data = result,
+            ResponsedAt = DateTime.UtcNow
+        });
+    }
+
     [HttpGet("subjects/{subjectId:guid}/export")]
     public async Task<IActionResult> ExportGrades(Guid subjectId, CancellationToken ct = default)
     {
