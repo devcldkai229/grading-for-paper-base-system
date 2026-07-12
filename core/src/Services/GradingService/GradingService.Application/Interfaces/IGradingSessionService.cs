@@ -45,4 +45,12 @@ public interface IGradingSessionService
     /// </summary>
     Task<(IReadOnlyList<AuditLogEntryDto>? Result, bool NotFound)> GetAuditTrailAsync(
         Guid assignmentId, Guid actingUserId, bool isAdmin, CancellationToken ct = default);
+
+    /// <summary>
+    /// Releasable (public-facing) feedback for every Submitted paper in a subject — total score,
+    /// paper comment and per-question scores/comments. Deliberately never reads GradingForm's
+    /// InternalComment field, and skips assignments that aren't Submitted yet (not yet finalized/releasable).
+    /// Consumed by ReportingService's student feedback export (service-to-service, internal API key).
+    /// </summary>
+    Task<SubjectFeedbackExportDto> GetReleasableFeedbackAsync(Guid subjectId, CancellationToken ct = default);
 }

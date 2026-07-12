@@ -102,6 +102,28 @@ public record SubjectGradingGridClientDto(
     IReadOnlyList<SubjectQuestionClientDto> Questions
 );
 
+public record QuestionFeedbackDto(
+    string QuestionNumber,
+    string? Label,
+    decimal Score,
+    decimal MaxScore,
+    string? QuestionComment
+);
+
+public record StudentFeedbackDto(
+    Guid StudentPaperId,
+    int? AliasNumber,
+    string? StudentAlias,
+    decimal TotalScore,
+    string? PaperComment,
+    IReadOnlyList<QuestionFeedbackDto> Questions
+);
+
+public record SubjectFeedbackExportDto(
+    Guid SubjectId,
+    IReadOnlyList<StudentFeedbackDto> Students
+);
+
 public record SubjectExamInfoClientDto(
     Guid SubjectId,
     string SubjectCode,

@@ -650,5 +650,40 @@ public class GradingSessionService : IGradingSessionService
 
         return new MyProgressDto(total, submitted, remaining, nextAssignmentId, upcomingDeadlines);
     }
+
+    public async Task<SubjectFeedbackExportDto> GetReleasableFeedbackAsync(Guid subjectId, CancellationToken ct = default)
+    {
+        var assignments = await _db.GradingAssignments
+            .AsNoTracking()
+            .Include(a => a.GradingForm!)
+                .ThenInclude(f => f.QuestionGradeDetails)
+            .Where(a => a.SubjectId == subjectId && a.Status == GradingProgressStatus.Submitted)
+            .ToListAsync(ct);
+
+        var paperTasks = assignments
+            .Where(a => a.GradingForm is not null)
+            .Select(async a =>
+            {
+                var summary = await _submissionClient.GetPaperSummaryAsync(a.StudentPaperId, ct);
+                return (Assignment: a, Summary: summary);
+            });
+        var joined = await Task.WhenAll(paperTasks);
+
+        var students = joined
+            .OrderBy(x => x.Summary?.AliasNumber ?? int.MaxValue)
+            .Select(x => new StudentFeedbackDto(
+                x.Assignment.StudentPaperId,
+                x.Summary?.AliasNumber,
+                x.Summary?.StudentAlias,
+                x.Assignment.GradingForm!.TotalScore,
+                x.Assignment.GradingForm!.PaperComment,
+                x.Assignment.GradingForm!.QuestionGradeDetails
+                    .OrderBy(q => q.OrderIndex)
+                    .Select(q => new QuestionFeedbackDto(q.QuestionNumber, q.Label, q.Score, q.MaxScore, q.QuestionComment))
+                    .ToList()))
+            .ToList();
+
+        return new SubjectFeedbackExportDto(subjectId, students);
+    }
 }
 
