@@ -2,11 +2,13 @@ using BuildingBlocks.AwsS3;
 using ExamCatalogService.API.Authorization;
 using ExamCatalogService.Application.DTOs;
 using ExamCatalogService.Application.Interfaces;
+using ExamCatalogService.Domain.Enums;
 using ExamCatalogService.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using System.Security.Claims;
 
 namespace ExamCatalogService.API.Controllers;
 
@@ -30,6 +32,7 @@ public class SubjectsController : ControllerBase
     private readonly IExamCatalogRepository _repository;
     private readonly IS3Service _s3Service;
     private readonly IAiGradingClient _aiGradingClient;
+    private readonly IGradingServiceClient _gradingServiceClient;
     private readonly ISubjectAdminService _subjectAdminService;
     private readonly SubjectFilePreviewService _filePreviewService;
     private readonly TimeSpan _presignedUrlTtl;
@@ -38,6 +41,7 @@ public class SubjectsController : ControllerBase
         IExamCatalogRepository repository,
         IS3Service s3Service,
         IAiGradingClient aiGradingClient,
+        IGradingServiceClient gradingServiceClient,
         ISubjectAdminService subjectAdminService,
         SubjectFilePreviewService filePreviewService,
         IOptions<AwsS3Settings> s3Settings)
@@ -45,9 +49,85 @@ public class SubjectsController : ControllerBase
         _repository = repository;
         _s3Service = s3Service;
         _aiGradingClient = aiGradingClient;
+        _gradingServiceClient = gradingServiceClient;
         _subjectAdminService = subjectAdminService;
         _filePreviewService = filePreviewService;
         _presignedUrlTtl = s3Settings.Value.PresignedUrlTtl;
+    }
+
+    /// <summary>
+    /// Search subjects by code, semester, exam and/or status (paginated).
+    /// Admin sees all matching subjects; Lecturer only sees subjects they have a marker
+    /// assignment for (fetched from GradingService — fails closed to an empty result if unreachable).
+    /// </summary>
+    [HttpGet]
+    public async Task<IActionResult> SearchSubjects(
+        [FromQuery] string? code,
+        [FromQuery] Guid? semesterId,
+        [FromQuery] Guid? examId,
+        [FromQuery] string? status,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1 || pageSize > 100) pageSize = 20;
+
+        SubjectStatus? statusFilter = null;
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            if (!Enum.TryParse<SubjectStatus>(status, ignoreCase: true, out var parsedStatus))
+            {
+                return BadRequest(new ApiResponse<object>
+                {
+                    StatusCode = 400,
+                    Message = $"Invalid status '{status}'. Allowed: Draft, Open, Grading, Closed.",
+                    Data = null!,
+                    ResponsedAt = DateTime.UtcNow
+                });
+            }
+            statusFilter = parsedStatus;
+        }
+
+        IReadOnlySet<Guid>? restrictToSubjectIds = null;
+        if (!IsAdmin())
+        {
+            var lecturerIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                ?? User.FindFirst("sub")?.Value;
+            if (!Guid.TryParse(lecturerIdString, out var lecturerId))
+            {
+                return Unauthorized(new ApiResponse<object>
+                {
+                    StatusCode = 401,
+                    Message = "Invalid user ID",
+                    Data = null!,
+                    ResponsedAt = DateTime.UtcNow
+                });
+            }
+
+            var assignedSubjectIds = await _gradingServiceClient.GetAssignedSubjectIdsAsync(lecturerId, ct);
+            // Fail-closed: GradingService unreachable => show nothing rather than everything.
+            restrictToSubjectIds = (assignedSubjectIds ?? Array.Empty<Guid>()).ToHashSet();
+        }
+
+        var (items, totalCount) = await _repository.SearchSubjectsAsync(
+            code, semesterId, examId, statusFilter, restrictToSubjectIds, page, pageSize, ct);
+
+        var result = new PagedResult<SubjectSearchResultDto>
+        {
+            Items = items,
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = totalCount
+        };
+
+        return Ok(new ApiResponse<PagedResult<SubjectSearchResultDto>>
+        {
+            StatusCode = 200,
+            Message = "Subjects retrieved successfully",
+            Data = result,
+            ResponsedAt = DateTime.UtcNow
+        });
     }
 
     /// <summary>
@@ -644,5 +724,14 @@ public class SubjectsController : ControllerBase
         using var buffer = new MemoryStream();
         await uploadStream.CopyToAsync(buffer, ct);
         return buffer.ToArray();
+    }
+
+    private bool IsAdmin()
+    {
+        // TokenService issues the role claim with literal Type "Role" (not the ClaimTypes.Role URI,
+        // and not lowercase "role") — .NET's default inbound claim map only remaps "role" (lowercase),
+        // so neither ClaimTypes.Role nor "role" ever matches a real token. Must match the exact case.
+        var role = User.FindFirst("Role")?.Value;
+        return string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase);
     }
 }

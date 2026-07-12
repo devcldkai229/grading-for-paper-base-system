@@ -4,10 +4,20 @@ import type {
   Semester,
   Exam,
   SubjectSummary,
+  SubjectSearchResult,
   SubjectDetail,
   FileUrlResponse,
   PagedResult,
 } from "@/types/catalog";
+
+export interface SubjectSearchParams {
+  code?: string;
+  semesterId?: string;
+  examId?: string;
+  status?: string;
+  page?: number;
+  pageSize?: number;
+}
 
 export const catalogService = {
   async getSemesters(
@@ -54,6 +64,22 @@ export const catalogService = {
     const res = await api.get<ApiResponse<PagedResult<SubjectSummary>>>(
       `/exams/${examId}/subjects`,
       { params: { page, pageSize } }
+    );
+    return res.data.data;
+  },
+
+  async searchSubjects(
+    params: SubjectSearchParams
+  ): Promise<PagedResult<SubjectSearchResult>> {
+    const { page = 1, pageSize = 10, code, semesterId, examId, status } = params;
+    const query: Record<string, string | number> = { page, pageSize };
+    if (code) query.code = code;
+    if (semesterId) query.semesterId = semesterId;
+    if (examId) query.examId = examId;
+    if (status) query.status = status;
+    const res = await api.get<ApiResponse<PagedResult<SubjectSearchResult>>>(
+      "/subjects",
+      { params: query }
     );
     return res.data.data;
   },

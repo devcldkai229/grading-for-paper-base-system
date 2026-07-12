@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { BookOpen, LayoutDashboard, LogOut, Settings2, Users, User as UserIcon, ShieldAlert } from "lucide-react";
+import { BookOpen, LayoutDashboard, LogOut, Search, Settings2, Users, User as UserIcon, ShieldAlert } from "lucide-react";
 import { authService } from "@/services/authService";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { to: "/admin/dashboard", label: "Tổng quan", icon: LayoutDashboard, end: true },
   { to: "/admin/catalog/semesters", label: "Danh mục thi", icon: BookOpen },
+  { to: "/admin/catalog/subjects/search", label: "Tìm môn thi", icon: Search },
   { to: "/admin/users", label: "Tài khoản", icon: Users },
   { to: "/admin/audit-logs", label: "Lịch sử hoạt động", icon: ShieldAlert },
 ];

@@ -35,6 +35,22 @@ export interface SubjectSummary {
   createdAt: string;
 }
 
+export interface SubjectSearchResult {
+  id: string;
+  examId: string;
+  examName: string;
+  semesterId: string;
+  semesterCode: string;
+  subjectCode: string;
+  title: string | null;
+  maxScore: number;
+  status: string;
+  hasExamPaper: boolean;
+  hasRubric: boolean;
+  questionCount: number;
+  createdAt: string;
+}
+
 export interface Question {
   id: string;
   questionNumber: string;

@@ -35,6 +35,22 @@ public record SubjectSummaryDto(
     DateTime CreatedAt
 );
 
+public record SubjectSearchResultDto(
+    Guid Id,
+    Guid ExamId,
+    string ExamName,
+    Guid SemesterId,
+    string SemesterCode,
+    string SubjectCode,
+    string? Title,
+    decimal MaxScore,
+    string Status,
+    bool HasExamPaper,
+    bool HasRubric,
+    int QuestionCount,
+    DateTime CreatedAt
+);
+
 public record SubjectDetailDto(
     Guid Id,
     Guid ExamId,

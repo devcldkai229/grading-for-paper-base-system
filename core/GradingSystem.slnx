@@ -41,6 +41,8 @@
 
     <Project Path="src/Services/ExamCatalogService/ExamCatalogService.Infrastructure/ExamCatalogService.Infrastructure.csproj" />
 
+    <Project Path="src/Services/ExamCatalogService/ExamCatalogService.UnitTests/ExamCatalogService.UnitTests.csproj" />
+
   </Folder>
 
   <Folder Name="/src/Services/SubmissionService/">

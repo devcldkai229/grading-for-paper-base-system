@@ -37,6 +37,7 @@ public static class DependencyInjection
         services.AddScoped<Application.Interfaces.IS3Service, Services.S3Service>();
 
         RegisterAiGradingClient(services, configuration);
+        RegisterGradingServiceClient(services, configuration);
         RegisterGotenbergClient(services, configuration);
         RegisterJwtAuthentication(services, configuration);
         RegisterAuthorization(services);
@@ -59,6 +60,25 @@ public static class DependencyInjection
         {
             client.BaseAddress = new Uri(aiGradingUrl);
             client.Timeout = TimeSpan.FromMinutes(2);
+            client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
+        });
+    }
+
+    private static void RegisterGradingServiceClient(IServiceCollection services, IConfiguration configuration)
+    {
+        var internalApiKey = Environment.GetEnvironmentVariable("INTERNAL_API_KEY")
+            ?? configuration.GetSection(Auth.InternalAuthSettings.SectionName)["ApiKey"]
+            ?? throw new InvalidOperationException(
+                "Internal API key missing. Set INTERNAL_API_KEY or InternalAuth:ApiKey.");
+
+        var gradingServiceUrl = configuration.GetValue<string>("GradingServiceUrl")
+            ?? throw new InvalidOperationException(
+                "GradingServiceUrl is missing. It is required to scope subject search to a lecturer's assignments.");
+
+        services.AddHttpClient<Application.Interfaces.IGradingServiceClient, Clients.GradingServiceClient>(client =>
+        {
+            client.BaseAddress = new Uri(gradingServiceUrl);
+            client.Timeout = TimeSpan.FromSeconds(5);
             client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
         });
     }

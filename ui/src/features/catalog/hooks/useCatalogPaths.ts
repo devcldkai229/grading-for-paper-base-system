@@ -16,6 +16,7 @@ export function useCatalogPaths() {
         `${base}/semesters/${semesterId}/exams/${examId}/subjects`,
       examSubjectsShort: (examId: string) => `${base}/exams/${examId}/subjects`,
       subject: (subjectId: string) => `${base}/subjects/${subjectId}`,
+      subjectSearch: `${base}/subjects/search`,
     }),
     [base, isAdminMode]
   );

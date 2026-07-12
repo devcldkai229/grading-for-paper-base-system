@@ -36,4 +36,22 @@ public class AssignmentsController : ControllerBase
         // Always 200 with (possibly empty) list. Empty => lecturer has no assignment => no access.
         return Ok(new { data = ranges });
     }
+
+    /// <summary>
+    /// Returns the distinct subject ids a lecturer has any marker assignment for.
+    /// Consumed by ExamCatalogService to scope subject search results to a Lecturer's own subjects.
+    /// </summary>
+    [HttpGet("lecturers/{lecturerId:guid}/subjects")]
+    public async Task<IActionResult> GetAssignedSubjectIds(Guid lecturerId, CancellationToken ct = default)
+    {
+        var subjectIds = await _db.MarkerAssignments
+            .AsNoTracking()
+            .Where(m => m.TeacherId == lecturerId)
+            .Select(m => m.SubjectId)
+            .Distinct()
+            .ToListAsync(ct);
+
+        // Always 200 with (possibly empty) list. Empty => lecturer has no assignment => no access.
+        return Ok(new { data = subjectIds });
+    }
 }

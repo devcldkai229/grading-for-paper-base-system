@@ -11,6 +11,7 @@ import { AdminUsersPage } from "@/features/admin/pages/AdminUsersPage";
 import { SemestersPage } from "@/features/catalog/pages/SemestersPage";
 import { ExamsPage } from "@/features/catalog/pages/ExamsPage";
 import { SubjectsPage } from "@/features/catalog/pages/SubjectsPage";
+import { SubjectSearchPage } from "@/features/catalog/pages/SubjectSearchPage";
 import { SubjectDetailPage } from "@/features/catalog/pages/SubjectDetailPage";
 import { AdminSubjectDetailPage } from "@/features/admin/pages/AdminSubjectDetailPage";
 import { BatchUploadPage } from "@/features/submission/pages/BatchUploadPage";
@@ -58,6 +59,10 @@ function App() {
                 element={<ExamsPage />}
               />
               <Route
+                path="/admin/catalog/subjects/search"
+                element={<SubjectSearchPage />}
+              />
+              <Route
                 path="/admin/catalog/semesters/:semesterId/exams/:examId/subjects"
                 element={<SubjectsPage />}
               />
@@ -80,6 +85,10 @@ function App() {
               <Route
                 path="/catalog/semesters/:semesterId/exams"
                 element={<ExamsPage />}
+              />
+              <Route
+                path="/catalog/subjects/search"
+                element={<SubjectSearchPage />}
               />
               <Route
                 path="/catalog/semesters/:semesterId/exams/:examId/subjects"

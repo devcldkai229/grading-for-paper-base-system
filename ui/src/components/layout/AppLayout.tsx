@@ -6,6 +6,7 @@ import {
   GraduationCap,
   LayoutDashboard,
   LogOut,
+  Search,
   Upload,
   User as UserIcon,
 } from "lucide-react";
@@ -16,6 +17,7 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { to: "/dashboard", label: "Tổng quan", icon: LayoutDashboard, end: true },
   { to: "/catalog/semesters", label: "Danh mục thi", icon: BookOpen },
+  { to: "/catalog/subjects/search", label: "Tìm môn thi", icon: Search },
   { to: "/submissions", label: "Bài đã nộp", icon: ClipboardList },
   { to: "/batches/upload", label: "Upload bài", icon: Upload },
 ];
