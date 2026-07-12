@@ -202,7 +202,12 @@ public static class DependencyInjection
 
         await filesCollection.Indexes.CreateManyAsync([
             new CreateIndexModel<Persistence.Documents.PaperFile>(
-                Builders<Persistence.Documents.PaperFile>.IndexKeys.Ascending(f => f.StudentPaperId))
+                Builders<Persistence.Documents.PaperFile>.IndexKeys.Ascending(f => f.StudentPaperId)),
+            new CreateIndexModel<Persistence.Documents.PaperFile>(
+                Builders<Persistence.Documents.PaperFile>.IndexKeys
+                    .Ascending(f => f.StudentPaperId)
+                    .Ascending(f => f.S3Key),
+                new CreateIndexOptions { Unique = true })
         ]);
     }
 }

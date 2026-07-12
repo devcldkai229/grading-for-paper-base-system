@@ -37,7 +37,7 @@ public class BatchRepository : IBatchRepository
         await Collection.InsertOneAsync(batch, cancellationToken: ct);
 
         return new BatchDto(
-            batch.Id, batch.SubjectId, batch.ZipFileName, batch.TotalPapers,
+            batch.Id, batch.SubjectId, batch.ZipS3Key, batch.ZipFileName, batch.TotalPapers,
             batch.Status.ToString(), batch.UploadedBy, batch.ErrorMessage, batch.CreatedAt);
     }
 
@@ -75,8 +75,22 @@ public class BatchRepository : IBatchRepository
         if (batch is null) return null;
 
         return new BatchDto(
-            batch.Id, batch.SubjectId, batch.ZipFileName, batch.TotalPapers,
+            batch.Id, batch.SubjectId, batch.ZipS3Key, batch.ZipFileName, batch.TotalPapers,
             batch.Status.ToString(), batch.UploadedBy, batch.ErrorMessage, batch.CreatedAt);
+    }
+
+    public async Task<bool> TryMarkFailedForRetryAsync(Guid batchId, CancellationToken ct = default)
+    {
+        var filter = Builders<SubmissionBatch>.Filter.Eq(b => b.Id, batchId)
+                   & Builders<SubmissionBatch>.Filter.Eq(b => b.Status, BatchStatus.Failed);
+
+        var updateDef = Builders<SubmissionBatch>.Update
+            .Set(b => b.Status, BatchStatus.Uploaded)
+            .Set(b => b.ErrorMessage, null)
+            .Set(b => b.UpdatedAt, DateTime.UtcNow);
+
+        var result = await Collection.UpdateOneAsync(filter, updateDef, cancellationToken: ct);
+        return result.ModifiedCount > 0;
     }
 
     public async Task<BatchDto> CreateFileBatchAsync(Guid subjectId, Guid uploadedBy, CancellationToken ct = default)
@@ -95,7 +109,7 @@ public class BatchRepository : IBatchRepository
         await Collection.InsertOneAsync(batch, cancellationToken: ct);
 
         return new BatchDto(
-            batch.Id, batch.SubjectId, batch.ZipFileName, batch.TotalPapers,
+            batch.Id, batch.SubjectId, batch.ZipS3Key, batch.ZipFileName, batch.TotalPapers,
             batch.Status.ToString(), batch.UploadedBy, batch.ErrorMessage, batch.CreatedAt);
     }
 }

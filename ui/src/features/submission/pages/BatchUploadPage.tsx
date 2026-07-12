@@ -26,6 +26,8 @@ export function BatchUploadPage() {
   const [batchStatus, setBatchStatus] = useState<BatchStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [startingGrading, setStartingGrading] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [pollKey, setPollKey] = useState(0);
 
   useEffect(() => {
     setSubjectId(querySubjectId);
@@ -68,7 +70,7 @@ export function BatchUploadPage() {
     }, 2000);
 
     return () => clearInterval(interval);
-  }, [batchId]);
+  }, [batchId, pollKey]);
 
   const handleUpload = useCallback(async () => {
     if (!subjectId) {
@@ -95,6 +97,24 @@ export function BatchUploadPage() {
       setUploading(false);
     }
   }, [subjectId, file]);
+
+  const handleRetry = useCallback(async () => {
+    if (!batchId) return;
+    setError(null);
+    setRetrying(true);
+    try {
+      await submissionService.retryBatch(batchId);
+      setBatchStatus((prev) =>
+        prev ? { ...prev, status: "Uploaded", errorMessage: null } : prev
+      );
+      setPollKey((k) => k + 1);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Không thể thử lại batch.";
+      setError(msg);
+    } finally {
+      setRetrying(false);
+    }
+  }, [batchId]);
 
   const handleStartGrading = useCallback(async () => {
     if (!batchId) return;
@@ -278,6 +298,23 @@ export function BatchUploadPage() {
               <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-sm">
                 {batchStatus.errorMessage}
               </div>
+            )}
+            {batchStatus?.status === "Failed" && (
+              <button
+                type="button"
+                onClick={() => void handleRetry()}
+                disabled={retrying}
+                className="w-full py-3 mt-2 bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 rounded-lg font-medium transition-opacity"
+              >
+                {retrying ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <div className="animate-spin w-4 h-4 border-2 border-line border-t-white rounded-full" />
+                    Đang thử lại...
+                  </span>
+                ) : (
+                  "Thử lại"
+                )}
+              </button>
             )}
             {batchStatus?.status === "Ready" && (
               <>

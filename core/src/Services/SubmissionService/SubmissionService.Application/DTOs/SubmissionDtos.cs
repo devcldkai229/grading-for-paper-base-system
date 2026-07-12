@@ -3,6 +3,7 @@ namespace SubmissionService.Application.DTOs;
 public record BatchDto(
     Guid Id,
     Guid SubjectId,
+    string ZipS3Key,
     string? ZipFileName,
     int TotalPapers,
     string Status,

@@ -205,4 +205,63 @@ public class BatchesController : ControllerBase
             ResponsedAt = DateTime.UtcNow
         });
     }
+
+    /// <summary>
+    /// Re-run processing for a failed batch. Lecturers may only retry their own batches;
+    /// Admins may retry any batch. Idempotent: only a batch currently in Failed status is
+    /// re-queued, so repeated calls (or concurrent calls) publish at most one processing job.
+    /// </summary>
+    [HttpPost("{batchId:guid}/retry")]
+    public async Task<IActionResult> RetryBatch(Guid batchId, CancellationToken ct = default)
+    {
+        var batch = await _batchRepository.GetBatchAsync(batchId, ct);
+        if (batch is null)
+        {
+            return NotFound(new ApiResponse<object>
+            {
+                StatusCode = 404,
+                Message = "Batch not found",
+                Data = null!,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        // TokenService issues the role claim with literal Type "Role" — see SubmissionsController for details.
+        var role = User.FindFirst("Role")?.Value;
+        if (!string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase))
+        {
+            var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                ?? User.FindFirst("sub")?.Value;
+            if (!Guid.TryParse(userIdString, out var requesterId) || requesterId != batch.UploadedBy)
+            {
+                return Forbid();
+            }
+        }
+
+        var marked = await _batchRepository.TryMarkFailedForRetryAsync(batchId, ct);
+        if (!marked)
+        {
+            return Conflict(new ApiResponse<object>
+            {
+                StatusCode = 409,
+                Message = $"Batch cannot be retried from its current status ({batch.Status}). Only Failed batches can be retried.",
+                Data = null!,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        // Reuse batch.Id as MessageId, matching the original upload publish (BatchesController.UploadBatch):
+        // the consumer's Redis dedupe claim for this MessageId was released when the prior run failed,
+        // so this republish is safe to process and reuses the same idempotent upsert logic (no duplicate papers).
+        await _publishEndpoint.Publish(new ParseBatchJob(
+            batch.Id, batch.SubjectId, batch.ZipS3Key, batch.UploadedBy, batch.Id), ct);
+
+        return Accepted(new ApiResponse<object>
+        {
+            StatusCode = 202,
+            Message = "Batch retry accepted. Processing will begin shortly.",
+            Data = new { batchId = batch.Id },
+            ResponsedAt = DateTime.UtcNow
+        });
+    }
 }

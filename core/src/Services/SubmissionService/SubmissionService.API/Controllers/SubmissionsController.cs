@@ -42,8 +42,10 @@ public class SubmissionsController : ControllerBase
         if (page < 1) page = 1;
         if (pageSize < 1 || pageSize > 100) pageSize = 20;
 
-        var role = User.FindFirst(ClaimTypes.Role)?.Value
-                ?? User.FindFirst("role")?.Value;
+        // TokenService issues the role claim with literal Type "Role" (not the ClaimTypes.Role URI,
+        // and not lowercase "role") — .NET's default inbound claim map only remaps "role" (lowercase),
+        // so neither ClaimTypes.Role nor "role" ever matches a real token. Must match the exact case.
+        var role = User.FindFirst("Role")?.Value;
 
         Guid? uploadedByFilter = null;
 

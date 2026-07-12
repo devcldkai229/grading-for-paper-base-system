@@ -28,6 +28,13 @@ export const submissionService = {
     return res.data.data;
   },
 
+  async retryBatch(batchId: string): Promise<{ batchId: string }> {
+    const res = await api.post<ApiResponse<{ batchId: string }>>(
+      `/batches/${batchId}/retry`
+    );
+    return res.data.data;
+  },
+
   async getSubmissions(
     subjectId: string,
     status?: string,
