@@ -32,7 +32,7 @@ public class SubjectsController : ControllerBase
     private readonly IExamCatalogRepository _repository;
     private readonly IS3Service _s3Service;
     private readonly IAiGradingClient _aiGradingClient;
-    private readonly IGradingServiceClient _gradingServiceClient;
+    private readonly ISubjectQueryService _subjectQueryService;
     private readonly ISubjectAdminService _subjectAdminService;
     private readonly SubjectFilePreviewService _filePreviewService;
     private readonly TimeSpan _presignedUrlTtl;
@@ -41,7 +41,7 @@ public class SubjectsController : ControllerBase
         IExamCatalogRepository repository,
         IS3Service s3Service,
         IAiGradingClient aiGradingClient,
-        IGradingServiceClient gradingServiceClient,
+        ISubjectQueryService subjectQueryService,
         ISubjectAdminService subjectAdminService,
         SubjectFilePreviewService filePreviewService,
         IOptions<AwsS3Settings> s3Settings)
@@ -49,7 +49,7 @@ public class SubjectsController : ControllerBase
         _repository = repository;
         _s3Service = s3Service;
         _aiGradingClient = aiGradingClient;
-        _gradingServiceClient = gradingServiceClient;
+        _subjectQueryService = subjectQueryService;
         _subjectAdminService = subjectAdminService;
         _filePreviewService = filePreviewService;
         _presignedUrlTtl = s3Settings.Value.PresignedUrlTtl;
@@ -70,31 +70,12 @@ public class SubjectsController : ControllerBase
         [FromQuery] int pageSize = 20,
         CancellationToken ct = default)
     {
-        if (page < 1) page = 1;
-        if (pageSize < 1 || pageSize > 100) pageSize = 20;
-
-        SubjectStatus? statusFilter = null;
-        if (!string.IsNullOrWhiteSpace(status))
-        {
-            if (!Enum.TryParse<SubjectStatus>(status, ignoreCase: true, out var parsedStatus))
-            {
-                return BadRequest(new ApiResponse<object>
-                {
-                    StatusCode = 400,
-                    Message = $"Invalid status '{status}'. Allowed: Draft, Open, Grading, Closed.",
-                    Data = null!,
-                    ResponsedAt = DateTime.UtcNow
-                });
-            }
-            statusFilter = parsedStatus;
-        }
-
-        IReadOnlySet<Guid>? restrictToSubjectIds = null;
+        Guid? lecturerId = null;
         if (!IsAdmin())
         {
             var lecturerIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
                 ?? User.FindFirst("sub")?.Value;
-            if (!Guid.TryParse(lecturerIdString, out var lecturerId))
+            if (!Guid.TryParse(lecturerIdString, out var parsedLecturerId))
             {
                 return Unauthorized(new ApiResponse<object>
                 {
@@ -104,21 +85,29 @@ public class SubjectsController : ControllerBase
                     ResponsedAt = DateTime.UtcNow
                 });
             }
-
-            var assignedSubjectIds = await _gradingServiceClient.GetAssignedSubjectIdsAsync(lecturerId, ct);
-            // Fail-closed: GradingService unreachable => show nothing rather than everything.
-            restrictToSubjectIds = (assignedSubjectIds ?? Array.Empty<Guid>()).ToHashSet();
+            lecturerId = parsedLecturerId;
         }
 
-        var (items, totalCount) = await _repository.SearchSubjectsAsync(
-            code, semesterId, examId, statusFilter, restrictToSubjectIds, page, pageSize, ct);
+        var searchResult = await _subjectQueryService.SearchSubjectsAsync(
+            code, semesterId, examId, status, lecturerId, page, pageSize, ct);
+
+        if (searchResult.Error is not null)
+        {
+            return BadRequest(new ApiResponse<object>
+            {
+                StatusCode = 400,
+                Message = searchResult.Error,
+                Data = null!,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
 
         var result = new PagedResult<SubjectSearchResultDto>
         {
-            Items = items,
-            Page = page,
-            PageSize = pageSize,
-            TotalCount = totalCount
+            Items = searchResult.Items,
+            Page = searchResult.Page,
+            PageSize = searchResult.PageSize,
+            TotalCount = searchResult.TotalCount
         };
 
         return Ok(new ApiResponse<PagedResult<SubjectSearchResultDto>>

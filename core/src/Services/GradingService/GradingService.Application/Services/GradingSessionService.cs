@@ -3,25 +3,36 @@ using GradingService.Application.DTOs;
 using GradingService.Application.Interfaces;
 using GradingService.Domain.Entities;
 using GradingService.Domain.Enums;
-using GradingService.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
+using GradingService.Domain.Exceptions;
 
-namespace GradingService.Infrastructure.Services;
+namespace GradingService.Application.Services;
 
 public class GradingSessionService : IGradingSessionService
 {
-    private readonly GradingDbContext _db;
+    private readonly IGradingAssignmentRepository _assignments;
+    private readonly IAuditLogRepository _auditLogs;
+    private readonly IGradingResumePointerRepository _resumePointers;
+    private readonly IUnitOfWork _uow;
     private readonly ISubmissionServiceClient _submissionClient;
     private readonly IExamCatalogServiceClient _catalogClient;
+    private readonly IGradeExportFileBuilder _exportBuilder;
 
     public GradingSessionService(
-        GradingDbContext db,
+        IGradingAssignmentRepository assignments,
+        IAuditLogRepository auditLogs,
+        IGradingResumePointerRepository resumePointers,
+        IUnitOfWork uow,
         ISubmissionServiceClient submissionClient,
-        IExamCatalogServiceClient catalogClient)
+        IExamCatalogServiceClient catalogClient,
+        IGradeExportFileBuilder exportBuilder)
     {
-        _db = db;
+        _assignments = assignments;
+        _auditLogs = auditLogs;
+        _resumePointers = resumePointers;
+        _uow = uow;
         _submissionClient = submissionClient;
         _catalogClient = catalogClient;
+        _exportBuilder = exportBuilder;
     }
 
     public async Task<StartBatchResultDto?> StartBatchAsync(Guid batchId, Guid teacherId, CancellationToken ct = default)
@@ -64,12 +75,7 @@ public class GradingSessionService : IGradingSessionService
 
     public async Task<GradingSessionDto?> GetSessionAsync(Guid assignmentId, Guid teacherId, CancellationToken ct = default)
     {
-        var assignment = await _db.GradingAssignments
-            .AsNoTracking()
-            .Include(a => a.GradingForm!)
-                .ThenInclude(f => f.QuestionGradeDetails)
-            .FirstOrDefaultAsync(a => a.Id == assignmentId && a.TeacherId == teacherId, ct);
-
+        var assignment = await _assignments.GetWithFormAndDetailsAsync(assignmentId, teacherId, asNoTracking: true, ct);
         if (assignment?.GradingForm is null) return null;
 
         var dto = await BuildSessionDtoAsync(assignment, ct);
@@ -81,12 +87,7 @@ public class GradingSessionService : IGradingSessionService
 
     public async Task<GradingSessionDto?> GetAssignmentForOverrideAsync(Guid assignmentId, CancellationToken ct = default)
     {
-        var assignment = await _db.GradingAssignments
-            .AsNoTracking()
-            .Include(a => a.GradingForm!)
-                .ThenInclude(f => f.QuestionGradeDetails)
-            .FirstOrDefaultAsync(a => a.Id == assignmentId, ct);
-
+        var assignment = await _assignments.GetWithFormAndDetailsAsync(assignmentId, null, asNoTracking: true, ct);
         if (assignment?.GradingForm is null) return null;
 
         return await BuildSessionDtoAsync(assignment, ct);
@@ -132,11 +133,7 @@ public class GradingSessionService : IGradingSessionService
     public async Task<(SaveMarksResultDto? Result, bool Conflict, string? Error)> SaveMarksAsync(
         Guid assignmentId, Guid teacherId, SaveMarksRequest request, CancellationToken ct = default)
     {
-        var assignment = await _db.GradingAssignments
-            .Include(a => a.GradingForm!)
-                .ThenInclude(f => f.QuestionGradeDetails)
-            .FirstOrDefaultAsync(a => a.Id == assignmentId && a.TeacherId == teacherId, ct);
-
+        var assignment = await _assignments.GetWithFormAndDetailsAsync(assignmentId, teacherId, asNoTracking: false, ct);
         if (assignment?.GradingForm is null) return (null, false, null);
         if (assignment.Status == GradingProgressStatus.Submitted) return (null, false, "Session is already submitted");
 
@@ -174,7 +171,7 @@ public class GradingSessionService : IGradingSessionService
         form.RowVersion++;
         assignment.Status = GradingProgressStatus.Drafting;
 
-        _db.AuditLogs.Add(new AuditLog
+        _auditLogs.Add(new AuditLog
         {
             UserId = teacherId,
             Action = "ScoreUpdated",
@@ -186,10 +183,10 @@ public class GradingSessionService : IGradingSessionService
 
         try
         {
-            await _db.SaveChangesAsync(ct);
+            await _uow.SaveChangesAsync(ct);
             return (new SaveMarksResultDto(form.RowVersion), false, null);
         }
-        catch (DbUpdateConcurrencyException)
+        catch (ConcurrencyConflictException)
         {
             return (null, true, null);
         }
@@ -203,17 +200,8 @@ public class GradingSessionService : IGradingSessionService
             return (null, false, "A reason is required to override scores.");
         }
 
-        var query = _db.GradingAssignments
-            .Include(a => a.GradingForm!)
-                .ThenInclude(f => f.QuestionGradeDetails)
-            .Where(a => a.Id == assignmentId);
-
-        if (!isAdmin)
-        {
-            query = query.Where(a => a.TeacherId == actingUserId);
-        }
-
-        var assignment = await query.FirstOrDefaultAsync(ct);
+        Guid? teacherFilter = isAdmin ? null : actingUserId;
+        var assignment = await _assignments.GetWithFormAndDetailsAsync(assignmentId, teacherFilter, asNoTracking: false, ct);
         if (assignment?.GradingForm is null) return (null, true, null);
 
         var form = assignment.GradingForm;
@@ -248,7 +236,7 @@ public class GradingSessionService : IGradingSessionService
         form.TotalScore = form.QuestionGradeDetails.Sum(q => q.Score);
         form.RowVersion++;
 
-        _db.AuditLogs.Add(new AuditLog
+        _auditLogs.Add(new AuditLog
         {
             UserId = actingUserId,
             Action = "ScoreOverridden",
@@ -259,42 +247,30 @@ public class GradingSessionService : IGradingSessionService
             Reason = request.Reason
         });
 
-        await _db.SaveChangesAsync(ct);
+        await _uow.SaveChangesAsync(ct);
         return (new OverrideMarksResultDto(form.RowVersion, form.TotalScore), false, null);
     }
 
     public async Task<(IReadOnlyList<AuditLogEntryDto>? Result, bool NotFound)> GetAuditTrailAsync(
         Guid assignmentId, Guid actingUserId, bool isAdmin, CancellationToken ct = default)
     {
-        var query = _db.GradingAssignments
-            .Include(a => a.GradingForm)
-            .Where(a => a.Id == assignmentId);
-
-        if (!isAdmin)
-        {
-            query = query.Where(a => a.TeacherId == actingUserId);
-        }
-
-        var assignment = await query.AsNoTracking().FirstOrDefaultAsync(ct);
+        Guid? teacherFilter = isAdmin ? null : actingUserId;
+        var assignment = await _assignments.GetWithFormAsync(assignmentId, teacherFilter, asNoTracking: true, ct);
         if (assignment?.GradingForm is null) return (null, true);
 
-        var entries = await _db.AuditLogs
-            .AsNoTracking()
-            .Where(l => l.EntityType == "GradingForm" && l.EntityId == assignment.GradingForm.Id)
-            .OrderByDescending(l => l.CreatedAt)
+        var entries = await _auditLogs.ListForEntityAsync("GradingForm", assignment.GradingForm.Id, ct);
+        var mapped = entries
             .Select(l => new AuditLogEntryDto(
                 l.Id, l.UserId, l.Action, l.OldValue, l.NewValue, l.Reason, l.CreatedAt))
-            .ToListAsync(ct);
+            .ToList();
 
-        return (entries, false);
+        return (mapped, false);
     }
 
     public async Task<(SubmitResultDto? Result, bool Forbidden, bool NotFound)> SubmitAsync(
         Guid assignmentId, Guid teacherId, CancellationToken ct = default)
     {
-        var assignment = await _db.GradingAssignments
-            .Include(a => a.GradingForm)
-            .FirstOrDefaultAsync(a => a.Id == assignmentId && a.TeacherId == teacherId, ct);
+        var assignment = await _assignments.GetWithFormAsync(assignmentId, teacherId, asNoTracking: false, ct);
 
         if (assignment is null) return (null, false, true);
         if (assignment.Status == GradingProgressStatus.Submitted) return (null, true, false);
@@ -307,7 +283,7 @@ public class GradingSessionService : IGradingSessionService
         assignment.Status = GradingProgressStatus.Submitted;
         assignment.GradingForm.SubmittedAt = now;
 
-        _db.AuditLogs.Add(new AuditLog
+        _auditLogs.Add(new AuditLog
         {
             UserId = teacherId,
             Action = "FormSubmitted",
@@ -316,17 +292,14 @@ public class GradingSessionService : IGradingSessionService
             NewValue = JsonSerializer.Serialize(new { assignment.GradingForm.TotalScore })
         });
 
-        await _db.SaveChangesAsync(ct);
+        await _uow.SaveChangesAsync(ct);
 
         var batch = await _submissionClient.GetBatchPapersAsync(paper.BatchId, ct);
         Guid? nextId = null;
         if (batch is not null)
         {
             var paperIds = batch.Papers.Select(p => p.PaperId).ToList();
-            var assignments = await _db.GradingAssignments
-                .AsNoTracking()
-                .Where(a => a.TeacherId == teacherId && paperIds.Contains(a.StudentPaperId))
-                .ToListAsync(ct);
+            var assignments = await _assignments.ListByTeacherAndPaperIdsAsync(teacherId, paperIds, ct);
 
             var ordered = batch.Papers
                 .OrderBy(p => p.AliasNumber ?? int.MaxValue)
@@ -360,13 +333,7 @@ public class GradingSessionService : IGradingSessionService
         Guid paperId, Guid subjectId, Guid teacherId,
         SubjectGradingGridClientDto grid, CancellationToken ct)
     {
-        var existing = await _db.GradingAssignments
-            .Include(a => a.GradingForm!)
-                .ThenInclude(f => f.QuestionGradeDetails)
-            .FirstOrDefaultAsync(a =>
-                a.StudentPaperId == paperId
-                && a.TeacherId == teacherId
-                && a.AssignmentType == AssignmentType.FirstGrade, ct);
+        var existing = await _assignments.FindFirstGradeForPaperAsync(paperId, teacherId, ct);
 
         if (existing is not null)
         {
@@ -406,8 +373,8 @@ public class GradingSessionService : IGradingSessionService
         }
 
         assignment.GradingForm = form;
-        _db.GradingAssignments.Add(assignment);
-        await _db.SaveChangesAsync(ct);
+        _assignments.Add(assignment);
+        await _uow.SaveChangesAsync(ct);
 
         return assignment;
     }
@@ -423,7 +390,7 @@ public class GradingSessionService : IGradingSessionService
                 TotalScore = 0,
                 RowVersion = 0
             };
-            _db.GradingForms.Add(assignment.GradingForm);
+            _assignments.AddForm(assignment.GradingForm);
         }
 
         var existingNumbers = assignment.GradingForm.QuestionGradeDetails
@@ -449,7 +416,7 @@ public class GradingSessionService : IGradingSessionService
             added = true;
         }
 
-        if (added) await _db.SaveChangesAsync(ct);
+        if (added) await _uow.SaveChangesAsync(ct);
     }
 
     private async Task<Guid> ResolveResumeAssignmentIdAsync(
@@ -463,9 +430,7 @@ public class GradingSessionService : IGradingSessionService
 
         var assignmentIds = ordered.Select(o => o.AssignmentId).ToHashSet();
 
-        var pointer = await _db.GradingResumePointers
-            .AsNoTracking()
-            .FirstOrDefaultAsync(p => p.TeacherId == teacherId && p.BatchId == batchId, ct);
+        var pointer = await _resumePointers.GetAsync(teacherId, batchId, asNoTracking: true, ct);
 
         if (pointer is not null && assignmentIds.Contains(pointer.AssignmentId))
         {
@@ -491,12 +456,11 @@ public class GradingSessionService : IGradingSessionService
         Guid assignmentId,
         CancellationToken ct)
     {
-        var existing = await _db.GradingResumePointers
-            .FirstOrDefaultAsync(p => p.TeacherId == teacherId && p.BatchId == batchId, ct);
+        var existing = await _resumePointers.GetAsync(teacherId, batchId, asNoTracking: false, ct);
 
         if (existing is null)
         {
-            _db.GradingResumePointers.Add(new GradingResumePointer
+            _resumePointers.Add(new GradingResumePointer
             {
                 TeacherId = teacherId,
                 BatchId = batchId,
@@ -508,7 +472,7 @@ public class GradingSessionService : IGradingSessionService
             existing.UpdateAssignment(assignmentId);
         }
 
-        await _db.SaveChangesAsync(ct);
+        await _uow.SaveChangesAsync(ct);
     }
 
     private static string ToStatusLabel(GradingProgressStatus status) =>
@@ -536,13 +500,7 @@ public class GradingSessionService : IGradingSessionService
 
     public async Task<byte[]?> ExportGradesAsync(Guid subjectId, CancellationToken ct = default)
     {
-        var assignments = await _db.GradingAssignments
-            .AsNoTracking()
-            .Include(a => a.GradingForm!)
-                .ThenInclude(f => f.QuestionGradeDetails)
-            .Where(a => a.SubjectId == subjectId)
-            .ToListAsync(ct);
-
+        var assignments = await _assignments.ListBySubjectWithFormsAsync(subjectId, submittedOnly: false, ct);
         if (assignments.Count == 0) return null;
 
         // Fetch paper summaries in parallel to get student alias & alias numbers
@@ -590,18 +548,12 @@ public class GradingSessionService : IGradingSessionService
             rows.Add(row);
         }
 
-        using var memoryStream = new System.IO.MemoryStream();
-        MiniExcelLibs.MiniExcel.SaveAs(memoryStream, rows);
-        return memoryStream.ToArray();
+        return _exportBuilder.Build(rows);
     }
 
     public async Task<MyProgressDto> GetMyProgressAsync(Guid teacherId, CancellationToken ct = default)
     {
-        var assignments = await _db.GradingAssignments
-            .AsNoTracking()
-            .Where(a => a.TeacherId == teacherId)
-            .Select(a => new { a.Id, a.SubjectId, a.Status, a.CreatedAt })
-            .ToListAsync(ct);
+        var assignments = await _assignments.ListProgressByTeacherAsync(teacherId, ct);
 
         var total = assignments.Count;
         var submitted = assignments.Count(a => a.Status == GradingProgressStatus.Submitted);
@@ -654,27 +606,10 @@ public class GradingSessionService : IGradingSessionService
     // Rolling window used to compute "papers/hour" throughput and, from it, an ETA.
     private static readonly TimeSpan ThroughputWindow = TimeSpan.FromHours(24);
 
-    private sealed record ProgressRow(
-        Guid SubjectId, Guid TeacherId, GradingProgressStatus Status,
-        DateTime? SubmittedAt, decimal? TotalScore);
-
     public async Task<GradingProgressDashboardDto> GetProgressDashboardAsync(
         IReadOnlyCollection<Guid>? subjectIds, CancellationToken ct = default)
     {
-        var query = _db.GradingAssignments.AsNoTracking().AsQueryable();
-        if (subjectIds is { Count: > 0 })
-        {
-            query = query.Where(a => subjectIds.Contains(a.SubjectId));
-        }
-
-        var rows = await query
-            .Select(a => new ProgressRow(
-                a.SubjectId,
-                a.TeacherId,
-                a.Status,
-                a.GradingForm != null ? a.GradingForm.SubmittedAt : null,
-                a.GradingForm != null ? (decimal?)a.GradingForm.TotalScore : null))
-            .ToListAsync(ct);
+        var rows = await _assignments.ListProgressRowsAsync(subjectIds, ct);
 
         var now = DateTime.UtcNow;
         var windowStart = now - ThroughputWindow;
@@ -726,7 +661,7 @@ public class GradingSessionService : IGradingSessionService
     }
 
     private static LecturerProgressDto BuildLecturerProgress(
-        Guid teacherId, IReadOnlyList<ProgressRow> rows, DateTime now, DateTime windowStart)
+        Guid teacherId, IReadOnlyList<SubjectProgressRow> rows, DateTime now, DateTime windowStart)
     {
         var assigned = rows.Count;
         var completed = rows.Count(r => r.Status == GradingProgressStatus.Submitted);
@@ -764,17 +699,7 @@ public class GradingSessionService : IGradingSessionService
     public async Task<ScoreDistributionDashboardDto> GetScoreDistributionAsync(
         IReadOnlyCollection<Guid>? subjectIds, CancellationToken ct = default)
     {
-        var query = _db.GradingAssignments.AsNoTracking()
-            .Where(a => a.Status == GradingProgressStatus.Submitted && a.GradingForm != null);
-
-        if (subjectIds is { Count: > 0 })
-        {
-            query = query.Where(a => subjectIds.Contains(a.SubjectId));
-        }
-
-        var rows = await query
-            .Select(a => new { a.SubjectId, Score = a.GradingForm!.TotalScore })
-            .ToListAsync(ct);
+        var rows = await _assignments.ListSubmittedScoresAsync(subjectIds, ct);
 
         var subjects = rows
             .GroupBy(r => r.SubjectId)
@@ -796,12 +721,7 @@ public class GradingSessionService : IGradingSessionService
 
     public async Task<SubjectFeedbackExportDto> GetReleasableFeedbackAsync(Guid subjectId, CancellationToken ct = default)
     {
-        var assignments = await _db.GradingAssignments
-            .AsNoTracking()
-            .Include(a => a.GradingForm!)
-                .ThenInclude(f => f.QuestionGradeDetails)
-            .Where(a => a.SubjectId == subjectId && a.Status == GradingProgressStatus.Submitted)
-            .ToListAsync(ct);
+        var assignments = await _assignments.ListBySubjectWithFormsAsync(subjectId, submittedOnly: true, ct);
 
         var paperTasks = assignments
             .Where(a => a.GradingForm is not null)
@@ -829,4 +749,3 @@ public class GradingSessionService : IGradingSessionService
         return new SubjectFeedbackExportDto(subjectId, students);
     }
 }
-

@@ -5,10 +5,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using GradingService.Application.DTOs;
 using GradingService.Application.Interfaces;
+using GradingService.Application.Services;
 using GradingService.Domain.Entities;
 using GradingService.Domain.Enums;
+using GradingService.Infrastructure.Files;
 using GradingService.Infrastructure.Persistence;
-using GradingService.Infrastructure.Services;
+using GradingService.Infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
 using Xunit;
@@ -26,9 +28,13 @@ namespace GradingService.UnitTests
         }
 
         private static GradingSessionService NewService(GradingDbContext db) => new(
-            db,
+            new GradingAssignmentRepository(db),
+            new AuditLogRepository(db),
+            new GradingResumePointerRepository(db),
+            new GradingUnitOfWork(db),
             Substitute.For<ISubmissionServiceClient>(),
-            Substitute.For<IExamCatalogServiceClient>());
+            Substitute.For<IExamCatalogServiceClient>(),
+            new MiniExcelGradeExportFileBuilder());
 
         private static GradingAssignment SeedSubmittedAssignment(GradingDbContext db, Guid teacherId, decimal score = 5m)
         {

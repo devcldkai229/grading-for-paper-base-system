@@ -1,7 +1,7 @@
 using ReportingService.Application.DTOs;
 using ReportingService.Application.Interfaces;
 
-namespace ReportingService.Infrastructure.Services;
+namespace ReportingService.Application.Services;
 
 public class GradingProgressService : IGradingProgressService
 {

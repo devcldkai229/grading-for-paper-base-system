@@ -1,6 +1,5 @@
-using GradingService.Infrastructure.Persistence;
+using GradingService.Application.Interfaces;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace GradingService.API.Controllers;
 
@@ -13,11 +12,9 @@ namespace GradingService.API.Controllers;
 [Route("api/assignments")]
 public class AssignmentsController : ControllerBase
 {
-    private readonly GradingDbContext _db;
+    private readonly IMarkerAssignmentRepository _markerAssignments;
 
-    public AssignmentsController(GradingDbContext db) => _db = db;
-
-    public record AliasRangeItem(int AliasStart, int AliasEnd);
+    public AssignmentsController(IMarkerAssignmentRepository markerAssignments) => _markerAssignments = markerAssignments;
 
     /// <summary>
     /// Returns ALL alias ranges assigned to a lecturer for a subject.
@@ -26,12 +23,7 @@ public class AssignmentsController : ControllerBase
     [HttpGet("subjects/{subjectId:guid}/lecturers/{lecturerId:guid}/alias-ranges")]
     public async Task<IActionResult> GetAliasRanges(Guid subjectId, Guid lecturerId, CancellationToken ct = default)
     {
-        var ranges = await _db.MarkerAssignments
-            .AsNoTracking()
-            .Where(m => m.SubjectId == subjectId && m.TeacherId == lecturerId)
-            .OrderBy(m => m.AliasStart)
-            .Select(m => new AliasRangeItem(m.AliasStart, m.AliasEnd))
-            .ToListAsync(ct);
+        var ranges = await _markerAssignments.GetAliasRangesAsync(subjectId, lecturerId, ct);
 
         // Always 200 with (possibly empty) list. Empty => lecturer has no assignment => no access.
         return Ok(new { data = ranges });
@@ -44,12 +36,7 @@ public class AssignmentsController : ControllerBase
     [HttpGet("lecturers/{lecturerId:guid}/subjects")]
     public async Task<IActionResult> GetAssignedSubjectIds(Guid lecturerId, CancellationToken ct = default)
     {
-        var subjectIds = await _db.MarkerAssignments
-            .AsNoTracking()
-            .Where(m => m.TeacherId == lecturerId)
-            .Select(m => m.SubjectId)
-            .Distinct()
-            .ToListAsync(ct);
+        var subjectIds = await _markerAssignments.GetAssignedSubjectIdsAsync(lecturerId, ct);
 
         // Always 200 with (possibly empty) list. Empty => lecturer has no assignment => no access.
         return Ok(new { data = subjectIds });

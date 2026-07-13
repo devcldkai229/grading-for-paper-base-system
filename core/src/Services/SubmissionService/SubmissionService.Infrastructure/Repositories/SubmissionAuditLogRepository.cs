@@ -1,7 +1,7 @@
 using MongoDB.Driver;
 using SubmissionService.Application.Interfaces;
+using SubmissionService.Domain.Entities;
 using SubmissionService.Infrastructure.Persistence.Bson;
-using SubmissionService.Infrastructure.Persistence.Documents;
 
 namespace SubmissionService.Infrastructure.Repositories;
 

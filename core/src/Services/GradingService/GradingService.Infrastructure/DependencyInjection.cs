@@ -3,7 +3,8 @@ using GradingService.Application.Interfaces;
 using GradingService.Domain.Enums;
 using GradingService.Infrastructure.Auth;
 using GradingService.Infrastructure.Clients;
-using GradingService.Infrastructure.Services;
+using GradingService.Infrastructure.Files;
+using GradingService.Infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -33,7 +34,13 @@ public static class DependencyInjection
 
         services.Configure<InternalAuthSettings>(configuration.GetSection(InternalAuthSettings.SectionName));
 
-        services.AddScoped<IGradingSessionService, GradingSessionService>();
+        services.AddScoped<IGradingAssignmentRepository, GradingAssignmentRepository>();
+        services.AddScoped<IAuditLogRepository, AuditLogRepository>();
+        services.AddScoped<IGradingResumePointerRepository, GradingResumePointerRepository>();
+        services.AddScoped<IMarkerAssignmentRepository, MarkerAssignmentRepository>();
+        services.AddScoped<IUnitOfWork, GradingUnitOfWork>();
+        services.AddScoped<IGradeExportFileBuilder, MiniExcelGradeExportFileBuilder>();
+        services.AddScoped<IGradingSessionService, Application.Services.GradingSessionService>();
 
         RegisterInternalHttpClients(services, configuration);
         RegisterJwtAuthentication(services, configuration);

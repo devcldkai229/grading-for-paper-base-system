@@ -4,10 +4,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using GradingService.Application.DTOs;
 using GradingService.Application.Interfaces;
+using GradingService.Application.Services;
 using GradingService.Domain.Entities;
 using GradingService.Domain.Enums;
+using GradingService.Infrastructure.Files;
 using GradingService.Infrastructure.Persistence;
-using GradingService.Infrastructure.Services;
+using GradingService.Infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
 using Xunit;
@@ -23,6 +25,16 @@ namespace GradingService.UnitTests
                 .Options;
             return new GradingDbContext(options);
         }
+
+        private static GradingSessionService NewService(
+            GradingDbContext db, IExamCatalogServiceClient catalogClient) => new(
+            new GradingAssignmentRepository(db),
+            new AuditLogRepository(db),
+            new GradingResumePointerRepository(db),
+            new GradingUnitOfWork(db),
+            Substitute.For<ISubmissionServiceClient>(),
+            catalogClient,
+            new MiniExcelGradeExportFileBuilder());
 
         private static GradingAssignment MakeAssignment(
             Guid teacherId, Guid subjectId, GradingProgressStatus status, DateTime createdAt)
@@ -52,8 +64,7 @@ namespace GradingService.UnitTests
             var catalogClient = Substitute.For<IExamCatalogServiceClient>();
             catalogClient.GetExamInfoAsync(subjectId, Arg.Any<CancellationToken>())
                 .Returns((SubjectExamInfoClientDto?)null);
-            var service = new GradingSessionService(
-                db, Substitute.For<ISubmissionServiceClient>(), catalogClient);
+            var service = NewService(db, catalogClient);
 
             var result = await service.GetMyProgressAsync(teacherId, CancellationToken.None);
 
@@ -77,8 +88,7 @@ namespace GradingService.UnitTests
             var catalogClient = Substitute.For<IExamCatalogServiceClient>();
             catalogClient.GetExamInfoAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
                 .Returns((SubjectExamInfoClientDto?)null);
-            var service = new GradingSessionService(
-                db, Substitute.For<ISubmissionServiceClient>(), catalogClient);
+            var service = NewService(db, catalogClient);
 
             var result = await service.GetMyProgressAsync(teacherId, CancellationToken.None);
 
@@ -97,8 +107,7 @@ namespace GradingService.UnitTests
             await db.SaveChangesAsync();
 
             var catalogClient = Substitute.For<IExamCatalogServiceClient>();
-            var service = new GradingSessionService(
-                db, Substitute.For<ISubmissionServiceClient>(), catalogClient);
+            var service = NewService(db, catalogClient);
 
             var result = await service.GetMyProgressAsync(teacherId, CancellationToken.None);
 
@@ -120,8 +129,7 @@ namespace GradingService.UnitTests
             var catalogClient = Substitute.For<IExamCatalogServiceClient>();
             catalogClient.GetExamInfoAsync(subjectId, Arg.Any<CancellationToken>())
                 .Returns(new SubjectExamInfoClientDto(subjectId, "PRN222", Guid.NewGuid(), "FE Exam", null));
-            var service = new GradingSessionService(
-                db, Substitute.For<ISubmissionServiceClient>(), catalogClient);
+            var service = NewService(db, catalogClient);
 
             var result = await service.GetMyProgressAsync(teacherId, CancellationToken.None);
 
@@ -148,8 +156,7 @@ namespace GradingService.UnitTests
                 .Returns(new SubjectExamInfoClientDto(subjectSoon, "SOON", Guid.NewGuid(), "Exam A", today.AddDays(10)));
             catalogClient.GetExamInfoAsync(subjectLater, Arg.Any<CancellationToken>())
                 .Returns(new SubjectExamInfoClientDto(subjectLater, "LATER", Guid.NewGuid(), "Exam B", today.AddDays(2)));
-            var service = new GradingSessionService(
-                db, Substitute.For<ISubmissionServiceClient>(), catalogClient);
+            var service = NewService(db, catalogClient);
 
             var result = await service.GetMyProgressAsync(teacherId, CancellationToken.None);
 
@@ -170,8 +177,7 @@ namespace GradingService.UnitTests
                 MakeAssignment(teacherId, subjectId, GradingProgressStatus.Submitted, DateTime.UtcNow));
             await db.SaveChangesAsync();
 
-            var service = new GradingSessionService(
-                db, Substitute.For<ISubmissionServiceClient>(), Substitute.For<IExamCatalogServiceClient>());
+            var service = NewService(db, Substitute.For<IExamCatalogServiceClient>());
 
             var result = await service.GetMyProgressAsync(teacherId, CancellationToken.None);
 

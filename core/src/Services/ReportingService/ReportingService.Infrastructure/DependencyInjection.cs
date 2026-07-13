@@ -23,9 +23,12 @@ public static class DependencyInjection
 
         services.AddSingleton(new ReportingDatabaseSettings(connectionString));
 
-        services.AddScoped<Application.Interfaces.IFeedbackReportService, Services.FeedbackReportService>();
-        services.AddScoped<Application.Interfaces.IGradingProgressService, Services.GradingProgressService>();
-        services.AddScoped<Application.Interfaces.IScoreDistributionService, Services.ScoreDistributionService>();
+        services.AddScoped<Application.Interfaces.IExportJobRepository, Persistence.Repositories.ExportJobRepository>();
+        services.AddScoped<Application.Interfaces.IReportFileService, Files.MiniExcelReportFileService>();
+
+        services.AddScoped<Application.Interfaces.IFeedbackReportService, Application.Services.FeedbackReportService>();
+        services.AddScoped<Application.Interfaces.IGradingProgressService, Application.Services.GradingProgressService>();
+        services.AddScoped<Application.Interfaces.IScoreDistributionService, Application.Services.ScoreDistributionService>();
         RegisterGradingServiceClient(services, configuration);
         RegisterExamCatalogServiceClient(services, configuration);
         RegisterJwtAuthentication(services, configuration);

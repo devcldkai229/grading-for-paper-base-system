@@ -1,6 +1,7 @@
 using MongoDB.Driver;
 using SubmissionService.Application.DTOs;
 using SubmissionService.Application.Interfaces;
+using SubmissionService.Domain.Entities;
 using SubmissionService.Domain.Enums;
 using SubmissionService.Infrastructure.Persistence.Bson;
 using SubmissionService.Infrastructure.Persistence.Documents;

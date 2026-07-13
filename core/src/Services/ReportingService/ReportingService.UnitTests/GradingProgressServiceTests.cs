@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using NSubstitute;
 using ReportingService.Application.DTOs;
 using ReportingService.Application.Interfaces;
-using ReportingService.Infrastructure.Services;
+using ReportingService.Application.Services;
 using Xunit;
 
 namespace ReportingService.UnitTests

@@ -3,10 +3,12 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using GradingService.Application.Interfaces;
+using GradingService.Application.Services;
 using GradingService.Domain.Entities;
 using GradingService.Domain.Enums;
+using GradingService.Infrastructure.Files;
 using GradingService.Infrastructure.Persistence;
-using GradingService.Infrastructure.Services;
+using GradingService.Infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
 using Xunit;
@@ -23,8 +25,14 @@ namespace GradingService.UnitTests
             return new GradingDbContext(options);
         }
 
-        private static GradingSessionService NewService(GradingDbContext db) =>
-            new(db, Substitute.For<ISubmissionServiceClient>(), Substitute.For<IExamCatalogServiceClient>());
+        private static GradingSessionService NewService(GradingDbContext db) => new(
+            new GradingAssignmentRepository(db),
+            new AuditLogRepository(db),
+            new GradingResumePointerRepository(db),
+            new GradingUnitOfWork(db),
+            Substitute.For<ISubmissionServiceClient>(),
+            Substitute.For<IExamCatalogServiceClient>(),
+            new MiniExcelGradeExportFileBuilder());
 
         private static GradingAssignment MakeAssignment(
             Guid teacherId, Guid subjectId, GradingProgressStatus status,

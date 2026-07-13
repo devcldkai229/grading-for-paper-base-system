@@ -9,9 +9,11 @@ using Microsoft.EntityFrameworkCore;
 using NSubstitute;
 using ReportingService.Application.DTOs;
 using ReportingService.Application.Interfaces;
+using ReportingService.Application.Services;
 using ReportingService.Domain.Enums;
+using ReportingService.Infrastructure.Files;
 using ReportingService.Infrastructure.Persistence;
-using ReportingService.Infrastructure.Services;
+using ReportingService.Infrastructure.Persistence.Repositories;
 using Xunit;
 
 namespace ReportingService.UnitTests
@@ -61,7 +63,8 @@ namespace ReportingService.UnitTests
                     MakeStudent(1, 8m, "good"),
                     MakeStudent(2, 9m, "great"),
                 }));
-            var service = new FeedbackReportService(gradingClient, db);
+            var service = new FeedbackReportService(
+                gradingClient, new ExportJobRepository(db), new MiniExcelReportFileService());
 
             using var mapping = MakeMappingCsv((1, "SE001", "Nguyen Van A"), (2, "SE002", "Tran Thi B"));
             var (bytes, fileName, error) = await service.GenerateFeedbackReportAsync(
@@ -85,7 +88,8 @@ namespace ReportingService.UnitTests
             var gradingClient = Substitute.For<IGradingServiceClient>();
             gradingClient.GetReleasableFeedbackAsync(subjectId, Arg.Any<CancellationToken>())
                 .Returns((SubjectFeedbackClientDto?)null);
-            var service = new FeedbackReportService(gradingClient, db);
+            var service = new FeedbackReportService(
+                gradingClient, new ExportJobRepository(db), new MiniExcelReportFileService());
 
             using var mapping = MakeMappingCsv((1, "SE001", "Nguyen Van A"));
             var (bytes, _, error) = await service.GenerateFeedbackReportAsync(
@@ -104,7 +108,8 @@ namespace ReportingService.UnitTests
             var gradingClient = Substitute.For<IGradingServiceClient>();
             gradingClient.GetReleasableFeedbackAsync(subjectId, Arg.Any<CancellationToken>())
                 .Returns(new SubjectFeedbackClientDto(subjectId, new List<StudentFeedbackClientDto>()));
-            var service = new FeedbackReportService(gradingClient, db);
+            var service = new FeedbackReportService(
+                gradingClient, new ExportJobRepository(db), new MiniExcelReportFileService());
 
             using var mapping = MakeMappingCsv((1, "SE001", "Nguyen Van A"));
             var (bytes, _, error) = await service.GenerateFeedbackReportAsync(
@@ -120,7 +125,8 @@ namespace ReportingService.UnitTests
             using var db = NewInMemoryContext();
             var subjectId = Guid.NewGuid();
             var gradingClient = Substitute.For<IGradingServiceClient>();
-            var service = new FeedbackReportService(gradingClient, db);
+            var service = new FeedbackReportService(
+                gradingClient, new ExportJobRepository(db), new MiniExcelReportFileService());
 
             using var mapping = new MemoryStream(Encoding.UTF8.GetBytes("AliasNumber,StudentCode,StudentName\n"));
             var (bytes, _, error) = await service.GenerateFeedbackReportAsync(
@@ -143,7 +149,8 @@ namespace ReportingService.UnitTests
                     MakeStudent(1, 8m, "good"),
                     MakeStudent(99, 6m, "ok"), // alias 99 has no mapping row
                 }));
-            var service = new FeedbackReportService(gradingClient, db);
+            var service = new FeedbackReportService(
+                gradingClient, new ExportJobRepository(db), new MiniExcelReportFileService());
 
             using var mapping = MakeMappingCsv((1, "SE001", "Nguyen Van A"));
             var (bytes, _, error) = await service.GenerateFeedbackReportAsync(

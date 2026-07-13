@@ -1,14 +1,11 @@
 using System;
-using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
-using BuildingBlocks.AwsS3;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Options;
 using NSubstitute;
-using SubmissionService.API.Controllers;
+using SubmissionService.Application;
 using SubmissionService.Application.DTOs;
 using SubmissionService.Application.Interfaces;
+using SubmissionService.Application.Services;
 using Xunit;
 
 namespace SubmissionService.UnitTests
@@ -18,7 +15,7 @@ namespace SubmissionService.UnitTests
         private readonly IStudentPaperRepository _paperRepository;
         private readonly IS3Service _s3Service;
         private readonly ISubmissionAuditLogRepository _auditLogRepository;
-        private readonly SubmissionsController _controller;
+        private readonly PaperQueryService _service;
 
         public PaperDeleteTests()
         {
@@ -26,10 +23,10 @@ namespace SubmissionService.UnitTests
             _s3Service = Substitute.For<IS3Service>();
             _auditLogRepository = Substitute.For<ISubmissionAuditLogRepository>();
 
-            var s3Settings = Options.Create(new AwsS3Settings { PresignedUrlTtlMinutes = 5 });
+            var presignedUrlOptions = new PresignedUrlOptions { Ttl = TimeSpan.FromMinutes(5) };
 
-            _controller = new SubmissionsController(
-                _paperRepository, _s3Service, _auditLogRepository, s3Settings);
+            _service = new PaperQueryService(
+                _paperRepository, _s3Service, _auditLogRepository, presignedUrlOptions);
         }
 
         private static PaperDeletionInfoDto MakePaper(
@@ -37,34 +34,16 @@ namespace SubmissionService.UnitTests
             new(paperId, batchId, subjectId, uploadedBy, status,
                 Array.ConvertAll(s3Keys, k => new PaperFileRefDto(Guid.NewGuid(), k)));
 
-        private void SetUser(Guid userId, string role)
-        {
-            var identity = new ClaimsIdentity(new[]
-            {
-                new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
-                new Claim("Role", role)
-            }, "TestAuth");
-
-            _controller.ControllerContext = new ControllerContext
-            {
-                HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext
-                {
-                    User = new ClaimsPrincipal(identity)
-                }
-            };
-        }
-
         [Fact]
         public async Task DeletePaper_WhenPaperNotFound_ReturnsNotFound()
         {
             var paperId = Guid.NewGuid();
             _paperRepository.GetPaperForDeletionAsync(paperId, Arg.Any<CancellationToken>())
                 .Returns((PaperDeletionInfoDto?)null);
-            SetUser(Guid.NewGuid(), "Lecturer");
 
-            var result = await _controller.DeletePaper(paperId, CancellationToken.None);
+            var result = await _service.DeletePaperAsync(paperId, Guid.NewGuid(), isAdmin: false, CancellationToken.None);
 
-            Assert.IsType<NotFoundObjectResult>(result);
+            Assert.Equal(OperationStatus.NotFound, result.Status);
             await _s3Service.DidNotReceive().DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
         }
 
@@ -77,11 +56,10 @@ namespace SubmissionService.UnitTests
             var ownerId = Guid.NewGuid();
             var paper = MakePaper(paperId, batchId, subjectId, ownerId, "ReadyToAssign", "k1");
             _paperRepository.GetPaperForDeletionAsync(paperId, Arg.Any<CancellationToken>()).Returns(paper);
-            SetUser(Guid.NewGuid(), "Lecturer"); // different user than owner
 
-            var result = await _controller.DeletePaper(paperId, CancellationToken.None);
+            var result = await _service.DeletePaperAsync(paperId, Guid.NewGuid(), isAdmin: false, CancellationToken.None); // different user than owner
 
-            Assert.IsType<ForbidResult>(result);
+            Assert.Equal(OperationStatus.Forbidden, result.Status);
             await _s3Service.DidNotReceive().DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
             await _paperRepository.DidNotReceive().DeletePaperAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
         }
@@ -95,11 +73,10 @@ namespace SubmissionService.UnitTests
             var ownerId = Guid.NewGuid();
             var paper = MakePaper(paperId, batchId, subjectId, ownerId, "Assigned", "k1");
             _paperRepository.GetPaperForDeletionAsync(paperId, Arg.Any<CancellationToken>()).Returns(paper);
-            SetUser(ownerId, "Lecturer");
 
-            var result = await _controller.DeletePaper(paperId, CancellationToken.None);
+            var result = await _service.DeletePaperAsync(paperId, ownerId, isAdmin: false, CancellationToken.None);
 
-            Assert.IsType<ConflictObjectResult>(result);
+            Assert.Equal(OperationStatus.Conflict, result.Status);
             await _s3Service.DidNotReceive().DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
             await _paperRepository.DidNotReceive().DeletePaperAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
         }
@@ -113,11 +90,10 @@ namespace SubmissionService.UnitTests
             var ownerId = Guid.NewGuid();
             var paper = MakePaper(paperId, batchId, subjectId, ownerId, "ReadyToAssign", "k1", "k2");
             _paperRepository.GetPaperForDeletionAsync(paperId, Arg.Any<CancellationToken>()).Returns(paper);
-            SetUser(ownerId, "Lecturer");
 
-            var result = await _controller.DeletePaper(paperId, CancellationToken.None);
+            var result = await _service.DeletePaperAsync(paperId, ownerId, isAdmin: false, CancellationToken.None);
 
-            Assert.IsType<OkObjectResult>(result);
+            Assert.Equal(OperationStatus.Success, result.Status);
             await _s3Service.Received(1).DeleteAsync("k1", Arg.Any<CancellationToken>());
             await _s3Service.Received(1).DeleteAsync("k2", Arg.Any<CancellationToken>());
             await _paperRepository.Received(1).DeletePaperAsync(paperId, Arg.Any<CancellationToken>());
@@ -135,11 +111,10 @@ namespace SubmissionService.UnitTests
             var ownerId = Guid.NewGuid();
             var paper = MakePaper(paperId, batchId, subjectId, ownerId, "ReadyToAssign", "k1");
             _paperRepository.GetPaperForDeletionAsync(paperId, Arg.Any<CancellationToken>()).Returns(paper);
-            SetUser(Guid.NewGuid(), "Admin"); // not the uploader, but Admin
 
-            var result = await _controller.DeletePaper(paperId, CancellationToken.None);
+            var result = await _service.DeletePaperAsync(paperId, Guid.NewGuid(), isAdmin: true, CancellationToken.None); // not the uploader, but Admin
 
-            Assert.IsType<OkObjectResult>(result);
+            Assert.Equal(OperationStatus.Success, result.Status);
             await _paperRepository.Received(1).DeletePaperAsync(paperId, Arg.Any<CancellationToken>());
         }
     }

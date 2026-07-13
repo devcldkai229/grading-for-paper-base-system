@@ -1,25 +1,25 @@
 using System.Globalization;
-using MiniExcelLibs;
-using ReportingService.Application.DTOs;
 using ReportingService.Application.Interfaces;
 using ReportingService.Domain.Entities;
 using ReportingService.Domain.Enums;
-using ReportingService.Infrastructure.Persistence;
 
-namespace ReportingService.Infrastructure.Services;
+namespace ReportingService.Application.Services;
 
 public class FeedbackReportService : IFeedbackReportService
 {
     private readonly IGradingServiceClient _gradingClient;
-    private readonly ReportingDbContext _db;
+    private readonly IExportJobRepository _exportJobRepository;
+    private readonly IReportFileService _reportFileService;
 
-    public FeedbackReportService(IGradingServiceClient gradingClient, ReportingDbContext db)
+    public FeedbackReportService(
+        IGradingServiceClient gradingClient,
+        IExportJobRepository exportJobRepository,
+        IReportFileService reportFileService)
     {
         _gradingClient = gradingClient;
-        _db = db;
+        _exportJobRepository = exportJobRepository;
+        _reportFileService = reportFileService;
     }
-
-    private sealed record MappingRow(string StudentCode, string StudentName);
 
     public async Task<(byte[]? FileBytes, string? FileName, string? Error)> GenerateFeedbackReportAsync(
         Guid subjectId,
@@ -28,10 +28,10 @@ public class FeedbackReportService : IFeedbackReportService
         string aliasMappingFileName,
         CancellationToken ct = default)
     {
-        Dictionary<int, MappingRow> mapping;
+        IReadOnlyDictionary<int, AliasMappingRow> mapping;
         try
         {
-            mapping = ParseAliasMapping(aliasMappingFile, aliasMappingFileName);
+            mapping = _reportFileService.ParseAliasMapping(aliasMappingFile, aliasMappingFileName);
         }
         catch (Exception ex)
         {
@@ -88,54 +88,18 @@ public class FeedbackReportService : IFeedbackReportService
             rows.Add(row);
         }
 
-        using var memoryStream = new MemoryStream();
-        MiniExcel.SaveAs(memoryStream, rows);
-        var fileBytes = memoryStream.ToArray();
+        var fileBytes = _reportFileService.BuildReport(rows);
         var fileName = $"Feedback_{subjectId:N}.xlsx";
 
-        _db.ExportJobs.Add(new ExportJob
+        await _exportJobRepository.AddAsync(new ExportJob
         {
             SubjectId = subjectId,
             RequestedBy = requestedBy,
             Status = ExportStatus.Completed,
             ResultFileName = fileName,
             CompletedAt = DateTime.UtcNow
-        });
-        await _db.SaveChangesAsync(ct);
+        }, ct);
 
         return (fileBytes, fileName, null);
-    }
-
-    /// <summary>
-    /// Expects a CSV/XLSX with header columns: AliasNumber, StudentCode, StudentName.
-    /// Rows with a missing/unparseable AliasNumber are skipped.
-    /// </summary>
-    private static Dictionary<int, MappingRow> ParseAliasMapping(Stream stream, string fileName)
-    {
-        var ext = Path.GetExtension(fileName).ToLowerInvariant();
-        var excelType = ext == ".csv" ? ExcelType.CSV : ExcelType.XLSX;
-
-        var result = new Dictionary<int, MappingRow>();
-        foreach (var row in MiniExcel.Query(stream, useHeaderRow: true, excelType: excelType))
-        {
-            var dict = (IDictionary<string, object>)row;
-
-            if (!dict.TryGetValue("AliasNumber", out var aliasRaw)
-                || !int.TryParse(Convert.ToString(aliasRaw, CultureInfo.InvariantCulture), out var aliasNumber))
-            {
-                continue;
-            }
-
-            var studentCode = dict.TryGetValue("StudentCode", out var code)
-                ? Convert.ToString(code, CultureInfo.InvariantCulture) ?? ""
-                : "";
-            var studentName = dict.TryGetValue("StudentName", out var name)
-                ? Convert.ToString(name, CultureInfo.InvariantCulture) ?? ""
-                : "";
-
-            result[aliasNumber] = new MappingRow(studentCode, studentName);
-        }
-
-        return result;
     }
 }

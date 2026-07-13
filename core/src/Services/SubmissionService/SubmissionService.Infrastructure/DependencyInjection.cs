@@ -60,6 +60,15 @@ public static class DependencyInjection
         services.AddAwsS3Client(configuration);
         services.AddScoped<Application.Interfaces.IS3Service, Services.S3Service>();
 
+        var awsS3Settings = configuration.GetSection(AwsS3Settings.SectionName).Get<AwsS3Settings>()
+            ?? new AwsS3Settings();
+        services.AddSingleton(new Application.PresignedUrlOptions { Ttl = awsS3Settings.PresignedUrlTtl });
+
+        // Application services
+        services.AddScoped<Application.Interfaces.IMessagePublisher, Messaging.MassTransitMessagePublisher>();
+        services.AddScoped<Application.Interfaces.IBatchService, Application.Services.BatchService>();
+        services.AddScoped<Application.Interfaces.IPaperQueryService, Application.Services.PaperQueryService>();
+
         // MassTransit + RabbitMQ
         var rabbitMq = configuration.GetSection("RabbitMq");
         var rabbitHost = rabbitMq["Host"] ?? "localhost";
@@ -198,14 +207,14 @@ public static class DependencyInjection
                 new CreateIndexOptions { Unique = true })
         ]);
 
-        var filesCollection = database.GetCollection<Persistence.Documents.PaperFile>(
-            MongoCollectionNames.For<Persistence.Documents.PaperFile>());
+        var filesCollection = database.GetCollection<Domain.Entities.PaperFile>(
+            MongoCollectionNames.For<Domain.Entities.PaperFile>());
 
         await filesCollection.Indexes.CreateManyAsync([
-            new CreateIndexModel<Persistence.Documents.PaperFile>(
-                Builders<Persistence.Documents.PaperFile>.IndexKeys.Ascending(f => f.StudentPaperId)),
-            new CreateIndexModel<Persistence.Documents.PaperFile>(
-                Builders<Persistence.Documents.PaperFile>.IndexKeys
+            new CreateIndexModel<Domain.Entities.PaperFile>(
+                Builders<Domain.Entities.PaperFile>.IndexKeys.Ascending(f => f.StudentPaperId)),
+            new CreateIndexModel<Domain.Entities.PaperFile>(
+                Builders<Domain.Entities.PaperFile>.IndexKeys
                     .Ascending(f => f.StudentPaperId)
                     .Ascending(f => f.S3Key),
                 new CreateIndexOptions { Unique = true })

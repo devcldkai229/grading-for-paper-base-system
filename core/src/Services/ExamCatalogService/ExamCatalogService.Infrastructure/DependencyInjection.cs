@@ -31,6 +31,7 @@ public static class DependencyInjection
         services.AddScoped<Application.Interfaces.IExamCatalogRepository, Repositories.ExamCatalogRepository>();
         services.AddScoped<Application.Interfaces.ISubjectAdminService, Services.SubjectAdminService>();
         services.AddScoped<Services.SubjectFilePreviewService>();
+        services.AddScoped<Application.Interfaces.ISubjectQueryService, Application.Services.SubjectQueryService>();
 
         // S3 (AWS) — required for pre-signed URLs and uploads
         services.AddAwsS3Client(configuration);

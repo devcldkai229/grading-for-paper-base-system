@@ -8,6 +8,7 @@ using StackExchange.Redis;
 using SubmissionService.Application;
 using SubmissionService.Application.DTOs;
 using SubmissionService.Application.Interfaces;
+using SubmissionService.Domain.Entities;
 using SubmissionService.Domain.Enums;
 using SubmissionService.Domain.Messages;
 using SubmissionService.Infrastructure.Persistence.Bson;
