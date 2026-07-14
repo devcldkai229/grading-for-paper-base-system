@@ -6,6 +6,38 @@ export interface ScoreGridRow extends QuestionInput {
   warning?: string;
 }
 
+/// Extracts a declared budget percentage from a group label, e.g. "Request 1 (20%)" -> 20.
+/// Mirrors SubjectAdminService.ValidateQuestions' GroupPercentPattern on the backend.
+function parseGroupPercent(label: string): number | null {
+  const match = label.match(/(\d+(?:\.\d+)?)\s*%/);
+  return match ? Number(match[1]) : null;
+}
+
+interface GroupBudgetSummary {
+  label: string;
+  sum: number;
+  expected: number;
+  mismatch: boolean;
+}
+
+function computeGroupBudgets(rows: ScoreGridRow[], subjectMaxScore: number): GroupBudgetSummary[] {
+  const sumsByLabel = new Map<string, number>();
+  for (const row of rows) {
+    const label = row.groupLabel?.trim();
+    if (!label) continue;
+    sumsByLabel.set(label, (sumsByLabel.get(label) ?? 0) + (Number(row.maxScore) || 0));
+  }
+
+  const summaries: GroupBudgetSummary[] = [];
+  for (const [label, sum] of sumsByLabel) {
+    const percent = parseGroupPercent(label);
+    if (percent === null) continue;
+    const expected = Math.round(((subjectMaxScore * percent) / 100) * 100) / 100;
+    summaries.push({ label, sum, expected, mismatch: Math.abs(sum - expected) > 0.01 });
+  }
+  return summaries;
+}
+
 interface ScoreGridEditorProps {
   rows: ScoreGridRow[];
   subjectMaxScore: number;
@@ -23,6 +55,7 @@ export function ScoreGridEditor({
 }: ScoreGridEditorProps) {
   const total = rows.reduce((s, r) => s + (Number(r.maxScore) || 0), 0);
   const totalMismatch = Math.abs(total - subjectMaxScore) > 0.01;
+  const groupBudgets = computeGroupBudgets(rows, subjectMaxScore);
 
   const updateRow = (index: number, patch: Partial<ScoreGridRow>) => {
     const next = rows.map((r, i) => (i === index ? { ...r, ...patch } : r));
@@ -64,6 +97,21 @@ export function ScoreGridEditor({
           )}
           {warnings.map((w) => (
             <p key={w}>{w}</p>
+          ))}
+        </div>
+      )}
+
+      {groupBudgets.length > 0 && (
+        <div className="rounded-lg border border-line bg-secondary/40 p-3 text-sm space-y-1">
+          <p className="text-xs uppercase tracking-wide text-ink-soft">Ngân sách theo nhóm</p>
+          {groupBudgets.map((g) => (
+            <p
+              key={g.label}
+              className={g.mismatch ? "text-brand-orange" : "text-ink-soft"}
+            >
+              {g.label}: {g.sum} / {g.expected}
+              {g.mismatch ? " — lệch ngân sách đã khai báo" : ""}
+            </p>
           ))}
         </div>
       )}
