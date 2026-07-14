@@ -21,6 +21,21 @@ export const submissionService = {
     return res.data.data;
   },
 
+  async uploadFiles(
+    subjectId: string,
+    files: File[]
+  ): Promise<{ batchId: string; paperId: string }> {
+    const formData = new FormData();
+    formData.append("subjectId", subjectId);
+    files.forEach((file) => formData.append("files", file));
+    const res = await api.post<ApiResponse<{ batchId: string; paperId: string }>>(
+      "/batches/files",
+      formData,
+      { headers: { "Content-Type": "multipart/form-data" } }
+    );
+    return res.data.data;
+  },
+
   async getBatchStatus(batchId: string): Promise<BatchStatus> {
     const res = await api.get<ApiResponse<BatchStatus>>(
       `/batches/${batchId}`

@@ -21,7 +21,9 @@ export function BatchUploadPage() {
   const [subjectLabel, setSubjectLabel] = useState<string | null>(null);
   const [examSubjects, setExamSubjects] = useState<SubjectSummary[]>([]);
   const [loadingSubjects, setLoadingSubjects] = useState(false);
+  const [uploadMode, setUploadMode] = useState<"zip" | "files">("zip");
   const [file, setFile] = useState<File | null>(null);
+  const [looseFiles, setLooseFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [batchId, setBatchId] = useState<string | null>(null);
   const [batchStatus, setBatchStatus] = useState<BatchStatus | null>(null);
@@ -100,6 +102,30 @@ export function BatchUploadPage() {
     }
   }, [subjectId, file]);
 
+  const handleUploadFiles = useCallback(async () => {
+    if (!subjectId) {
+      setError("Chọn môn thi trước khi upload.");
+      return;
+    }
+    if (looseFiles.length === 0) {
+      setError("Chọn ít nhất một file trước khi upload.");
+      return;
+    }
+    setError(null);
+    setUploading(true);
+    try {
+      const result = await submissionService.uploadFiles(subjectId, looseFiles);
+      setBatchId(result.batchId);
+    } catch (err: unknown) {
+      const msg = isAxiosError(err)
+        ? err.response?.data?.message ?? "Upload thất bại."
+        : "Upload thất bại.";
+      setError(msg);
+    } finally {
+      setUploading(false);
+    }
+  }, [subjectId, looseFiles]);
+
   const handleRetry = useCallback(async () => {
     if (!batchId) return;
     setError(null);
@@ -130,6 +156,7 @@ export function BatchUploadPage() {
       setBatchId(null);
       setBatchStatus(null);
       setFile(null);
+      setLooseFiles([]);
     } catch (err: unknown) {
       const msg = isAxiosError(err)
         ? err.response?.data?.message ?? "Không thể xóa batch."
@@ -166,12 +193,19 @@ export function BatchUploadPage() {
     "w-full px-4 py-3 bg-card border border-line rounded-lg text-ink placeholder:text-ink-soft/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all";
 
   const canUpload = Boolean(subjectId && file && !uploading);
+  const canUploadFiles = Boolean(subjectId && looseFiles.length > 0 && !uploading);
+  const looseFilesAccept =
+    ".pdf,.png,.jpg,.jpeg,.gif,.bmp,.tiff,.tif,.webp,.txt,.docx";
+
+  const removeLooseFile = (index: number) => {
+    setLooseFiles((prev) => prev.filter((_, i) => i !== index));
+  };
 
   return (
     <LecturerPageShell maxWidth="2xl">
       <PageHeader
         title="Upload bài làm"
-        subtitle="Kéo thả hoặc chọn file ZIP bài làm học sinh. Môn thi được chọn từ danh mục — không cần nhập mã ID."
+        subtitle="Upload file ZIP chứa nhiều bài, hoặc các file rời hợp thành một bài. Môn thi được chọn từ danh mục — không cần nhập mã ID."
       />
 
       {!batchId ? (
@@ -221,43 +255,135 @@ export function BatchUploadPage() {
             </ContentBlock>
           )}
 
-          <div>
-            <label className="block text-sm font-medium text-ink-soft mb-2">
-              File ZIP bài làm
-            </label>
-            <div
-              className={`relative rounded-xl border border-dashed transition-colors ${
-                file
-                  ? "border-done/50 bg-done/5"
-                  : "border-line bg-secondary/40 hover:border-brand-red/30"
-              } ${!subjectId ? "opacity-50 pointer-events-none" : ""}`}
+          <div className="flex rounded-lg border border-line bg-secondary/40 p-1 gap-1">
+            <button
+              type="button"
+              onClick={() => setUploadMode("zip")}
+              className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${
+                uploadMode === "zip"
+                  ? "bg-card text-ink shadow-sm border border-line"
+                  : "text-ink-soft hover:text-ink"
+              }`}
             >
-              <input
-                type="file"
-                accept=".zip"
-                disabled={!subjectId}
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
-              />
-              <div className="px-6 py-10 text-center pointer-events-none">
-                {file ? (
-                  <>
-                    <p className="font-medium text-ink">{file.name}</p>
-                    <p className="text-sm text-ink-soft mt-1">
-                      {(file.size / 1024 / 1024).toFixed(2)} MB
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p className="font-medium text-ink">Chọn hoặc kéo thả file ZIP</p>
-                    <p className="text-sm text-ink-soft mt-1">
-                      Một file ZIP chứa bài làm của nhiều học sinh
-                    </p>
-                  </>
-                )}
+              File ZIP (nhiều bài)
+            </button>
+            <button
+              type="button"
+              onClick={() => setUploadMode("files")}
+              className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${
+                uploadMode === "files"
+                  ? "bg-card text-ink shadow-sm border border-line"
+                  : "text-ink-soft hover:text-ink"
+              }`}
+            >
+              File lẻ (1 bài)
+            </button>
+          </div>
+
+          {uploadMode === "zip" ? (
+            <div>
+              <label className="block text-sm font-medium text-ink-soft mb-2">
+                File ZIP bài làm
+              </label>
+              <div
+                className={`relative rounded-xl border border-dashed transition-colors ${
+                  file
+                    ? "border-done/50 bg-done/5"
+                    : "border-line bg-secondary/40 hover:border-brand-red/30"
+                } ${!subjectId ? "opacity-50 pointer-events-none" : ""}`}
+              >
+                <input
+                  type="file"
+                  accept=".zip"
+                  disabled={!subjectId}
+                  onChange={(e) => setFile(e.target.files?.[0] || null)}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+                />
+                <div className="px-6 py-10 text-center pointer-events-none">
+                  {file ? (
+                    <>
+                      <p className="font-medium text-ink">{file.name}</p>
+                      <p className="text-sm text-ink-soft mt-1">
+                        {(file.size / 1024 / 1024).toFixed(2)} MB
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-medium text-ink">Chọn hoặc kéo thả file ZIP</p>
+                      <p className="text-sm text-ink-soft mt-1">
+                        Một file ZIP chứa bài làm của nhiều học sinh
+                      </p>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            <div>
+              <label className="block text-sm font-medium text-ink-soft mb-2">
+                Các file rời của một bài làm
+              </label>
+              <div
+                className={`relative rounded-xl border border-dashed transition-colors ${
+                  looseFiles.length > 0
+                    ? "border-done/50 bg-done/5"
+                    : "border-line bg-secondary/40 hover:border-brand-red/30"
+                } ${!subjectId ? "opacity-50 pointer-events-none" : ""}`}
+              >
+                <input
+                  type="file"
+                  multiple
+                  accept={looseFilesAccept}
+                  disabled={!subjectId}
+                  onChange={(e) =>
+                    setLooseFiles(Array.from(e.target.files ?? []))
+                  }
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+                />
+                <div className="px-6 py-10 text-center pointer-events-none">
+                  {looseFiles.length > 0 ? (
+                    <p className="font-medium text-ink">
+                      Đã chọn {looseFiles.length} file
+                    </p>
+                  ) : (
+                    <>
+                      <p className="font-medium text-ink">Chọn hoặc kéo thả các file</p>
+                      <p className="text-sm text-ink-soft mt-1">
+                        Nhiều file rời (PDF/ảnh/docx/txt) hợp thành một bài làm — sắp xếp
+                        theo thứ tự chọn, xử lý ngay lập tức
+                      </p>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {looseFiles.length > 0 && (
+                <ul className="mt-3 space-y-1.5">
+                  {looseFiles.map((f, index) => (
+                    <li
+                      key={`${f.name}-${index}`}
+                      className="flex items-center justify-between gap-3 px-3 py-2 bg-secondary/40 border border-line rounded-lg text-sm"
+                    >
+                      <span className="text-ink-soft shrink-0 font-mono">
+                        #{index + 1}
+                      </span>
+                      <span className="text-ink truncate flex-1">{f.name}</span>
+                      <span className="text-ink-soft text-xs shrink-0">
+                        {(f.size / 1024 / 1024).toFixed(2)} MB
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeLooseFile(index)}
+                        className="text-destructive hover:underline text-xs shrink-0"
+                      >
+                        Xóa
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
 
           {error && (
             <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-sm">
@@ -267,8 +393,8 @@ export function BatchUploadPage() {
 
           <button
             type="button"
-            onClick={() => void handleUpload()}
-            disabled={!canUpload}
+            onClick={() => void (uploadMode === "zip" ? handleUpload() : handleUploadFiles())}
+            disabled={uploadMode === "zip" ? !canUpload : !canUploadFiles}
             className="w-full py-3 bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-medium transition-opacity"
           >
             {uploading ? (
