@@ -126,8 +126,12 @@ export function SubmissionsPage() {
     setGradingError(null);
     try {
       await startGradingFlow(batchIdForGrading, navigate);
-    } catch {
-      setGradingError("Không thể bắt đầu chấm bài. Kiểm tra API Grading.");
+    } catch (err) {
+      setGradingError(
+        isAxiosError(err)
+          ? err.response?.data?.message ?? "Không thể bắt đầu chấm bài. Kiểm tra API Grading."
+          : "Không thể bắt đầu chấm bài. Kiểm tra API Grading."
+      );
     } finally {
       setStartingGrading(false);
     }

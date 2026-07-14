@@ -101,7 +101,8 @@ public record SubjectGradingGridClientDto(
     Guid SubjectId,
     decimal MaxScore,
     int RubricVersion,
-    IReadOnlyList<SubjectQuestionClientDto> Questions
+    IReadOnlyList<SubjectQuestionClientDto> Questions,
+    string? Status = null
 );
 
 public record QuestionFeedbackDto(

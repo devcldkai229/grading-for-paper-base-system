@@ -4,7 +4,15 @@ namespace GradingService.Application.Interfaces;
 
 public interface IGradingSessionService
 {
-    Task<StartBatchResultDto?> StartBatchAsync(Guid batchId, Guid teacherId, CancellationToken ct = default);
+    /// <summary>
+    /// Starts (or resumes) a grading session for every paper in the batch. Returns a null Result
+    /// with a null Error for the pre-existing not-found/forbidden cases (batch missing, wrong
+    /// uploader, subject grid missing) — the controller maps that to a generic 404. Returns a
+    /// non-null Error (and null Result) when the subject's status is Closed, since closed subjects
+    /// no longer allow new grading sessions to start.
+    /// </summary>
+    Task<(StartBatchResultDto? Result, string? Error)> StartBatchAsync(
+        Guid batchId, Guid teacherId, CancellationToken ct = default);
 
     Task<GradingSessionDto?> GetSessionAsync(Guid assignmentId, Guid teacherId, CancellationToken ct = default);
 

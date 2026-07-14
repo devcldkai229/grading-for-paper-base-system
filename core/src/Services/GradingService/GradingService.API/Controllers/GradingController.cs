@@ -23,7 +23,18 @@ public class GradingController : ControllerBase
     public async Task<IActionResult> StartBatch(Guid batchId, CancellationToken ct = default)
     {
         var teacherId = GetUserId();
-        var result = await _gradingSessionService.StartBatchAsync(batchId, teacherId, ct);
+        var (result, error) = await _gradingSessionService.StartBatchAsync(batchId, teacherId, ct);
+
+        if (error is not null)
+        {
+            return Conflict(new ApiResponse<object>
+            {
+                StatusCode = 409,
+                Message = error,
+                Data = null,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
 
         if (result is null)
         {

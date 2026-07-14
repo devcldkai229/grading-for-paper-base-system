@@ -42,14 +42,20 @@ public class GradingSessionService : IGradingSessionService
         _messagePublisher = messagePublisher;
     }
 
-    public async Task<StartBatchResultDto?> StartBatchAsync(Guid batchId, Guid teacherId, CancellationToken ct = default)
+    public async Task<(StartBatchResultDto? Result, string? Error)> StartBatchAsync(
+        Guid batchId, Guid teacherId, CancellationToken ct = default)
     {
         var batch = await _submissionClient.GetBatchPapersAsync(batchId, ct);
-        if (batch is null || batch.Papers.Count == 0) return null;
-        if (batch.UploadedBy != teacherId) return null;
+        if (batch is null || batch.Papers.Count == 0) return (null, null);
+        if (batch.UploadedBy != teacherId) return (null, null);
 
         var grid = await _catalogClient.GetGradingGridAsync(batch.SubjectId, ct);
-        if (grid is null) return null;
+        if (grid is null) return (null, null);
+
+        if (string.Equals(grid.Status, "Closed", StringComparison.OrdinalIgnoreCase))
+        {
+            return (null, "This subject is closed; new grading sessions can no longer be started.");
+        }
 
         var summaries = new List<AssignmentSummaryDto>();
 
@@ -72,12 +78,12 @@ public class GradingSessionService : IGradingSessionService
         var resumeAssignmentId = await ResolveResumeAssignmentIdAsync(
             batchId, teacherId, ordered, ct);
 
-        return new StartBatchResultDto(
+        return (new StartBatchResultDto(
             resumeAssignmentId,
             ordered.Select(s => s.AssignmentId).ToList(),
             batch.SubjectId,
             batchId,
-            ordered);
+            ordered), null);
     }
 
     public async Task<GradingSessionDto?> GetSessionAsync(Guid assignmentId, Guid teacherId, CancellationToken ct = default)

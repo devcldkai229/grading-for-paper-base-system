@@ -26,6 +26,7 @@ public class InternalSubjectsController : ControllerBase
         var grid = new
         {
             subjectId = subject.Id,
+            status = subject.Status,
             maxScore = subject.MaxScore,
             rubricVersion = subject.RubricVersion,
             questions = subject.Questions

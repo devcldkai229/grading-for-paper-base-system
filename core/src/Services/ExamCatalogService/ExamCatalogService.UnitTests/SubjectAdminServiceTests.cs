@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using ExamCatalogService.Application.DTOs;
+using ExamCatalogService.Domain.Enums;
 using ExamCatalogService.Infrastructure.Services;
 using Xunit;
 
@@ -160,6 +161,61 @@ namespace ExamCatalogService.UnitTests
             Assert.Contains(errors, e => e.Contains("Sum of question maxScore"));
             Assert.Contains(errors, e => e.Contains("Request 1 (20%)"));
             Assert.Equal(2, errors.Count);
+        }
+
+        [Theory]
+        [InlineData(SubjectStatus.Draft, SubjectStatus.Open)]
+        [InlineData(SubjectStatus.Open, SubjectStatus.Grading)]
+        [InlineData(SubjectStatus.Grading, SubjectStatus.Closed)]
+        public void ValidateStatusTransition_WithValidForwardStep_ReturnsNull(SubjectStatus current, SubjectStatus requested)
+        {
+            var error = _service.ValidateStatusTransition(current, requested);
+
+            Assert.Null(error);
+        }
+
+        [Theory]
+        [InlineData(SubjectStatus.Draft)]
+        [InlineData(SubjectStatus.Open)]
+        [InlineData(SubjectStatus.Grading)]
+        [InlineData(SubjectStatus.Closed)]
+        public void ValidateStatusTransition_WithSameStatus_IsANoOpAndReturnsNull(SubjectStatus current)
+        {
+            var error = _service.ValidateStatusTransition(current, current);
+
+            Assert.Null(error);
+        }
+
+        [Theory]
+        [InlineData(SubjectStatus.Draft, SubjectStatus.Grading)]
+        [InlineData(SubjectStatus.Draft, SubjectStatus.Closed)]
+        [InlineData(SubjectStatus.Open, SubjectStatus.Closed)]
+        public void ValidateStatusTransition_WithSkippedStep_ReturnsError(SubjectStatus current, SubjectStatus requested)
+        {
+            var error = _service.ValidateStatusTransition(current, requested);
+
+            Assert.NotNull(error);
+            Assert.Contains("Invalid status transition", error);
+        }
+
+        [Theory]
+        [InlineData(SubjectStatus.Open, SubjectStatus.Draft)]
+        [InlineData(SubjectStatus.Grading, SubjectStatus.Open)]
+        [InlineData(SubjectStatus.Closed, SubjectStatus.Grading)]
+        [InlineData(SubjectStatus.Closed, SubjectStatus.Draft)]
+        public void ValidateStatusTransition_WithBackwardMove_ReturnsError(SubjectStatus current, SubjectStatus requested)
+        {
+            var error = _service.ValidateStatusTransition(current, requested);
+
+            Assert.NotNull(error);
+        }
+
+        [Fact]
+        public void ValidateStatusTransition_FromClosed_IsTerminal_NoForwardMoveAllowed()
+        {
+            var error = _service.ValidateStatusTransition(SubjectStatus.Closed, SubjectStatus.Open);
+
+            Assert.NotNull(error);
         }
     }
 }

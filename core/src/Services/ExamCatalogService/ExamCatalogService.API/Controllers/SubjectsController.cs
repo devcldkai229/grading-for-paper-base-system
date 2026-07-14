@@ -369,6 +369,45 @@ public class SubjectsController : ControllerBase
             });
         }
 
+        if (!string.IsNullOrWhiteSpace(request.Status))
+        {
+            var existing = await _repository.GetSubjectDetailAsync(subjectId, ct);
+            if (existing is null)
+            {
+                return NotFound(new ApiResponse<object>
+                {
+                    StatusCode = 404,
+                    Message = "Subject not found",
+                    Data = null!,
+                    ResponsedAt = DateTime.UtcNow
+                });
+            }
+
+            if (!Enum.TryParse<SubjectStatus>(request.Status, ignoreCase: true, out var requestedStatus))
+            {
+                return BadRequest(new ApiResponse<object>
+                {
+                    StatusCode = 400,
+                    Message = $"Invalid status value: {request.Status}",
+                    Data = null!,
+                    ResponsedAt = DateTime.UtcNow
+                });
+            }
+
+            var currentStatus = Enum.Parse<SubjectStatus>(existing.Status, ignoreCase: true);
+            var transitionError = _subjectAdminService.ValidateStatusTransition(currentStatus, requestedStatus);
+            if (transitionError is not null)
+            {
+                return BadRequest(new ApiResponse<object>
+                {
+                    StatusCode = 400,
+                    Message = transitionError,
+                    Data = null!,
+                    ResponsedAt = DateTime.UtcNow
+                });
+            }
+        }
+
         try
         {
             var subject = await _repository.UpdateSubjectAsync(subjectId, request, ct);

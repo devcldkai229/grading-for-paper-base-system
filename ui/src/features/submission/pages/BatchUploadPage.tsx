@@ -174,8 +174,9 @@ export function BatchUploadPage() {
     try {
       await startGradingFlow(batchId, navigate);
     } catch (err: unknown) {
-      const msg =
-        err instanceof Error ? err.message : "Không thể bắt đầu chấm bài.";
+      const msg = isAxiosError(err)
+        ? err.response?.data?.message ?? "Không thể bắt đầu chấm bài."
+        : "Không thể bắt đầu chấm bài.";
       setError(msg);
     } finally {
       setStartingGrading(false);
