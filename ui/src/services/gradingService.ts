@@ -53,6 +53,12 @@ export const gradingService = {
     return res.data.data;
   },
 
+  async recordHeartbeat(assignmentId: string, seconds: number): Promise<void> {
+    await api.post<ApiResponse<null>>(`/grading/sessions/${assignmentId}/heartbeat`, {
+      seconds,
+    });
+  },
+
   async getAssignmentForOverride(assignmentId: string): Promise<GradingSession> {
     const res = await api.get<ApiResponse<GradingSession>>(
       `/grading/assignments/${assignmentId}`

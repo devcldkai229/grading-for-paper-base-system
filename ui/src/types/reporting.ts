@@ -10,6 +10,7 @@ export interface LecturerProgress {
   throughputPerHour: number | null;
   lastActivityAt: string | null;
   estimatedFinish: string | null;
+  avgGradingMinutesPerPaper: number | null;
 }
 
 export interface SubjectGradingProgress {
@@ -29,6 +30,7 @@ export interface SubjectGradingProgress {
   throughputPerHour: number | null;
   estimatedFinish: string | null;
   lecturers: LecturerProgress[];
+  avgGradingMinutesPerPaper: number | null;
 }
 
 export interface GradingProgressDashboard {

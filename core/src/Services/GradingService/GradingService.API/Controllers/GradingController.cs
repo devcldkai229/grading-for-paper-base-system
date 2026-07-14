@@ -123,6 +123,41 @@ public class GradingController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Background "still actively grading" ping from the lecturer's client, sent every ~15s only
+    /// while the tab is visible and the lecturer has interacted recently (client-side pause on
+    /// idle). Feeds AvgGradingMinutesPerPaper on the progress dashboard; fire-and-forget on the
+    /// client, so this endpoint never needs to surface anything beyond found/not-found.
+    /// </summary>
+    [HttpPost("sessions/{assignmentId:guid}/heartbeat")]
+    public async Task<IActionResult> RecordHeartbeat(
+        Guid assignmentId,
+        [FromBody] RecordHeartbeatRequest request,
+        CancellationToken ct = default)
+    {
+        var teacherId = GetUserId();
+        var recorded = await _gradingSessionService.RecordHeartbeatAsync(assignmentId, teacherId, request.Seconds, ct);
+
+        if (!recorded)
+        {
+            return NotFound(new ApiResponse<object>
+            {
+                StatusCode = 404,
+                Message = "Session not found or already submitted",
+                Data = null,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        return Ok(new ApiResponse<object>
+        {
+            StatusCode = 200,
+            Message = "Heartbeat recorded",
+            Data = null,
+            ResponsedAt = DateTime.UtcNow
+        });
+    }
+
     [HttpPost("sessions/{assignmentId:guid}/submit")]
     public async Task<IActionResult> Submit(Guid assignmentId, CancellationToken ct = default)
     {

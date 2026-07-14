@@ -24,6 +24,16 @@ public interface IGradingSessionService
     Task<byte[]?> ExportGradesAsync(Guid subjectId, Guid requestedBy, CancellationToken ct = default);
 
     /// <summary>
+    /// Adds a heartbeat "tick" of active grading time (seconds, clamped) to the assignment's
+    /// GradingForm, scoped to its own marker, only while grading hasn't been submitted yet.
+    /// Feeds the AvgGradingMinutesPerPaper figure in the progress dashboard. A rare concurrency
+    /// clash with a simultaneous SaveMarks/Submit call is swallowed — this is analytics-only data,
+    /// losing one heartbeat tick occasionally is inconsequential. Returns false if the assignment
+    /// doesn't exist, isn't owned by teacherId, or is already Submitted.
+    /// </summary>
+    Task<bool> RecordHeartbeatAsync(Guid assignmentId, Guid teacherId, int seconds, CancellationToken ct = default);
+
+    /// <summary>
     /// Aggregate grading progress for a lecturer's dashboard: done/total counters, upcoming exam
     /// deadlines for subjects that still have ungraded papers (soonest first), and a quick-link
     /// assignment id to resume grading (the next ungraded paper for the most urgent deadline, or

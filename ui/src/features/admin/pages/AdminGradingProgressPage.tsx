@@ -26,6 +26,11 @@ function formatThroughput(value: number | null): string {
   return `${value.toFixed(2)} bài/giờ`;
 }
 
+function formatAvgMinutes(value: number | null): string {
+  if (value === null) return "—";
+  return `${value.toFixed(1)} phút/bài`;
+}
+
 export function AdminGradingProgressPage() {
   const [semesterId, setSemesterId] = useState("");
   const [examId, setExamId] = useState("");
@@ -190,6 +195,7 @@ export function AdminGradingProgressPage() {
                   <span>Đang chấm: {s.draftingPapers}</span>
                   <span>Chưa chấm: {s.notStartedPapers}</span>
                   <span>Tốc độ: {formatThroughput(s.throughputPerHour)}</span>
+                  <span>TB thời gian/bài: {formatAvgMinutes(s.avgGradingMinutesPerPaper)}</span>
                   <span>Dự kiến xong: {formatDateTime(s.estimatedFinish)}</span>
                   {s.scoreAvg !== null && (
                     <span>
@@ -213,6 +219,7 @@ export function AdminGradingProgressPage() {
                               <th className="py-2 pr-4 font-medium">Đang chấm</th>
                               <th className="py-2 pr-4 font-medium">Chưa chấm</th>
                               <th className="py-2 pr-4 font-medium">Tốc độ</th>
+                              <th className="py-2 pr-4 font-medium">TB phút/bài</th>
                               <th className="py-2 pr-4 font-medium">Hoạt động gần nhất</th>
                               <th className="py-2 font-medium">Dự kiến xong</th>
                             </tr>
@@ -229,6 +236,7 @@ export function AdminGradingProgressPage() {
                                 <td className="py-2 pr-4">{l.draftingCount}</td>
                                 <td className="py-2 pr-4">{l.notStartedCount}</td>
                                 <td className="py-2 pr-4">{formatThroughput(l.throughputPerHour)}</td>
+                                <td className="py-2 pr-4">{formatAvgMinutes(l.avgGradingMinutesPerPaper)}</td>
                                 <td className="py-2 pr-4">{formatDateTime(l.lastActivityAt)}</td>
                                 <td className="py-2">{formatDateTime(l.estimatedFinish)}</td>
                               </tr>

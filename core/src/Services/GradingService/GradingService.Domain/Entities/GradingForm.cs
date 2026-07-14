@@ -18,6 +18,12 @@ public class GradingForm : Entity
 
     public int RowVersion { get; set; }
 
+    /// <summary>Cumulative active (non-idle) seconds spent grading this paper, fed by client heartbeats.</summary>
+    public int ActiveSecondsSpent { get; set; }
+
+    /// <summary>Timestamp of the most recent accepted heartbeat, for troubleshooting/observability.</summary>
+    public DateTime? LastActiveAt { get; set; }
+
     public GradingAssignment GradingAssignment { get; set; } = null!;
 
     public ICollection<QuestionGradeDetail> QuestionGradeDetails { get; set; } = new List<QuestionGradeDetail>();

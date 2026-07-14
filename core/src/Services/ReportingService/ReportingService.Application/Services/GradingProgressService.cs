@@ -59,7 +59,8 @@ public class GradingProgressService : IGradingProgressService
                     p?.ScoreMax,
                     p?.ThroughputPerHour,
                     p?.EstimatedFinish,
-                    p?.Lecturers ?? Array.Empty<LecturerProgressClientDto>());
+                    p?.Lecturers ?? Array.Empty<LecturerProgressClientDto>(),
+                    p?.AvgGradingMinutesPerPaper);
             })
             .OrderBy(s => s.CompletionPercent)
             .ToList();

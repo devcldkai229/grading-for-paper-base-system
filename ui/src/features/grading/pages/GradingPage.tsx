@@ -76,6 +76,12 @@ function buildQuestionGroups(questions: GradingSession["questions"]): QuestionGr
   return groups;
 }
 
+// Background "still actively grading" heartbeat (feeds GradingService's per-paper time
+// tracking / throughput analytics) — sent only while the tab is visible and the lecturer has
+// interacted within the idle threshold; no visible UI, purely instrumentation.
+const HEARTBEAT_INTERVAL_MS = 15_000;
+const IDLE_THRESHOLD_MS = 30_000;
+
 function isAxiosStatus(err: unknown, status: number): boolean {
   return (
     typeof err === "object" &&
@@ -120,6 +126,7 @@ export function GradingPage() {
 
   const urlCacheRef = useRef<Record<string, { data: FileUrlResponse; expiresAt: number }>>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastActivityRef = useRef<number>(Date.now());
   const isReadOnly = session?.status === "Submitted";
   const inputsLocked = isReadOnly && !overrideMode;
 
@@ -551,6 +558,33 @@ export function GradingPage() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  useEffect(() => {
+    const markActive = () => {
+      lastActivityRef.current = Date.now();
+    };
+    window.addEventListener("mousemove", markActive, { passive: true });
+    window.addEventListener("mousedown", markActive, { passive: true });
+    window.addEventListener("keydown", markActive, { passive: true });
+    window.addEventListener("scroll", markActive, { passive: true });
+    return () => {
+      window.removeEventListener("mousemove", markActive);
+      window.removeEventListener("mousedown", markActive);
+      window.removeEventListener("keydown", markActive);
+      window.removeEventListener("scroll", markActive);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!assignmentId || isReadOnly) return;
+    const interval = setInterval(() => {
+      const activeRecently = Date.now() - lastActivityRef.current < IDLE_THRESHOLD_MS;
+      if (document.visibilityState === "visible" && activeRecently) {
+        void gradingService.recordHeartbeat(assignmentId, HEARTBEAT_INTERVAL_MS / 1000).catch(() => {});
+      }
+    }, HEARTBEAT_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [assignmentId, isReadOnly]);
 
   if (loading) {
     return (

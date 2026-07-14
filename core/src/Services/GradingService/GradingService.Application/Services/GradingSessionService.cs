@@ -199,6 +199,32 @@ public class GradingSessionService : IGradingSessionService
         }
     }
 
+    private const int MaxHeartbeatSeconds = 60;
+
+    public async Task<bool> RecordHeartbeatAsync(
+        Guid assignmentId, Guid teacherId, int seconds, CancellationToken ct = default)
+    {
+        var assignment = await _assignments.GetWithFormAsync(assignmentId, teacherId, asNoTracking: false, ct);
+        if (assignment?.GradingForm is null) return false;
+        if (assignment.Status == GradingProgressStatus.Submitted) return false;
+
+        var clamped = Math.Clamp(seconds, 0, MaxHeartbeatSeconds);
+        assignment.GradingForm.ActiveSecondsSpent += clamped;
+        assignment.GradingForm.LastActiveAt = DateTime.UtcNow;
+
+        try
+        {
+            await _uow.SaveChangesAsync(ct);
+        }
+        catch (ConcurrencyConflictException)
+        {
+            // A concurrent SaveMarks/Submit already changed RowVersion on this row; this
+            // heartbeat tick is analytics-only, so it's fine to drop it rather than retry.
+        }
+
+        return true;
+    }
+
     public async Task<(OverrideMarksResultDto? Result, bool NotFound, string? Error)> OverrideMarksAsync(
         Guid assignmentId, Guid actingUserId, bool isAdmin, OverrideMarksRequest request, CancellationToken ct = default)
     {
@@ -674,12 +700,27 @@ public class GradingSessionService : IGradingSessionService
                     scores.Count > 0 ? scores.Max() : null,
                     throughput > 0 ? Math.Round(throughput, 2) : null,
                     estimatedFinish,
-                    lecturers);
+                    lecturers,
+                    ComputeAvgGradingMinutesPerPaper(subjectGroup));
             })
             .OrderBy(s => s.CompletionPercent)
             .ToList();
 
         return new GradingProgressDashboardDto(subjects);
+    }
+
+    /// <summary>Average grading time (minutes) per paper, over Submitted papers only — an
+    /// in-progress paper's still-accumulating time would skew the average down.</summary>
+    private static decimal? ComputeAvgGradingMinutesPerPaper(IEnumerable<SubjectProgressRow> rows)
+    {
+        var submittedSeconds = rows
+            .Where(r => r.Status == GradingProgressStatus.Submitted)
+            .Select(r => r.ActiveSecondsSpent)
+            .ToList();
+
+        return submittedSeconds.Count > 0
+            ? Math.Round((decimal)submittedSeconds.Average() / 60m, 1)
+            : null;
     }
 
     private static LecturerProgressDto BuildLecturerProgress(
@@ -715,7 +756,8 @@ public class GradingSessionService : IGradingSessionService
         return new LecturerProgressDto(
             teacherId, assigned, completed, drafting, notStarted,
             completedScores.Count > 0 ? Math.Round(completedScores.Average(), 2) : null,
-            throughput, lastActivity, estimatedFinish);
+            throughput, lastActivity, estimatedFinish,
+            ComputeAvgGradingMinutesPerPaper(rows));
     }
 
     public async Task<ScoreDistributionDashboardDto> GetScoreDistributionAsync(

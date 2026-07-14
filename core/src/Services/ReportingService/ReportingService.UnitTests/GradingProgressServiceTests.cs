@@ -20,7 +20,7 @@ namespace ReportingService.UnitTests
             new(subjectId, total, completed, 0, total - completed,
                 total == 0 ? 0 : Math.Round(100m * completed / total, 1),
                 null, null, null, null, null,
-                new List<LecturerProgressClientDto>());
+                new List<LecturerProgressClientDto>(), null);
 
         [Fact]
         public async Task GetDashboardAsync_WhenCatalogUnreachable_ReturnsError()

@@ -32,7 +32,8 @@ public record LecturerProgressClientDto(
     decimal? AvgScore,
     decimal? ThroughputPerHour,
     DateTime? LastActivityAt,
-    DateTime? EstimatedFinish
+    DateTime? EstimatedFinish,
+    decimal? AvgGradingMinutesPerPaper
 );
 
 public record SubjectProgressClientDto(
@@ -47,7 +48,8 @@ public record SubjectProgressClientDto(
     decimal? ScoreMax,
     decimal? ThroughputPerHour,
     DateTime? EstimatedFinish,
-    IReadOnlyList<LecturerProgressClientDto> Lecturers
+    IReadOnlyList<LecturerProgressClientDto> Lecturers,
+    decimal? AvgGradingMinutesPerPaper
 );
 
 public record GradingProgressDashboardClientDto(
@@ -84,7 +86,8 @@ public record GradingProgressSubjectDto(
     decimal? ScoreMax,
     decimal? ThroughputPerHour,
     DateTime? EstimatedFinish,
-    IReadOnlyList<LecturerProgressClientDto> Lecturers
+    IReadOnlyList<LecturerProgressClientDto> Lecturers,
+    decimal? AvgGradingMinutesPerPaper
 );
 
 public record GradingProgressDashboardResultDto(

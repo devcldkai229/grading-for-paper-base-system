@@ -50,6 +50,7 @@ public interface IGradingAssignmentRepository
 public sealed record AssignmentProgressRow(Guid Id, Guid SubjectId, GradingProgressStatus Status, DateTime CreatedAt);
 
 public sealed record SubjectProgressRow(
-    Guid SubjectId, Guid TeacherId, GradingProgressStatus Status, DateTime? SubmittedAt, decimal? TotalScore);
+    Guid SubjectId, Guid TeacherId, GradingProgressStatus Status, DateTime? SubmittedAt, decimal? TotalScore,
+    int ActiveSecondsSpent);
 
 public sealed record SubjectScoreRow(Guid SubjectId, decimal Score);

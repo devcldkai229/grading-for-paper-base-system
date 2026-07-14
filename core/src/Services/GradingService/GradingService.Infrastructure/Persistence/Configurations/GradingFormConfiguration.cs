@@ -43,6 +43,14 @@ public class GradingFormConfiguration : IEntityTypeConfiguration<GradingForm>
             .IsConcurrencyToken()
             .IsRequired();
 
+        builder.Property(x => x.ActiveSecondsSpent)
+            .HasColumnName("active_seconds_spent")
+            .HasDefaultValue(0)
+            .IsRequired();
+
+        builder.Property(x => x.LastActiveAt)
+            .HasColumnName("last_active_at");
+
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .IsRequired();
