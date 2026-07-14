@@ -1,7 +1,12 @@
 import { isAxiosError } from "axios";
 import api from "@/lib/api";
 import type { ApiResponse } from "@/types/auth";
-import type { GradingProgressDashboard, ScoreDistributionReport, PassFailReport } from "@/types/reporting";
+import type {
+  GradingProgressDashboard,
+  ScoreDistributionReport,
+  PassFailReport,
+  GlobalAuditLogResult,
+} from "@/types/reporting";
 
 export const reportingService = {
   async getGradingProgressDashboard(
@@ -44,6 +49,28 @@ export const reportingService = {
 
     const res = await api.get<ApiResponse<PassFailReport>>(
       "/reports/pass-fail",
+      { params }
+    );
+    return res.data.data;
+  },
+
+  async getGlobalAuditLogs(filters: {
+    userId?: string;
+    entityType?: string;
+    action?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<GlobalAuditLogResult> {
+    const params: Record<string, string | number> = {
+      page: filters.page ?? 1,
+      pageSize: filters.pageSize ?? 20,
+    };
+    if (filters.userId) params.userId = filters.userId;
+    if (filters.entityType) params.entityType = filters.entityType;
+    if (filters.action) params.action = filters.action;
+
+    const res = await api.get<ApiResponse<GlobalAuditLogResult>>(
+      "/reports/audit-logs",
       { params }
     );
     return res.data.data;

@@ -85,6 +85,25 @@ public class GradingServiceClient : IGradingServiceClient
         }
     }
 
+    public async Task<GradingAuditLogPageClientDto?> GetAuditLogsAsync(
+        Guid? userId, string? entityType, string? action, int page, int pageSize, CancellationToken ct = default)
+    {
+        try
+        {
+            var query = AuditLogQueryBuilder.Build(userId, entityType, action, page, pageSize);
+            var response = await _httpClient.GetAsync($"/api/internal/grading/audit-logs{query}", ct);
+            response.EnsureSuccessStatusCode();
+
+            var payload = await response.Content.ReadFromJsonAsync<Envelope<GradingAuditLogPageClientDto>>(JsonOptions, ct);
+            return payload?.Data;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            _logger.LogError(ex, "GradingService unreachable for audit logs");
+            return null;
+        }
+    }
+
     private sealed class Envelope<T>
     {
         [JsonPropertyName("data")]

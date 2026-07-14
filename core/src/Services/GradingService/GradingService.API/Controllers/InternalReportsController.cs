@@ -52,4 +52,23 @@ public class InternalReportsController : ControllerBase
         var result = await _gradingSessionService.GetScoreDistributionAsync(subjectIds, ct);
         return Ok(new { data = result, responsedAt = DateTime.UtcNow });
     }
+
+    /// <summary>
+    /// Unscoped, filterable audit log listing for ReportingService's global audit log viewer.
+    /// </summary>
+    [HttpGet("~/api/internal/grading/audit-logs")]
+    public async Task<IActionResult> GetAuditLogs(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        [FromQuery] Guid? userId = null,
+        [FromQuery] string? action = null,
+        [FromQuery] string? entityType = null,
+        CancellationToken ct = default)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1 || pageSize > 500) pageSize = 50;
+
+        var result = await _gradingSessionService.GetAuditLogsAsync(userId, entityType, action, page, pageSize, ct);
+        return Ok(new { data = result, responsedAt = DateTime.UtcNow });
+    }
 }

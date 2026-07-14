@@ -150,3 +150,47 @@ public record SubjectPassFailResultDto(
 public record PassFailReportResultDto(
     IReadOnlyList<SubjectPassFailResultDto> Subjects
 );
+
+/// <summary>One audit entry normalised across services (Iam/Grading/Submission each have their
+/// own shape and field names — this is the common shape the global audit log viewer renders).</summary>
+public record AuditLogEntryDto(
+    string Source,
+    Guid? UserId,
+    string Action,
+    string EntityType,
+    string? EntityId,
+    string? Details,
+    DateTime PerformedAt
+);
+
+public record GlobalAuditLogResultDto(
+    IReadOnlyList<AuditLogEntryDto> Items,
+    int Page,
+    int PageSize,
+    int TotalCount,
+    IReadOnlyList<string> UnavailableSources
+);
+
+// --- Per-source client-side shapes (mirror each service's own audit log DTOs exactly, for
+// JSON deserialization). Each client maps these into the common AuditLogEntryDto above. ---
+
+public record IamAuditLogEntryClientDto(
+    Guid Id, Guid? UserId, string Action, string EntityType, Guid EntityId,
+    string? OldValue, string? NewValue, DateTime CreatedAt);
+
+public record IamAuditLogPageClientDto(
+    IReadOnlyList<IamAuditLogEntryClientDto> Items, int Page, int PageSize, int TotalCount);
+
+public record GradingAuditLogEntryClientDto(
+    Guid Id, Guid UserId, string Action, string EntityType, Guid? EntityId,
+    string? OldValue, string? NewValue, string? Reason, DateTime CreatedAt);
+
+public record GradingAuditLogPageClientDto(
+    IReadOnlyList<GradingAuditLogEntryClientDto> Items, int TotalCount);
+
+public record SubmissionAuditLogEntryClientDto(
+    Guid Id, string Action, string EntityType, Guid EntityId, Guid SubjectId,
+    Guid PerformedBy, string? Details, DateTime PerformedAt);
+
+public record SubmissionAuditLogPageClientDto(
+    IReadOnlyList<SubmissionAuditLogEntryClientDto> Items, int TotalCount);

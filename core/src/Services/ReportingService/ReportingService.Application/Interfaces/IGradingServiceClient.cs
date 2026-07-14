@@ -25,4 +25,12 @@ public interface IGradingServiceClient
     /// </summary>
     Task<ScoreDistributionDashboardClientDto?> GetScoreDistributionAsync(
         IReadOnlyCollection<Guid>? subjectIds, CancellationToken ct = default);
+
+    /// <summary>
+    /// GradingService's own audit log (score overrides/submissions), filtered and paginated.
+    /// Returns null if GradingService is unreachable — callers should degrade gracefully (skip
+    /// this source) rather than fail the whole aggregated view.
+    /// </summary>
+    Task<GradingAuditLogPageClientDto?> GetAuditLogsAsync(
+        Guid? userId, string? entityType, string? action, int page, int pageSize, CancellationToken ct = default);
 }

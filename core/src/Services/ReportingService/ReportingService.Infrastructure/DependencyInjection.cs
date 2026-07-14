@@ -30,8 +30,11 @@ public static class DependencyInjection
         services.AddScoped<Application.Interfaces.IGradingProgressService, Application.Services.GradingProgressService>();
         services.AddScoped<Application.Interfaces.IScoreDistributionService, Application.Services.ScoreDistributionService>();
         services.AddScoped<Application.Interfaces.IPassFailReportService, Application.Services.PassFailReportService>();
+        services.AddScoped<Application.Interfaces.IGlobalAuditLogService, Application.Services.GlobalAuditLogService>();
         RegisterGradingServiceClient(services, configuration);
         RegisterExamCatalogServiceClient(services, configuration);
+        RegisterIamServiceClient(services, configuration);
+        RegisterSubmissionServiceClient(services, configuration);
         RegisterJwtAuthentication(services, configuration);
         RegisterAuthorization(services);
 
@@ -71,6 +74,38 @@ public static class DependencyInjection
         services.AddHttpClient<Application.Interfaces.IExamCatalogServiceClient, Clients.ExamCatalogServiceClient>(client =>
         {
             client.BaseAddress = new Uri(examCatalogServiceUrl);
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
+        });
+    }
+
+    private static void RegisterIamServiceClient(IServiceCollection services, IConfiguration configuration)
+    {
+        var internalApiKey = GetInternalApiKey(configuration);
+
+        var iamServiceUrl = configuration.GetValue<string>("IamServiceUrl")
+            ?? throw new InvalidOperationException(
+                "IamServiceUrl is missing. It is required for the global audit log viewer.");
+
+        services.AddHttpClient<Application.Interfaces.IIamServiceClient, Clients.IamServiceClient>(client =>
+        {
+            client.BaseAddress = new Uri(iamServiceUrl);
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
+        });
+    }
+
+    private static void RegisterSubmissionServiceClient(IServiceCollection services, IConfiguration configuration)
+    {
+        var internalApiKey = GetInternalApiKey(configuration);
+
+        var submissionServiceUrl = configuration.GetValue<string>("SubmissionServiceUrl")
+            ?? throw new InvalidOperationException(
+                "SubmissionServiceUrl is missing. It is required for the global audit log viewer.");
+
+        services.AddHttpClient<Application.Interfaces.ISubmissionServiceClient, Clients.SubmissionServiceClient>(client =>
+        {
+            client.BaseAddress = new Uri(submissionServiceUrl);
             client.Timeout = TimeSpan.FromSeconds(30);
             client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
         });

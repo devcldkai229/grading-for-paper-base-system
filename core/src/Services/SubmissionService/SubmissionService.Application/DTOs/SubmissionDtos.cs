@@ -109,3 +109,20 @@ public record PaperDeletionInfoDto(
     string Status,
     IReadOnlyList<PaperFileRefDto> Files
 );
+
+/// <summary>One audit entry (batch/paper deletion, etc.). Consumed by ReportingService's global audit log viewer.</summary>
+public record SubmissionAuditLogEntryDto(
+    Guid Id,
+    string Action,
+    string EntityType,
+    Guid EntityId,
+    Guid SubjectId,
+    Guid PerformedBy,
+    string? Details,
+    DateTime PerformedAt
+);
+
+public record SubmissionAuditLogPageDto(
+    IReadOnlyList<SubmissionAuditLogEntryDto> Items,
+    int TotalCount
+);

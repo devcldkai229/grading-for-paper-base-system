@@ -22,17 +22,52 @@ public class ReportsController : ControllerBase
     private readonly IGradingProgressService _gradingProgressService;
     private readonly IScoreDistributionService _scoreDistributionService;
     private readonly IPassFailReportService _passFailReportService;
+    private readonly IGlobalAuditLogService _globalAuditLogService;
 
     public ReportsController(
         IFeedbackReportService feedbackReportService,
         IGradingProgressService gradingProgressService,
         IScoreDistributionService scoreDistributionService,
-        IPassFailReportService passFailReportService)
+        IPassFailReportService passFailReportService,
+        IGlobalAuditLogService globalAuditLogService)
     {
         _feedbackReportService = feedbackReportService;
         _gradingProgressService = gradingProgressService;
         _scoreDistributionService = scoreDistributionService;
         _passFailReportService = passFailReportService;
+        _globalAuditLogService = globalAuditLogService;
+    }
+
+    /// <summary>
+    /// Admin-only. Unified audit log aggregated across IamService, GradingService and
+    /// SubmissionService — filterable by user/entity type/action, paginated, newest first.
+    /// </summary>
+    [HttpGet("audit-logs")]
+    public async Task<IActionResult> GetAuditLogs(
+        [FromQuery] Guid? userId,
+        [FromQuery] string? entityType,
+        [FromQuery] string? action,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
+    {
+        if (!IsAdmin())
+        {
+            return Forbid();
+        }
+
+        if (page < 1) page = 1;
+        if (pageSize < 1 || pageSize > 100) pageSize = 20;
+
+        var result = await _globalAuditLogService.GetAuditLogsAsync(userId, entityType, action, page, pageSize, ct);
+
+        return Ok(new ApiResponse<GlobalAuditLogResultDto>
+        {
+            StatusCode = 200,
+            Message = "Audit log retrieved successfully",
+            Data = result,
+            ResponsedAt = DateTime.UtcNow
+        });
     }
 
     /// <summary>

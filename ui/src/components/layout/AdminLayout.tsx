@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { Activity, BarChart3, BookOpen, CheckCircle2, FileSpreadsheet, LayoutDashboard, LogOut, PenLine, Search, Settings2, Users, User as UserIcon, ShieldAlert } from "lucide-react";
+import { Activity, BarChart3, BookOpen, CheckCircle2, FileSpreadsheet, LayoutDashboard, LogOut, PenLine, Search, Settings2, Users, User as UserIcon, ShieldAlert, ScrollText } from "lucide-react";
 import { authService } from "@/services/authService";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -15,7 +15,8 @@ const navItems = [
   { to: "/admin/reports/score-distribution", label: "Phân phối điểm", icon: BarChart3 },
   { to: "/admin/reports/pass-fail", label: "Thống kê đậu/rớt", icon: CheckCircle2 },
   { to: "/admin/reports/feedback-export", label: "Xuất feedback", icon: FileSpreadsheet },
-  { to: "/admin/audit-logs", label: "Lịch sử hoạt động", icon: ShieldAlert },
+  { to: "/admin/reports/audit-logs", label: "Nhật ký toàn hệ thống", icon: ScrollText },
+  { to: "/admin/audit-logs", label: "Lịch sử hoạt động (tài khoản)", icon: ShieldAlert },
 ];
 
 export function AdminLayout() {

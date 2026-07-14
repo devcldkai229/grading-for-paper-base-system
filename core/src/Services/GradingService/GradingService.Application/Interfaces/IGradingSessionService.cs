@@ -71,4 +71,12 @@ public interface IGradingSessionService
     /// </summary>
     Task<ScoreDistributionDashboardDto> GetScoreDistributionAsync(
         IReadOnlyCollection<Guid>? subjectIds, CancellationToken ct = default);
+
+    /// <summary>
+    /// Unscoped, filterable audit log listing (score overrides, submissions, etc. across every
+    /// assignment) for ReportingService's global audit log viewer. Unlike GetAuditTrailAsync,
+    /// this is not tied to one assignment and has no ownership check (internal, service-to-service only).
+    /// </summary>
+    Task<AuditLogPageDto> GetAuditLogsAsync(
+        Guid? userId, string? entityType, string? action, int page, int pageSize, CancellationToken ct = default);
 }

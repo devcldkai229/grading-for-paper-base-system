@@ -206,3 +206,22 @@ public record SubjectScoreDistributionDto(
 public record ScoreDistributionDashboardDto(
     IReadOnlyList<SubjectScoreDistributionDto> Subjects
 );
+
+/// <summary>One audit entry, unscoped (not tied to a single caller-known entity). Used by the
+/// admin global audit log viewer, unlike AuditLogEntryDto which is scoped to one assignment.</summary>
+public record AuditLogRecordDto(
+    Guid Id,
+    Guid UserId,
+    string Action,
+    string EntityType,
+    Guid? EntityId,
+    string? OldValue,
+    string? NewValue,
+    string? Reason,
+    DateTime CreatedAt
+);
+
+public record AuditLogPageDto(
+    IReadOnlyList<AuditLogRecordDto> Items,
+    int TotalCount
+);

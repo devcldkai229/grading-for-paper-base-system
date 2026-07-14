@@ -719,6 +719,19 @@ public class GradingSessionService : IGradingSessionService
         return new ScoreDistributionDashboardDto(subjects);
     }
 
+    public async Task<AuditLogPageDto> GetAuditLogsAsync(
+        Guid? userId, string? entityType, string? action, int page, int pageSize, CancellationToken ct = default)
+    {
+        var (items, totalCount) = await _auditLogs.ListAsync(userId, entityType, action, page, pageSize, ct);
+
+        var records = items
+            .Select(l => new AuditLogRecordDto(
+                l.Id, l.UserId, l.Action, l.EntityType, l.EntityId, l.OldValue, l.NewValue, l.Reason, l.CreatedAt))
+            .ToList();
+
+        return new AuditLogPageDto(records, totalCount);
+    }
+
     public async Task<SubjectFeedbackExportDto> GetReleasableFeedbackAsync(Guid subjectId, CancellationToken ct = default)
     {
         var assignments = await _assignments.ListBySubjectWithFormsAsync(subjectId, submittedOnly: true, ct);

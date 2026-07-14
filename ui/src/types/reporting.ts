@@ -76,3 +76,21 @@ export interface SubjectPassFail {
 export interface PassFailReport {
   subjects: SubjectPassFail[];
 }
+
+export interface AuditLogEntry {
+  source: string;
+  userId: string | null;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  details: string | null;
+  performedAt: string;
+}
+
+export interface GlobalAuditLogResult {
+  items: AuditLogEntry[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  unavailableSources: string[];
+}
