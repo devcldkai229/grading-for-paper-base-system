@@ -71,6 +71,57 @@ public class StudentPaperRepository : IStudentPaperRepository
         return (items, (int)totalCount);
     }
 
+    public async Task<(IReadOnlyList<StudentPaperDto> Items, int TotalCount)> SearchPapersAsync(
+        string keyword, int page, int pageSize,
+        Guid? uploadedByFilter = null,
+        CancellationToken ct = default)
+    {
+        var filterBuilder = Builders<StudentPaper>.Filter;
+
+        var escapedKeyword = System.Text.RegularExpressions.Regex.Escape(keyword);
+        var keywordFilter = filterBuilder.Regex(
+            p => p.StudentAlias, new MongoDB.Bson.BsonRegularExpression(escapedKeyword, "i"));
+
+        if (int.TryParse(keyword, out var aliasNumber))
+        {
+            keywordFilter |= filterBuilder.Eq(p => p.AliasNumber, aliasNumber);
+        }
+
+        var filter = keywordFilter;
+        if (uploadedByFilter.HasValue)
+        {
+            filter &= filterBuilder.Eq(p => p.UploadedBy, uploadedByFilter.Value);
+        }
+
+        var totalCount = await PapersCollection.CountDocumentsAsync(filter, cancellationToken: ct);
+
+        var papers = await PapersCollection
+            .Find(filter)
+            .SortByDescending(p => p.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Limit(pageSize)
+            .ToListAsync(ct);
+
+        var paperIds = papers.Select(p => p.Id).ToList();
+        var fileCounts = new Dictionary<Guid, int>();
+        if (paperIds.Count > 0)
+        {
+            var fileFilter = Builders<PaperFile>.Filter.In(f => f.StudentPaperId, paperIds);
+            var files = await FilesCollection.Find(fileFilter).ToListAsync(ct);
+            fileCounts = files.GroupBy(f => f.StudentPaperId)
+                .ToDictionary(g => g.Key, g => g.Count());
+        }
+
+        var items = papers.Select(p => new StudentPaperDto(
+            p.Id, p.BatchId, p.SubjectId, p.StudentAlias, p.AliasNumber,
+            p.Status.ToString(),
+            fileCounts.GetValueOrDefault(p.Id, 0),
+            p.CreatedAt
+        )).ToList();
+
+        return (items, (int)totalCount);
+    }
+
     public async Task<BatchPapersDto?> GetPapersByBatchAsync(Guid batchId, CancellationToken ct = default)
     {
         var batchCollection = _database.GetCollection<SubmissionBatch>(

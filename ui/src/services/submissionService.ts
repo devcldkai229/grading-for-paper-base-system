@@ -54,6 +54,18 @@ export const submissionService = {
     return res.data.data;
   },
 
+  async searchPapers(
+    keyword: string,
+    page = 1,
+    pageSize = 8
+  ): Promise<PagedResult<StudentPaper>> {
+    const res = await api.get<ApiResponse<PagedResult<StudentPaper>>>(
+      "/submissions/search",
+      { params: { keyword, page, pageSize } }
+    );
+    return res.data.data;
+  },
+
   async getSubmissionDetail(paperId: string): Promise<StudentPaperDetail> {
     const res = await api.get<ApiResponse<StudentPaperDetail>>(
       `/submissions/${paperId}`

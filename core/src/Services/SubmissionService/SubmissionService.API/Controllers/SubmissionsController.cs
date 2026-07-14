@@ -70,6 +70,52 @@ public class SubmissionsController : ControllerBase
     }
 
     /// <summary>
+    /// Keyword search across every subject's papers (student alias / alias number), for the
+    /// global search box. Admin: sees all matching papers. Lecturer: only papers they uploaded.
+    /// </summary>
+    [HttpGet("search")]
+    public async Task<IActionResult> SearchSubmissions(
+        [FromQuery] string? keyword,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
+    {
+        var role = User.FindFirst("Role")?.Value;
+        var isAdmin = string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase);
+
+        Guid? uploadedByFilter = null;
+
+        if (!isAdmin)
+        {
+            var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                ?? User.FindFirst("sub")?.Value;
+
+            if (!Guid.TryParse(userIdString, out var lecturerId))
+            {
+                return Unauthorized(new ApiResponse<object>
+                {
+                    StatusCode = 401,
+                    Message = "Invalid user ID",
+                    Data = null!,
+                    ResponsedAt = DateTime.UtcNow
+                });
+            }
+
+            uploadedByFilter = lecturerId;
+        }
+
+        var result = await _paperQueryService.SearchPapersAsync(keyword, page, pageSize, uploadedByFilter, ct);
+
+        return Ok(new ApiResponse<PagedResult<StudentPaperDto>>
+        {
+            StatusCode = 200,
+            Message = "Submissions search retrieved successfully",
+            Data = result,
+            ResponsedAt = DateTime.UtcNow
+        });
+    }
+
+    /// <summary>
     /// Get student paper detail with list of paper files (sorted by order_index).
     /// </summary>
     [HttpGet("{paperId:guid}")]

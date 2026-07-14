@@ -13,6 +13,17 @@ public interface IStudentPaperRepository
         Guid? uploadedByFilter = null,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Keyword search across every subject's papers (unlike GetPapersAsync, not scoped to one
+    /// subject) — matches StudentAlias (case-insensitive substring) or an exact AliasNumber when
+    /// the keyword parses as an integer. Consumed by the global search box.
+    /// <paramref name="uploadedByFilter"/> when set restricts to papers uploaded by that user (lecturer self-service).
+    /// </summary>
+    Task<(IReadOnlyList<StudentPaperDto> Items, int TotalCount)> SearchPapersAsync(
+        string keyword, int page, int pageSize,
+        Guid? uploadedByFilter = null,
+        CancellationToken ct = default);
+
     Task<BatchPapersDto?> GetPapersByBatchAsync(Guid batchId, CancellationToken ct = default);
 
     Task<InternalPaperSummaryDto?> GetPaperSummaryAsync(Guid paperId, CancellationToken ct = default);

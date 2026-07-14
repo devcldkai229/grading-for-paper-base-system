@@ -86,6 +86,10 @@ function App() {
                 path="/admin/catalog/subjects/:subjectId"
                 element={<AdminSubjectDetailPage />}
               />
+              <Route
+                path="/admin/submissions/:paperId"
+                element={<SubmissionDetailPage />}
+              />
               <Route path="/admin/profile" element={<ProfilePage />} />
             </Route>
           </Route>

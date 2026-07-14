@@ -41,6 +41,35 @@ public class PaperQueryService : IPaperQueryService
         };
     }
 
+    public async Task<PagedResult<StudentPaperDto>> SearchPapersAsync(
+        string? keyword, int page, int pageSize, Guid? uploadedByFilter, CancellationToken ct = default)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1 || pageSize > 100) pageSize = 20;
+
+        if (string.IsNullOrWhiteSpace(keyword))
+        {
+            return new PagedResult<StudentPaperDto>
+            {
+                Items = Array.Empty<StudentPaperDto>(),
+                Page = page,
+                PageSize = pageSize,
+                TotalCount = 0
+            };
+        }
+
+        var (items, totalCount) = await _paperRepository.SearchPapersAsync(
+            keyword.Trim(), page, pageSize, uploadedByFilter, ct);
+
+        return new PagedResult<StudentPaperDto>
+        {
+            Items = items,
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = totalCount
+        };
+    }
+
     public Task<StudentPaperDetailDto?> GetPaperDetailAsync(Guid paperId, CancellationToken ct = default) =>
         _paperRepository.GetPaperDetailAsync(paperId, ct);
 
