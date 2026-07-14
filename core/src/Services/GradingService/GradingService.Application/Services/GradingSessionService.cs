@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Contracts.Messages;
 using GradingService.Application.DTOs;
 using GradingService.Application.Interfaces;
 using GradingService.Domain.Entities;
@@ -17,6 +18,7 @@ public class GradingSessionService : IGradingSessionService
     private readonly IExamCatalogServiceClient _catalogClient;
     private readonly IGradeExportFileBuilder _exportBuilder;
     private readonly IMarkerAssignmentRepository _markerAssignments;
+    private readonly IMessagePublisher _messagePublisher;
 
     public GradingSessionService(
         IGradingAssignmentRepository assignments,
@@ -26,7 +28,8 @@ public class GradingSessionService : IGradingSessionService
         ISubmissionServiceClient submissionClient,
         IExamCatalogServiceClient catalogClient,
         IGradeExportFileBuilder exportBuilder,
-        IMarkerAssignmentRepository markerAssignments)
+        IMarkerAssignmentRepository markerAssignments,
+        IMessagePublisher messagePublisher)
     {
         _assignments = assignments;
         _auditLogs = auditLogs;
@@ -36,6 +39,7 @@ public class GradingSessionService : IGradingSessionService
         _catalogClient = catalogClient;
         _exportBuilder = exportBuilder;
         _markerAssignments = markerAssignments;
+        _messagePublisher = messagePublisher;
     }
 
     public async Task<StartBatchResultDto?> StartBatchAsync(Guid batchId, Guid teacherId, CancellationToken ct = default)
@@ -251,6 +255,16 @@ public class GradingSessionService : IGradingSessionService
         });
 
         await _uow.SaveChangesAsync(ct);
+
+        // Only notify when someone other than the original marker made the change — the marker
+        // doesn't need to be told about their own edit.
+        if (actingUserId != assignment.TeacherId)
+        {
+            await _messagePublisher.PublishAsync(new RegradeNotificationEvent(
+                Guid.NewGuid(), assignment.TeacherId, assignment.Id, assignment.SubjectId,
+                request.Reason, DateTime.UtcNow), ct);
+        }
+
         return (new OverrideMarksResultDto(form.RowVersion, form.TotalScore), false, null);
     }
 
@@ -501,7 +515,7 @@ public class GradingSessionService : IGradingSessionService
             })
         });
 
-    public async Task<byte[]?> ExportGradesAsync(Guid subjectId, CancellationToken ct = default)
+    public async Task<byte[]?> ExportGradesAsync(Guid subjectId, Guid requestedBy, CancellationToken ct = default)
     {
         var assignments = await _assignments.ListBySubjectWithFormsAsync(subjectId, submittedOnly: false, ct);
         if (assignments.Count == 0) return null;
@@ -551,7 +565,12 @@ public class GradingSessionService : IGradingSessionService
             rows.Add(row);
         }
 
-        return _exportBuilder.Build(rows);
+        var bytes = _exportBuilder.Build(rows);
+
+        await _messagePublisher.PublishAsync(new ExportReadyEvent(
+            Guid.NewGuid(), requestedBy, subjectId, DateTime.UtcNow), ct);
+
+        return bytes;
     }
 
     public async Task<MyProgressDto> GetMyProgressAsync(Guid teacherId, CancellationToken ct = default)
@@ -827,6 +846,8 @@ public class GradingSessionService : IGradingSessionService
         _markerAssignments.Add(assignment);
         await _uow.SaveChangesAsync(ct);
 
+        await PublishAssignmentNotificationAsync(assignment, ct);
+
         return (ToDto(assignment), null);
     }
 
@@ -863,8 +884,16 @@ public class GradingSessionService : IGradingSessionService
 
         await _uow.SaveChangesAsync(ct);
 
+        await PublishAssignmentNotificationAsync(assignment, ct);
+
         return (ToDto(assignment), false, null);
     }
+
+    /// <summary>Notifies the (possibly new) teacher that they now own this alias range.</summary>
+    private Task PublishAssignmentNotificationAsync(MarkerAssignment assignment, CancellationToken ct) =>
+        _messagePublisher.PublishAsync(new AssignmentNotificationEvent(
+            Guid.NewGuid(), assignment.TeacherId, assignment.SubjectId,
+            assignment.AliasStart, assignment.AliasEnd, DateTime.UtcNow), ct);
 
     public async Task<bool> DeleteMarkerAssignmentAsync(Guid id, CancellationToken ct = default)
     {
@@ -875,6 +904,65 @@ public class GradingSessionService : IGradingSessionService
         await _uow.SaveChangesAsync(ct);
 
         return true;
+    }
+
+    public async Task<int> RunDeadlineReminderSweepAsync(int reminderWindowDays = 3, CancellationToken ct = default)
+    {
+        var rows = await _assignments.ListProgressRowsAsync(null, ct);
+
+        var pendingGroups = rows
+            .GroupBy(r => (r.SubjectId, r.TeacherId))
+            .Select(g => new
+            {
+                g.Key.SubjectId,
+                g.Key.TeacherId,
+                Total = g.Count(),
+                Submitted = g.Count(r => r.Status == GradingProgressStatus.Submitted)
+            })
+            .Where(g => g.Submitted < g.Total)
+            .ToList();
+
+        if (pendingGroups.Count == 0) return 0;
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var deadline = today.AddDays(reminderWindowDays);
+
+        var subjectIds = pendingGroups.Select(g => g.SubjectId).Distinct().ToList();
+        var examInfoResults = await Task.WhenAll(subjectIds.Select(async id =>
+            new { SubjectId = id, Info = await _catalogClient.GetExamInfoAsync(id, ct) }));
+        var examInfoBySubject = examInfoResults
+            .Where(x => x.Info?.ExamEndDate is not null)
+            .ToDictionary(x => x.SubjectId, x => x.Info!);
+
+        var publishedCount = 0;
+        foreach (var group in pendingGroups)
+        {
+            if (!examInfoBySubject.TryGetValue(group.SubjectId, out var info)) continue;
+            if (info.ExamEndDate!.Value > deadline) continue;
+
+            var remaining = group.Total - group.Submitted;
+            var messageId = DeterministicDailyMessageId(group.SubjectId, group.TeacherId, today);
+
+            await _messagePublisher.PublishAsync(new DeadlineReminderEvent(
+                messageId, group.TeacherId, group.SubjectId, info.SubjectCode,
+                info.ExamEndDate.Value, remaining, DateTime.UtcNow), ct);
+
+            publishedCount++;
+        }
+
+        return publishedCount;
+    }
+
+    /// <summary>
+    /// Same (subject, teacher, calendar day) always maps to the same id, so re-running the sweep
+    /// several times on the same day publishes a MessageId the NotificationService consumer has
+    /// already claimed (via its 24h Redis dedup key) — one reminder per pair per day, not one per tick.
+    /// </summary>
+    private static Guid DeterministicDailyMessageId(Guid subjectId, Guid teacherId, DateOnly day)
+    {
+        var seed = $"{subjectId:N}:{teacherId:N}:{day:yyyy-MM-dd}";
+        var hash = System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(seed));
+        return new Guid(hash);
     }
 
     /// <summary>

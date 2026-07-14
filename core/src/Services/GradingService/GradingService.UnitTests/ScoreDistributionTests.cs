@@ -33,7 +33,8 @@ namespace GradingService.UnitTests
             Substitute.For<ISubmissionServiceClient>(),
             Substitute.For<IExamCatalogServiceClient>(),
             new MiniExcelGradeExportFileBuilder(),
-            new MarkerAssignmentRepository(db));
+            new MarkerAssignmentRepository(db),
+            Substitute.For<IMessagePublisher>());
 
         private static GradingAssignment MakeAssignment(
             Guid subjectId, GradingProgressStatus status, decimal? score = null)

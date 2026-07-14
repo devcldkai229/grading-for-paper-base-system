@@ -21,7 +21,7 @@ public interface IGradingSessionService
     Task<(SubmitResultDto? Result, bool Forbidden, bool NotFound)> SubmitAsync(
         Guid assignmentId, Guid teacherId, CancellationToken ct = default);
 
-    Task<byte[]?> ExportGradesAsync(Guid subjectId, CancellationToken ct = default);
+    Task<byte[]?> ExportGradesAsync(Guid subjectId, Guid requestedBy, CancellationToken ct = default);
 
     /// <summary>
     /// Aggregate grading progress for a lecturer's dashboard: done/total counters, upcoming exam
@@ -102,4 +102,15 @@ public interface IGradingSessionService
 
     /// <summary>Admin removes a marker assignment (frees the range for reallocation).</summary>
     Task<bool> DeleteMarkerAssignmentAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>
+    /// Scans every (subject, teacher) pair with ungraded papers and publishes a
+    /// DeadlineReminderEvent for those whose subject's exam deadline falls within
+    /// <paramref name="reminderWindowDays"/>. Each event's MessageId is deterministic
+    /// (derived from subject + teacher + calendar day), so re-running the sweep multiple times
+    /// on the same day is a no-op on the consumer side (Redis dedup) rather than a duplicate
+    /// notification — this is the job's idempotency guarantee. Returns the number of reminders
+    /// published (for logging).
+    /// </summary>
+    Task<int> RunDeadlineReminderSweepAsync(int reminderWindowDays = 3, CancellationToken ct = default);
 }

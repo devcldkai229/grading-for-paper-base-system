@@ -34,7 +34,8 @@ namespace GradingService.UnitTests
             submissionClient ?? Substitute.For<ISubmissionServiceClient>(),
             Substitute.For<IExamCatalogServiceClient>(),
             new MiniExcelGradeExportFileBuilder(),
-            new MarkerAssignmentRepository(db));
+            new MarkerAssignmentRepository(db),
+            Substitute.For<IMessagePublisher>());
 
         private static ISubmissionServiceClient StubStats(int totalPapers, int? maxAliasNumber)
         {

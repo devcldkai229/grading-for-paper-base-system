@@ -310,7 +310,7 @@ public class GradingController : ControllerBase
     [HttpGet("subjects/{subjectId:guid}/export")]
     public async Task<IActionResult> ExportGrades(Guid subjectId, CancellationToken ct = default)
     {
-        var bytes = await _gradingSessionService.ExportGradesAsync(subjectId, ct);
+        var bytes = await _gradingSessionService.ExportGradesAsync(subjectId, GetUserId(), ct);
         if (bytes is null)
         {
             return NotFound(new ApiResponse<object>
