@@ -306,6 +306,17 @@ public class SubjectsController : ControllerBase
             });
         }
 
+        if (request.PassScore is < 0 || request.PassScore > request.MaxScore)
+        {
+            return BadRequest(new ApiResponse<object>
+            {
+                StatusCode = 400,
+                Message = "passScore must be between 0 and maxScore",
+                Data = null!,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
         try
         {
             var subject = await _repository.CreateSubjectAsync(request, ct);
@@ -342,6 +353,17 @@ public class SubjectsController : ControllerBase
             {
                 StatusCode = 400,
                 Message = "maxScore must be greater than 0",
+                Data = null!,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        if (request.PassScore is < 0 || request.PassScore > request.MaxScore)
+        {
+            return BadRequest(new ApiResponse<object>
+            {
+                StatusCode = 400,
+                Message = "passScore must be between 0 and maxScore",
                 Data = null!,
                 ResponsedAt = DateTime.UtcNow
             });

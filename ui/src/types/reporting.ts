@@ -58,3 +58,21 @@ export interface SubjectScoreDistribution {
 export interface ScoreDistributionReport {
   subjects: SubjectScoreDistribution[];
 }
+
+export interface SubjectPassFail {
+  subjectId: string;
+  subjectCode: string;
+  title: string | null;
+  examName: string;
+  semesterCode: string;
+  maxScore: number;
+  passScore: number | null;
+  submittedCount: number;
+  passCount: number | null;
+  failCount: number | null;
+  passRatePercent: number | null;
+}
+
+export interface PassFailReport {
+  subjects: SubjectPassFail[];
+}

@@ -21,15 +21,54 @@ public class ReportsController : ControllerBase
     private readonly IFeedbackReportService _feedbackReportService;
     private readonly IGradingProgressService _gradingProgressService;
     private readonly IScoreDistributionService _scoreDistributionService;
+    private readonly IPassFailReportService _passFailReportService;
 
     public ReportsController(
         IFeedbackReportService feedbackReportService,
         IGradingProgressService gradingProgressService,
-        IScoreDistributionService scoreDistributionService)
+        IScoreDistributionService scoreDistributionService,
+        IPassFailReportService passFailReportService)
     {
         _feedbackReportService = feedbackReportService;
         _gradingProgressService = gradingProgressService;
         _scoreDistributionService = scoreDistributionService;
+        _passFailReportService = passFailReportService;
+    }
+
+    /// <summary>
+    /// Admin-only. Pass/fail report: student counts and pass rate per subject, computed against
+    /// each subject's configured PassScore threshold. Optionally scoped to a semester and/or exam.
+    /// </summary>
+    [HttpGet("pass-fail")]
+    public async Task<IActionResult> GetPassFailReport(
+        [FromQuery] Guid? semesterId,
+        [FromQuery] Guid? examId,
+        CancellationToken ct = default)
+    {
+        if (!IsAdmin())
+        {
+            return Forbid();
+        }
+
+        var (result, error) = await _passFailReportService.GetReportAsync(semesterId, examId, ct);
+        if (error is not null)
+        {
+            return StatusCode(503, new ApiResponse<object>
+            {
+                StatusCode = 503,
+                Message = error,
+                Data = null,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        return Ok(new ApiResponse<PassFailReportResultDto>
+        {
+            StatusCode = 200,
+            Message = "Pass/fail report retrieved successfully",
+            Data = result!,
+            ResponsedAt = DateTime.UtcNow
+        });
     }
 
     /// <summary>

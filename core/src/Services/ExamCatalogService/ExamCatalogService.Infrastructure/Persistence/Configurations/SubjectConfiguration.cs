@@ -44,6 +44,10 @@ public class SubjectConfiguration : IEntityTypeConfiguration<Subject>
             .IsRequired()
             .HasDefaultValue(10m);
 
+        builder.Property(subject => subject.PassScore)
+            .HasColumnName("pass_score")
+            .HasColumnType("numeric(5,2)");
+
         builder.Property(subject => subject.ExamPaperS3Key)
             .HasColumnName("exam_paper_s3_key");
 

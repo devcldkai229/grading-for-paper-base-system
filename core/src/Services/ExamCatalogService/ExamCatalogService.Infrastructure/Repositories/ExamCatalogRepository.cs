@@ -135,7 +135,8 @@ public class ExamCatalogRepository : IExamCatalogRepository
                 s.ExamPaperS3Key != null,
                 s.RubricS3Key != null,
                 s.Questions.Count,
-                s.CreatedAt
+                s.CreatedAt,
+                s.PassScore
             ))
             .ToListAsync(ct);
 
@@ -203,7 +204,8 @@ public class ExamCatalogRepository : IExamCatalogRepository
                 s.ExamPaperS3Key != null,
                 s.RubricS3Key != null,
                 s.Questions.Count,
-                s.CreatedAt))
+                s.CreatedAt,
+                s.PassScore))
             .ToListAsync(ct);
 
         return (items, totalCount);
@@ -240,7 +242,8 @@ public class ExamCatalogRepository : IExamCatalogRepository
                         q.OrderIndex
                     ))
                     .ToList(),
-                s.CreatedAt
+                s.CreatedAt,
+                s.PassScore
             ))
             .FirstOrDefaultAsync(ct);
     }
@@ -528,6 +531,7 @@ public class ExamCatalogRepository : IExamCatalogRepository
             SubjectCode = request.SubjectCode.Trim(),
             Title = request.Title,
             MaxScore = request.MaxScore,
+            PassScore = request.PassScore,
             Status = status,
             RubricVersion = 1
         };
@@ -554,6 +558,7 @@ public class ExamCatalogRepository : IExamCatalogRepository
         subject.SubjectCode = request.SubjectCode.Trim();
         subject.Title = request.Title;
         subject.MaxScore = request.MaxScore;
+        subject.PassScore = request.PassScore;
         await _context.SaveChangesAsync(ct);
         return await GetSubjectDetailAsync(subjectId, ct);
     }

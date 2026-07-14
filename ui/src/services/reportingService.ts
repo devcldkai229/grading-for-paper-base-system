@@ -1,7 +1,7 @@
 import { isAxiosError } from "axios";
 import api from "@/lib/api";
 import type { ApiResponse } from "@/types/auth";
-import type { GradingProgressDashboard, ScoreDistributionReport } from "@/types/reporting";
+import type { GradingProgressDashboard, ScoreDistributionReport, PassFailReport } from "@/types/reporting";
 
 export const reportingService = {
   async getGradingProgressDashboard(
@@ -29,6 +29,21 @@ export const reportingService = {
 
     const res = await api.get<ApiResponse<ScoreDistributionReport>>(
       "/reports/score-distribution",
+      { params }
+    );
+    return res.data.data;
+  },
+
+  async getPassFailReport(
+    semesterId?: string,
+    examId?: string
+  ): Promise<PassFailReport> {
+    const params: Record<string, string> = {};
+    if (semesterId) params.semesterId = semesterId;
+    if (examId) params.examId = examId;
+
+    const res = await api.get<ApiResponse<PassFailReport>>(
+      "/reports/pass-fail",
       { params }
     );
     return res.data.data;

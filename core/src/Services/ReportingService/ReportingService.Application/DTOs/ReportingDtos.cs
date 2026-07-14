@@ -63,7 +63,8 @@ public record SubjectFilterResultClientDto(
     string ExamName,
     Guid SemesterId,
     string SemesterCode,
-    decimal MaxScore
+    decimal MaxScore,
+    decimal? PassScore = null
 );
 
 /// <summary>One subject's grading progress dashboard row — subject metadata merged with progress numbers.</summary>
@@ -128,4 +129,24 @@ public record SubjectScoreDistributionResultDto(
 
 public record ScoreDistributionResultDto(
     IReadOnlyList<SubjectScoreDistributionResultDto> Subjects
+);
+
+/// <summary>One subject's pass/fail counts against its configured PassScore threshold.
+/// PassRatePercent/PassCount/FailCount are null when the subject has no PassScore configured yet.</summary>
+public record SubjectPassFailResultDto(
+    Guid SubjectId,
+    string SubjectCode,
+    string? Title,
+    string ExamName,
+    string SemesterCode,
+    decimal MaxScore,
+    decimal? PassScore,
+    int SubmittedCount,
+    int? PassCount,
+    int? FailCount,
+    decimal? PassRatePercent
+);
+
+public record PassFailReportResultDto(
+    IReadOnlyList<SubjectPassFailResultDto> Subjects
 );

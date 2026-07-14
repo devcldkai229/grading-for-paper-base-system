@@ -28,6 +28,7 @@ export interface SubjectSummary {
   subjectCode: string;
   title: string | null;
   maxScore: number;
+  passScore: number | null;
   status: string;
   hasExamPaper: boolean;
   hasRubric: boolean;
@@ -44,6 +45,7 @@ export interface SubjectSearchResult {
   subjectCode: string;
   title: string | null;
   maxScore: number;
+  passScore: number | null;
   status: string;
   hasExamPaper: boolean;
   hasRubric: boolean;
@@ -93,6 +95,7 @@ export interface SubjectDetail {
   subjectCode: string;
   title: string | null;
   maxScore: number;
+  passScore: number | null;
   status: string;
   hasExamPaper: boolean;
   examPaperFileName: string | null;

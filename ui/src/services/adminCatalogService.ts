@@ -71,6 +71,7 @@ export const adminCatalogService = {
     title?: string;
     maxScore: number;
     status?: string;
+    passScore?: number | null;
   }): Promise<SubjectDetail> {
     const res = await api.post<ApiResponse<SubjectDetail>>("/subjects", payload);
     return res.data.data;
@@ -83,6 +84,7 @@ export const adminCatalogService = {
       title?: string;
       maxScore: number;
       status?: string;
+      passScore?: number | null;
     }
   ): Promise<SubjectDetail> {
     const res = await api.put<ApiResponse<SubjectDetail>>(`/subjects/${id}`, payload);
