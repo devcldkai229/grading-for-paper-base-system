@@ -34,7 +34,8 @@ namespace GradingService.UnitTests
             new GradingUnitOfWork(db),
             Substitute.For<ISubmissionServiceClient>(),
             Substitute.For<IExamCatalogServiceClient>(),
-            new MiniExcelGradeExportFileBuilder());
+            new MiniExcelGradeExportFileBuilder(),
+            new MarkerAssignmentRepository(db));
 
         private static GradingAssignment SeedSubmittedAssignment(GradingDbContext db, Guid teacherId, decimal score = 5m)
         {

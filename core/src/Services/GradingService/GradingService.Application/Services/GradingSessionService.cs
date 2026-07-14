@@ -16,6 +16,7 @@ public class GradingSessionService : IGradingSessionService
     private readonly ISubmissionServiceClient _submissionClient;
     private readonly IExamCatalogServiceClient _catalogClient;
     private readonly IGradeExportFileBuilder _exportBuilder;
+    private readonly IMarkerAssignmentRepository _markerAssignments;
 
     public GradingSessionService(
         IGradingAssignmentRepository assignments,
@@ -24,7 +25,8 @@ public class GradingSessionService : IGradingSessionService
         IUnitOfWork uow,
         ISubmissionServiceClient submissionClient,
         IExamCatalogServiceClient catalogClient,
-        IGradeExportFileBuilder exportBuilder)
+        IGradeExportFileBuilder exportBuilder,
+        IMarkerAssignmentRepository markerAssignments)
     {
         _assignments = assignments;
         _auditLogs = auditLogs;
@@ -33,6 +35,7 @@ public class GradingSessionService : IGradingSessionService
         _submissionClient = submissionClient;
         _catalogClient = catalogClient;
         _exportBuilder = exportBuilder;
+        _markerAssignments = markerAssignments;
     }
 
     public async Task<StartBatchResultDto?> StartBatchAsync(Guid batchId, Guid teacherId, CancellationToken ct = default)
@@ -761,4 +764,143 @@ public class GradingSessionService : IGradingSessionService
 
         return new SubjectFeedbackExportDto(subjectId, students);
     }
+
+    public async Task<IReadOnlyList<MarkerAssignmentDto>> ListMarkerAssignmentsAsync(
+        Guid subjectId, CancellationToken ct = default)
+    {
+        var assignments = await _markerAssignments.ListForSubjectAsync(subjectId, ct);
+        return assignments.Select(ToDto).ToList();
+    }
+
+    public async Task<(MarkerAssignmentDto? Result, string? Error)> CreateMarkerAssignmentAsync(
+        Guid subjectId, CreateMarkerAssignmentRequest request, Guid assignedBy, CancellationToken ct = default)
+    {
+        var existing = await _markerAssignments.ListForSubjectAsync(subjectId, ct);
+
+        int aliasStart, aliasEnd;
+
+        if (request.AliasStart.HasValue && request.AliasEnd.HasValue)
+        {
+            aliasStart = request.AliasStart.Value;
+            aliasEnd = request.AliasEnd.Value;
+
+            if (aliasStart < 1 || aliasEnd < aliasStart)
+            {
+                return (null, "Alias range is invalid: start must be >= 1 and end must be >= start.");
+            }
+
+            if (existing.Any(m => aliasStart <= m.AliasEnd && m.AliasStart <= aliasEnd))
+            {
+                return (null, $"Alias range {aliasStart}-{aliasEnd} overlaps an existing assignment for this subject.");
+            }
+        }
+        else if (request.Quota.HasValue)
+        {
+            if (request.Quota.Value < 1)
+            {
+                return (null, "Quota must be at least 1.");
+            }
+
+            aliasStart = existing.Count == 0 ? 1 : existing.Max(m => m.AliasEnd) + 1;
+            aliasEnd = aliasStart + request.Quota.Value - 1;
+        }
+        else
+        {
+            return (null, "Either an alias range (AliasStart/AliasEnd) or a Quota must be provided.");
+        }
+
+        var paperValidationError = await ValidateAgainstSubmittedPapersAsync(subjectId, aliasEnd, ct);
+        if (paperValidationError is not null)
+        {
+            return (null, paperValidationError);
+        }
+
+        var assignment = new MarkerAssignment
+        {
+            SubjectId = subjectId,
+            TeacherId = request.TeacherId,
+            AliasStart = aliasStart,
+            AliasEnd = aliasEnd,
+            AssignedBy = assignedBy
+        };
+
+        _markerAssignments.Add(assignment);
+        await _uow.SaveChangesAsync(ct);
+
+        return (ToDto(assignment), null);
+    }
+
+    public async Task<(MarkerAssignmentDto? Result, bool NotFound, string? Error)> ReassignMarkerAssignmentAsync(
+        Guid id, ReassignMarkerAssignmentRequest request, Guid assignedBy, CancellationToken ct = default)
+    {
+        var assignment = await _markerAssignments.GetByIdAsync(id, ct);
+        if (assignment is null) return (null, true, null);
+
+        if (request.AliasStart < 1 || request.AliasEnd < request.AliasStart)
+        {
+            return (null, false, "Alias range is invalid: start must be >= 1 and end must be >= start.");
+        }
+
+        var existing = await _markerAssignments.ListForSubjectAsync(assignment.SubjectId, ct);
+        var overlaps = existing.Any(m =>
+            m.Id != id && request.AliasStart <= m.AliasEnd && m.AliasStart <= request.AliasEnd);
+        if (overlaps)
+        {
+            return (null, false, $"Alias range {request.AliasStart}-{request.AliasEnd} overlaps an existing assignment for this subject.");
+        }
+
+        var paperValidationError = await ValidateAgainstSubmittedPapersAsync(assignment.SubjectId, request.AliasEnd, ct);
+        if (paperValidationError is not null)
+        {
+            return (null, false, paperValidationError);
+        }
+
+        assignment.TeacherId = request.TeacherId;
+        assignment.AliasStart = request.AliasStart;
+        assignment.AliasEnd = request.AliasEnd;
+        assignment.AssignedBy = assignedBy;
+        assignment.AssignedAt = DateTime.UtcNow;
+
+        await _uow.SaveChangesAsync(ct);
+
+        return (ToDto(assignment), false, null);
+    }
+
+    public async Task<bool> DeleteMarkerAssignmentAsync(Guid id, CancellationToken ct = default)
+    {
+        var assignment = await _markerAssignments.GetByIdAsync(id, ct);
+        if (assignment is null) return false;
+
+        _markerAssignments.Remove(assignment);
+        await _uow.SaveChangesAsync(ct);
+
+        return true;
+    }
+
+    /// <summary>
+    /// Rejects an alias range that has nothing to back it: either the subject has no submitted
+    /// papers at all, or AliasEnd reaches past the highest alias number actually submitted.
+    /// Returns null (no error) when SubmissionService is unreachable — an admin allocation
+    /// shouldn't be blocked by a transient dependency outage.
+    /// </summary>
+    private async Task<string?> ValidateAgainstSubmittedPapersAsync(Guid subjectId, int aliasEnd, CancellationToken ct)
+    {
+        var stats = await _submissionClient.GetSubjectPaperStatsAsync(subjectId, ct);
+        if (stats is null) return null;
+
+        if (stats.TotalPapers == 0)
+        {
+            return "This subject has no submitted papers yet; there is nothing to allocate.";
+        }
+
+        if (stats.MaxAliasNumber.HasValue && aliasEnd > stats.MaxAliasNumber.Value)
+        {
+            return $"Alias end {aliasEnd} exceeds the highest submitted alias number ({stats.MaxAliasNumber.Value}) for this subject.";
+        }
+
+        return null;
+    }
+
+    private static MarkerAssignmentDto ToDto(MarkerAssignment m) =>
+        new(m.Id, m.SubjectId, m.TeacherId, m.AliasStart, m.AliasEnd, m.AssignedBy, m.AssignedAt);
 }

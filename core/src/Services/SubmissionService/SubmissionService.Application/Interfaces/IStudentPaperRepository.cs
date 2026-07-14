@@ -49,4 +49,8 @@ public interface IStudentPaperRepository
 
     /// <summary>Removes all paper and file records belonging to a batch. Caller must have already verified gradability and purged S3 objects.</summary>
     Task DeletePapersByBatchAsync(Guid batchId, CancellationToken ct = default);
+
+    /// <summary>Total paper count and highest alias number submitted for a subject (across every
+    /// batch). Consumed internally by GradingService to validate marker-assignment alias ranges.</summary>
+    Task<SubjectPaperStatsDto> GetSubjectPaperStatsAsync(Guid subjectId, CancellationToken ct = default);
 }

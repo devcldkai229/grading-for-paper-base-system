@@ -277,4 +277,23 @@ public class StudentPaperRepository : IStudentPaperRepository
 
         await PapersCollection.DeleteManyAsync(p => p.BatchId == batchId, ct);
     }
+
+    public async Task<SubjectPaperStatsDto> GetSubjectPaperStatsAsync(Guid subjectId, CancellationToken ct = default)
+    {
+        var filter = Builders<StudentPaper>.Filter.Eq(p => p.SubjectId, subjectId);
+
+        var totalPapers = (int)await PapersCollection.CountDocumentsAsync(filter, cancellationToken: ct);
+        if (totalPapers == 0)
+        {
+            return new SubjectPaperStatsDto(0, null);
+        }
+
+        var highestAliasPaper = await PapersCollection
+            .Find(filter)
+            .SortByDescending(p => p.AliasNumber)
+            .Limit(1)
+            .FirstOrDefaultAsync(ct);
+
+        return new SubjectPaperStatsDto(totalPapers, highestAliasPaper?.AliasNumber);
+    }
 }

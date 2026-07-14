@@ -1,4 +1,5 @@
 using GradingService.Application.Interfaces;
+using GradingService.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace GradingService.Infrastructure.Persistence.Repositories;
@@ -29,4 +30,19 @@ public class MarkerAssignmentRepository : IMarkerAssignmentRepository
             .Select(m => m.SubjectId)
             .Distinct()
             .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<MarkerAssignment>> ListForSubjectAsync(
+        Guid subjectId, CancellationToken ct = default) =>
+        await _db.MarkerAssignments
+            .AsNoTracking()
+            .Where(m => m.SubjectId == subjectId)
+            .OrderBy(m => m.AliasStart)
+            .ToListAsync(ct);
+
+    public Task<MarkerAssignment?> GetByIdAsync(Guid id, CancellationToken ct = default) =>
+        _db.MarkerAssignments.FirstOrDefaultAsync(m => m.Id == id, ct);
+
+    public void Add(MarkerAssignment assignment) => _db.MarkerAssignments.Add(assignment);
+
+    public void Remove(MarkerAssignment assignment) => _db.MarkerAssignments.Remove(assignment);
 }

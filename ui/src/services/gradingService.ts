@@ -2,10 +2,13 @@ import api from "@/lib/api";
 import type { ApiResponse } from "@/types/auth";
 import type {
   AuditLogEntry,
+  CreateMarkerAssignmentPayload,
   GradingSession,
+  MarkerAssignment,
   MyProgress,
   OverrideMarksPayload,
   OverrideMarksResult,
+  ReassignMarkerAssignmentPayload,
   SaveMarksPayload,
   SaveMarksResult,
   StartBatchResult,
@@ -80,6 +83,39 @@ export const gradingService = {
       responseType: "blob",
     });
     return res.data;
+  },
+
+  async listMarkerAssignments(subjectId: string): Promise<MarkerAssignment[]> {
+    const res = await api.get<ApiResponse<MarkerAssignment[]>>(
+      `/grading/subjects/${subjectId}/marker-assignments`
+    );
+    return res.data.data;
+  },
+
+  async createMarkerAssignment(
+    subjectId: string,
+    payload: CreateMarkerAssignmentPayload
+  ): Promise<MarkerAssignment> {
+    const res = await api.post<ApiResponse<MarkerAssignment>>(
+      `/grading/subjects/${subjectId}/marker-assignments`,
+      payload
+    );
+    return res.data.data;
+  },
+
+  async reassignMarkerAssignment(
+    id: string,
+    payload: ReassignMarkerAssignmentPayload
+  ): Promise<MarkerAssignment> {
+    const res = await api.put<ApiResponse<MarkerAssignment>>(
+      `/grading/marker-assignments/${id}`,
+      payload
+    );
+    return res.data.data;
+  },
+
+  async deleteMarkerAssignment(id: string): Promise<void> {
+    await api.delete<ApiResponse<null>>(`/grading/marker-assignments/${id}`);
   },
 };
 

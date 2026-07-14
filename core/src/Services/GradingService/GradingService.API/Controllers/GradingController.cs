@@ -325,6 +325,148 @@ public class GradingController : ControllerBase
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"Subject_Grades_{subjectId}.xlsx");
     }
 
+    /// <summary>
+    /// Admin-only: lists every marker assignment (alias range per lecturer) for a subject,
+    /// ordered by alias start. Powers the "distribute papers to graders" admin tool.
+    /// </summary>
+    [HttpGet("subjects/{subjectId:guid}/marker-assignments")]
+    public async Task<IActionResult> ListMarkerAssignments(Guid subjectId, CancellationToken ct = default)
+    {
+        if (!IsAdmin())
+        {
+            return Forbid();
+        }
+
+        var result = await _gradingSessionService.ListMarkerAssignmentsAsync(subjectId, ct);
+
+        return Ok(new ApiResponse<IReadOnlyList<MarkerAssignmentDto>>
+        {
+            StatusCode = 200,
+            Message = "Marker assignments retrieved",
+            Data = result,
+            ResponsedAt = DateTime.UtcNow
+        });
+    }
+
+    /// <summary>
+    /// Admin-only: allocates an alias range (explicit AliasStart/AliasEnd, or an auto-computed
+    /// Quota) to a lecturer for a subject. Rejects ranges that overlap an existing assignment.
+    /// </summary>
+    [HttpPost("subjects/{subjectId:guid}/marker-assignments")]
+    public async Task<IActionResult> CreateMarkerAssignment(
+        Guid subjectId,
+        [FromBody] CreateMarkerAssignmentRequest request,
+        CancellationToken ct = default)
+    {
+        if (!IsAdmin())
+        {
+            return Forbid();
+        }
+
+        var (result, error) = await _gradingSessionService.CreateMarkerAssignmentAsync(
+            subjectId, request, GetUserId(), ct);
+
+        if (error is not null)
+        {
+            return BadRequest(new ApiResponse<object>
+            {
+                StatusCode = 400,
+                Message = error,
+                Data = null,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        return Ok(new ApiResponse<MarkerAssignmentDto>
+        {
+            StatusCode = 200,
+            Message = "Marker assignment created",
+            Data = result!,
+            ResponsedAt = DateTime.UtcNow
+        });
+    }
+
+    /// <summary>
+    /// Admin-only: reassigns an existing marker assignment to a different lecturer and/or alias
+    /// range. Rejects ranges that overlap another assignment for the same subject.
+    /// </summary>
+    [HttpPut("marker-assignments/{id:guid}")]
+    public async Task<IActionResult> ReassignMarkerAssignment(
+        Guid id,
+        [FromBody] ReassignMarkerAssignmentRequest request,
+        CancellationToken ct = default)
+    {
+        if (!IsAdmin())
+        {
+            return Forbid();
+        }
+
+        var (result, notFound, error) = await _gradingSessionService.ReassignMarkerAssignmentAsync(
+            id, request, GetUserId(), ct);
+
+        if (notFound)
+        {
+            return NotFound(new ApiResponse<object>
+            {
+                StatusCode = 404,
+                Message = "Marker assignment not found",
+                Data = null,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        if (error is not null)
+        {
+            return BadRequest(new ApiResponse<object>
+            {
+                StatusCode = 400,
+                Message = error,
+                Data = null,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        return Ok(new ApiResponse<MarkerAssignmentDto>
+        {
+            StatusCode = 200,
+            Message = "Marker assignment reassigned",
+            Data = result!,
+            ResponsedAt = DateTime.UtcNow
+        });
+    }
+
+    /// <summary>
+    /// Admin-only: removes a marker assignment, freeing its alias range for reallocation.
+    /// </summary>
+    [HttpDelete("marker-assignments/{id:guid}")]
+    public async Task<IActionResult> DeleteMarkerAssignment(Guid id, CancellationToken ct = default)
+    {
+        if (!IsAdmin())
+        {
+            return Forbid();
+        }
+
+        var deleted = await _gradingSessionService.DeleteMarkerAssignmentAsync(id, ct);
+        if (!deleted)
+        {
+            return NotFound(new ApiResponse<object>
+            {
+                StatusCode = 404,
+                Message = "Marker assignment not found",
+                Data = null,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        return Ok(new ApiResponse<object>
+        {
+            StatusCode = 200,
+            Message = "Marker assignment deleted",
+            Data = null,
+            ResponsedAt = DateTime.UtcNow
+        });
+    }
+
     private Guid GetUserId()
     {
         var raw = User.FindFirst(ClaimTypes.NameIdentifier)?.Value

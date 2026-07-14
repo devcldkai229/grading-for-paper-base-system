@@ -79,4 +79,27 @@ public interface IGradingSessionService
     /// </summary>
     Task<AuditLogPageDto> GetAuditLogsAsync(
         Guid? userId, string? entityType, string? action, int page, int pageSize, CancellationToken ct = default);
+
+    /// <summary>All marker assignments (alias ranges per lecturer) for a subject, ordered by alias start.</summary>
+    Task<IReadOnlyList<MarkerAssignmentDto>> ListMarkerAssignmentsAsync(
+        Guid subjectId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Admin allocates an alias range to a lecturer for a subject, either explicitly
+    /// (AliasStart/AliasEnd) or by Quota (auto-picks the next contiguous range after the highest
+    /// AliasEnd already assigned for the subject). Rejects a range that overlaps any existing
+    /// assignment for the same subject, regardless of lecturer.
+    /// </summary>
+    Task<(MarkerAssignmentDto? Result, string? Error)> CreateMarkerAssignmentAsync(
+        Guid subjectId, CreateMarkerAssignmentRequest request, Guid assignedBy, CancellationToken ct = default);
+
+    /// <summary>
+    /// Admin reassigns an existing marker assignment: changes its lecturer and/or alias range.
+    /// Rejects a range that overlaps any other assignment for the same subject.
+    /// </summary>
+    Task<(MarkerAssignmentDto? Result, bool NotFound, string? Error)> ReassignMarkerAssignmentAsync(
+        Guid id, ReassignMarkerAssignmentRequest request, Guid assignedBy, CancellationToken ct = default);
+
+    /// <summary>Admin removes a marker assignment (frees the range for reallocation).</summary>
+    Task<bool> DeleteMarkerAssignmentAsync(Guid id, CancellationToken ct = default);
 }

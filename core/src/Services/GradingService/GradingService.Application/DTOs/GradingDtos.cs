@@ -86,6 +86,8 @@ public record BatchPapersClientDto(
 
 public record BatchPaperClientDto(Guid PaperId, Guid SubjectId, int? AliasNumber);
 
+public record SubjectPaperStatsClientDto(int TotalPapers, int? MaxAliasNumber);
+
 public record InternalPaperSummaryClientDto(
     Guid Id,
     Guid BatchId,
@@ -224,4 +226,30 @@ public record AuditLogRecordDto(
 public record AuditLogPageDto(
     IReadOnlyList<AuditLogRecordDto> Items,
     int TotalCount
+);
+
+public record MarkerAssignmentDto(
+    Guid Id,
+    Guid SubjectId,
+    Guid TeacherId,
+    int AliasStart,
+    int AliasEnd,
+    Guid AssignedBy,
+    DateTime AssignedAt
+);
+
+/// <summary>Either (AliasStart, AliasEnd) or Quota must be provided; Quota auto-picks the next
+/// contiguous, non-overlapping range for the subject (starting right after the highest AliasEnd
+/// already assigned, or at 1 if none).</summary>
+public record CreateMarkerAssignmentRequest(
+    Guid TeacherId,
+    int? AliasStart,
+    int? AliasEnd,
+    int? Quota
+);
+
+public record ReassignMarkerAssignmentRequest(
+    Guid TeacherId,
+    int AliasStart,
+    int AliasEnd
 );

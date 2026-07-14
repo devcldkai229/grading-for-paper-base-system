@@ -102,3 +102,26 @@ export interface MyProgress {
   nextAssignmentId: string | null;
   upcomingDeadlines: UpcomingDeadline[];
 }
+
+export interface MarkerAssignment {
+  id: string;
+  subjectId: string;
+  teacherId: string;
+  aliasStart: number;
+  aliasEnd: number;
+  assignedBy: string;
+  assignedAt: string;
+}
+
+export interface CreateMarkerAssignmentPayload {
+  teacherId: string;
+  aliasStart?: number;
+  aliasEnd?: number;
+  quota?: number;
+}
+
+export interface ReassignMarkerAssignmentPayload {
+  teacherId: string;
+  aliasStart: number;
+  aliasEnd: number;
+}

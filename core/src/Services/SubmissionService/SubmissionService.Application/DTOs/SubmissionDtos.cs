@@ -126,3 +126,8 @@ public record SubmissionAuditLogPageDto(
     IReadOnlyList<SubmissionAuditLogEntryDto> Items,
     int TotalCount
 );
+
+/// <summary>Aggregate paper stats for a subject. Consumed by GradingService to validate that an
+/// admin's marker-assignment alias range doesn't exceed the papers actually submitted.
+/// MaxAliasNumber is null when TotalPapers is 0 (nothing submitted yet).</summary>
+public record SubjectPaperStatsDto(int TotalPapers, int? MaxAliasNumber);

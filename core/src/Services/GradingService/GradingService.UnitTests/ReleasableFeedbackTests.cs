@@ -71,7 +71,8 @@ namespace GradingService.UnitTests
             new GradingUnitOfWork(db),
             submissionClient ?? Substitute.For<ISubmissionServiceClient>(),
             Substitute.For<IExamCatalogServiceClient>(),
-            new MiniExcelGradeExportFileBuilder());
+            new MiniExcelGradeExportFileBuilder(),
+            new MarkerAssignmentRepository(db));
 
         [Fact]
         public async Task GetReleasableFeedbackAsync_OnlyIncludesSubmittedAssignments()
