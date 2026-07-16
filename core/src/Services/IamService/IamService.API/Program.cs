@@ -1,6 +1,8 @@
 using BuildingBlocks.AspNetCore.Extensions;
 using BuildingBlocks.AspNetCore.Health;
 using IamService.Infrastructure;
+using IamService.Infrastructure.Auth;
+using IamService.Infrastructure.Middleware;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.OpenApi.Models;
 
@@ -43,6 +45,14 @@ builder.Services.AddSwaggerGen(c =>
 });
 builder.Services.AddIamInfrastructure(builder.Configuration);
 
+builder.Services.Configure<InternalAuthSettings>(builder.Configuration.GetSection(InternalAuthSettings.SectionName));
+
+var internalApiKey = builder.Configuration.GetSection(InternalAuthSettings.SectionName)["ApiKey"];
+if (string.IsNullOrWhiteSpace(internalApiKey))
+{
+    throw new InvalidOperationException($"{InternalAuthSettings.SectionName}:ApiKey is required for internal endpoints.");
+}
+
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 if (!string.IsNullOrWhiteSpace(connectionString))
 {
@@ -65,6 +75,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseGlobalExceptionHandling();
 app.UseCorrelationId();
+app.UseMiddleware<InternalApiKeyMiddleware>();
 
 app.UseAuthentication();
 app.UseAuthorization();

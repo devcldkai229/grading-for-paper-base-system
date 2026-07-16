@@ -41,6 +41,8 @@
 
     <Project Path="src/Services/ExamCatalogService/ExamCatalogService.Infrastructure/ExamCatalogService.Infrastructure.csproj" />
 
+    <Project Path="src/Services/ExamCatalogService/ExamCatalogService.UnitTests/ExamCatalogService.UnitTests.csproj" />
+
   </Folder>
 
   <Folder Name="/src/Services/SubmissionService/">
@@ -52,6 +54,8 @@
     <Project Path="src/Services/SubmissionService/SubmissionService.Domain/SubmissionService.Domain.csproj" />
 
     <Project Path="src/Services/SubmissionService/SubmissionService.Infrastructure/SubmissionService.Infrastructure.csproj" />
+
+    <Project Path="src/Services/SubmissionService/SubmissionService.UnitTests/SubmissionService.UnitTests.csproj" />
 
   </Folder>
 
@@ -65,6 +69,8 @@
 
     <Project Path="src/Services/GradingService/GradingService.Infrastructure/GradingService.Infrastructure.csproj" />
 
+    <Project Path="src/Services/GradingService/GradingService.UnitTests/GradingService.UnitTests.csproj" />
+
   </Folder>
 
   <Folder Name="/src/Services/ReportingService/">
@@ -76,6 +82,8 @@
     <Project Path="src/Services/ReportingService/ReportingService.Domain/ReportingService.Domain.csproj" />
 
     <Project Path="src/Services/ReportingService/ReportingService.Infrastructure/ReportingService.Infrastructure.csproj" />
+
+    <Project Path="src/Services/ReportingService/ReportingService.UnitTests/ReportingService.UnitTests.csproj" />
 
   </Folder>
 

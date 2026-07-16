@@ -7,4 +7,11 @@ public interface ISubmissionServiceClient
     Task<BatchPapersClientDto?> GetBatchPapersAsync(Guid batchId, CancellationToken ct = default);
 
     Task<InternalPaperSummaryClientDto?> GetPaperSummaryAsync(Guid paperId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Aggregate paper stats (total count + highest submitted alias number) for a subject. Null
+    /// when SubmissionService is unreachable — callers should treat that as "unknown, skip validation"
+    /// rather than fail closed (same graceful-degrade convention as the other client methods here).
+    /// </summary>
+    Task<SubjectPaperStatsClientDto?> GetSubjectPaperStatsAsync(Guid subjectId, CancellationToken ct = default);
 }

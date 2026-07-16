@@ -1,9 +1,9 @@
 using MongoDB.Driver;
 using SubmissionService.Application.DTOs;
 using SubmissionService.Application.Interfaces;
+using SubmissionService.Domain.Entities;
 using SubmissionService.Domain.Enums;
 using SubmissionService.Infrastructure.Persistence.Bson;
-using SubmissionService.Infrastructure.Persistence.Documents;
 
 namespace SubmissionService.Infrastructure.Repositories;
 
@@ -37,7 +37,7 @@ public class BatchRepository : IBatchRepository
         await Collection.InsertOneAsync(batch, cancellationToken: ct);
 
         return new BatchDto(
-            batch.Id, batch.SubjectId, batch.ZipFileName, batch.TotalPapers,
+            batch.Id, batch.SubjectId, batch.ZipS3Key, batch.ZipFileName, batch.TotalPapers,
             batch.Status.ToString(), batch.UploadedBy, batch.ErrorMessage, batch.CreatedAt);
     }
 
@@ -50,11 +50,12 @@ public class BatchRepository : IBatchRepository
         if (batch is null) return null;
 
         return new BatchStatusDto(batch.Id, batch.Status.ToString(),
-            batch.TotalPapers, batch.ErrorMessage);
+            batch.TotalPapers, batch.ErrorMessage, MapDuplicateWarnings(batch.DuplicateWarnings));
     }
 
     public async Task UpdateBatchStatusAsync(Guid batchId, BatchStatus status,
-        int? totalPapers = null, string? errorMessage = null, CancellationToken ct = default)
+        int? totalPapers = null, string? errorMessage = null,
+        IReadOnlyList<DuplicateFileWarningDto>? duplicateWarnings = null, CancellationToken ct = default)
     {
         var updateDef = Builders<SubmissionBatch>.Update
             .Set(b => b.Status, status)
@@ -66,8 +67,28 @@ public class BatchRepository : IBatchRepository
         if (errorMessage is not null)
             updateDef = updateDef.Set(b => b.ErrorMessage, errorMessage);
 
+        if (duplicateWarnings is not null)
+        {
+            updateDef = updateDef.Set(b => b.DuplicateWarnings, duplicateWarnings.Select(w => new DuplicateFileWarning
+            {
+                ContentHash = w.ContentHash,
+                Files = w.Files.Select(f => new DuplicateFileEntry
+                {
+                    StudentPaperId = f.PaperId,
+                    StudentAlias = f.StudentAlias,
+                    FileName = f.FileName
+                }).ToList()
+            }).ToList());
+        }
+
         await Collection.UpdateOneAsync(b => b.Id == batchId, updateDef, cancellationToken: ct);
     }
+
+    private static List<DuplicateFileWarningDto> MapDuplicateWarnings(List<DuplicateFileWarning> warnings) =>
+        warnings.Select(w => new DuplicateFileWarningDto(
+            w.ContentHash,
+            w.Files.Select(f => new DuplicateFileEntryDto(f.StudentPaperId, f.StudentAlias, f.FileName)).ToList()
+        )).ToList();
 
     public async Task<BatchDto?> GetBatchAsync(Guid batchId, CancellationToken ct = default)
     {
@@ -75,8 +96,28 @@ public class BatchRepository : IBatchRepository
         if (batch is null) return null;
 
         return new BatchDto(
-            batch.Id, batch.SubjectId, batch.ZipFileName, batch.TotalPapers,
+            batch.Id, batch.SubjectId, batch.ZipS3Key, batch.ZipFileName, batch.TotalPapers,
             batch.Status.ToString(), batch.UploadedBy, batch.ErrorMessage, batch.CreatedAt);
+    }
+
+    public async Task<bool> TryMarkFailedForRetryAsync(Guid batchId, CancellationToken ct = default)
+    {
+        var filter = Builders<SubmissionBatch>.Filter.Eq(b => b.Id, batchId)
+                   & Builders<SubmissionBatch>.Filter.Eq(b => b.Status, BatchStatus.Failed);
+
+        var updateDef = Builders<SubmissionBatch>.Update
+            .Set(b => b.Status, BatchStatus.Uploaded)
+            .Set(b => b.ErrorMessage, null)
+            .Set(b => b.UpdatedAt, DateTime.UtcNow);
+
+        var result = await Collection.UpdateOneAsync(filter, updateDef, cancellationToken: ct);
+        return result.ModifiedCount > 0;
+    }
+
+    public async Task<bool> DeleteBatchRecordAsync(Guid batchId, CancellationToken ct = default)
+    {
+        var result = await Collection.DeleteOneAsync(b => b.Id == batchId, ct);
+        return result.DeletedCount > 0;
     }
 
     public async Task<BatchDto> CreateFileBatchAsync(Guid subjectId, Guid uploadedBy, CancellationToken ct = default)
@@ -95,7 +136,7 @@ public class BatchRepository : IBatchRepository
         await Collection.InsertOneAsync(batch, cancellationToken: ct);
 
         return new BatchDto(
-            batch.Id, batch.SubjectId, batch.ZipFileName, batch.TotalPapers,
+            batch.Id, batch.SubjectId, batch.ZipS3Key, batch.ZipFileName, batch.TotalPapers,
             batch.Status.ToString(), batch.UploadedBy, batch.ErrorMessage, batch.CreatedAt);
     }
 }

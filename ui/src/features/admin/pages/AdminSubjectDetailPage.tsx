@@ -17,6 +17,22 @@ import type { Exam, Semester, SubjectDetail, FileUrlResponse } from "@/types/cat
 type PreviewType = "exam-paper" | "rubric";
 type GridMode = "saved" | "draft";
 
+// Mirrors ExamCatalogService's SubjectAdminService.ValidateStatusTransition — subjects only
+// move forward one step at a time; Closed has no further transition (terminal).
+const NEXT_STATUS: Record<string, string | undefined> = {
+  Draft: "Open",
+  Open: "Grading",
+  Grading: "Closed",
+  Closed: undefined,
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  Draft: "Nháp",
+  Open: "Mở",
+  Grading: "Đang chấm",
+  Closed: "Đã đóng",
+};
+
 export function AdminSubjectDetailPage() {
   const { subjectId } = useParams<{ subjectId: string }>();
   const paths = useCatalogPaths();
@@ -42,6 +58,7 @@ export function AdminSubjectDetailPage() {
   const [uploadingRubric, setUploadingRubric] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [advancingStatus, setAdvancingStatus] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
@@ -277,6 +294,35 @@ export function AdminSubjectDetailPage() {
     }
   };
 
+  const handleAdvanceStatus = async () => {
+    if (!subjectId || !subject) return;
+    const nextStatus = NEXT_STATUS[subject.status];
+    if (!nextStatus) return;
+
+    setAdvancingStatus(true);
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      await adminCatalogService.updateSubject(subjectId, {
+        subjectCode: subject.subjectCode,
+        title: subject.title ?? undefined,
+        maxScore: subject.maxScore,
+        passScore: subject.passScore,
+        status: nextStatus,
+      });
+      setActionSuccess(`Đã chuyển trạng thái sang "${STATUS_LABELS[nextStatus] ?? nextStatus}".`);
+      await loadSubject();
+    } catch (err) {
+      setActionError(
+        isAxiosError(err)
+          ? err.response?.data?.message ?? "Chuyển trạng thái thất bại."
+          : "Chuyển trạng thái thất bại."
+      );
+    } finally {
+      setAdvancingStatus(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="p-6 lg:p-8 flex items-center justify-center min-h-[40vh]">
@@ -343,11 +389,24 @@ export function AdminSubjectDetailPage() {
                 <strong className="font-score text-brand-red">{subject.maxScore}</strong>
               </span>
               <span>
-                Trạng thái: <strong className="text-ink">{subject.status}</strong>
+                Trạng thái:{" "}
+                <strong className="text-ink">{STATUS_LABELS[subject.status] ?? subject.status}</strong>
               </span>
               {subject.hasRubric && <span>Barem v{subject.rubricVersion}</span>}
             </div>
           </div>
+          {NEXT_STATUS[subject.status] && (
+            <button
+              type="button"
+              onClick={() => void handleAdvanceStatus()}
+              disabled={advancingStatus}
+              className="px-4 py-2 border border-brand-red/40 text-brand-red hover:bg-brand-red/5 disabled:opacity-50 rounded-lg text-sm font-medium"
+            >
+              {advancingStatus
+                ? "Đang chuyển..."
+                : `Chuyển sang: ${STATUS_LABELS[NEXT_STATUS[subject.status]!] ?? NEXT_STATUS[subject.status]}`}
+            </button>
+          )}
         </div>
 
         {(actionError || actionSuccess) && (

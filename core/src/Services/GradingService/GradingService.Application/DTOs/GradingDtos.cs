@@ -58,6 +58,25 @@ public record SaveMarksResultDto(int RowVersion);
 
 public record SubmitResultDto(Guid? NextAssignmentId);
 
+public record OverrideMarksRequest(
+    IReadOnlyList<QuestionMarkInput> Questions,
+    string? PaperComment,
+    string? InternalComment,
+    string Reason
+);
+
+public record OverrideMarksResultDto(int RowVersion, decimal TotalScore);
+
+public record AuditLogEntryDto(
+    Guid Id,
+    Guid UserId,
+    string Action,
+    string? OldValue,
+    string? NewValue,
+    string? Reason,
+    DateTime CreatedAt
+);
+
 public record BatchPapersClientDto(
     Guid BatchId,
     Guid SubjectId,
@@ -66,6 +85,8 @@ public record BatchPapersClientDto(
 );
 
 public record BatchPaperClientDto(Guid PaperId, Guid SubjectId, int? AliasNumber);
+
+public record SubjectPaperStatsClientDto(int TotalPapers, int? MaxAliasNumber);
 
 public record InternalPaperSummaryClientDto(
     Guid Id,
@@ -80,7 +101,57 @@ public record SubjectGradingGridClientDto(
     Guid SubjectId,
     decimal MaxScore,
     int RubricVersion,
-    IReadOnlyList<SubjectQuestionClientDto> Questions
+    IReadOnlyList<SubjectQuestionClientDto> Questions,
+    string? Status = null
+);
+
+public record QuestionFeedbackDto(
+    string QuestionNumber,
+    string? Label,
+    decimal Score,
+    decimal MaxScore,
+    string? QuestionComment
+);
+
+public record StudentFeedbackDto(
+    Guid StudentPaperId,
+    int? AliasNumber,
+    string? StudentAlias,
+    decimal TotalScore,
+    string? PaperComment,
+    IReadOnlyList<QuestionFeedbackDto> Questions
+);
+
+public record SubjectFeedbackExportDto(
+    Guid SubjectId,
+    IReadOnlyList<StudentFeedbackDto> Students
+);
+
+public record SubjectExamInfoClientDto(
+    Guid SubjectId,
+    string SubjectCode,
+    Guid ExamId,
+    string ExamName,
+    DateOnly? ExamEndDate
+);
+
+public record MyProgressDto(
+    int TotalAssignments,
+    int SubmittedCount,
+    int RemainingCount,
+    Guid? NextAssignmentId,
+    IReadOnlyList<UpcomingDeadlineDto> UpcomingDeadlines
+);
+
+public record UpcomingDeadlineDto(
+    Guid SubjectId,
+    string SubjectCode,
+    string ExamName,
+    DateOnly ExamEndDate,
+    int TotalCount,
+    int SubmittedCount,
+    int RemainingCount,
+    Guid? NextAssignmentId
 );
 
 public record SubjectQuestionClientDto(
@@ -89,4 +160,101 @@ public record SubjectQuestionClientDto(
     string? Label,
     decimal MaxScore,
     int OrderIndex
+);
+
+/// <summary>One lecturer's grading progress within a single subject.</summary>
+public record LecturerProgressDto(
+    Guid TeacherId,
+    int AssignedCount,
+    int CompletedCount,
+    int DraftingCount,
+    int NotStartedCount,
+    decimal? AvgScore,
+    decimal? ThroughputPerHour,
+    DateTime? LastActivityAt,
+    DateTime? EstimatedFinish,
+    decimal? AvgGradingMinutesPerPaper
+);
+
+/// <summary>Aggregate grading progress for one subject, broken down per lecturer.</summary>
+public record SubjectProgressDto(
+    Guid SubjectId,
+    int TotalPapers,
+    int CompletedPapers,
+    int DraftingPapers,
+    int NotStartedPapers,
+    decimal CompletionPercent,
+    decimal? ScoreAvg,
+    decimal? ScoreMin,
+    decimal? ScoreMax,
+    decimal? ThroughputPerHour,
+    DateTime? EstimatedFinish,
+    IReadOnlyList<LecturerProgressDto> Lecturers,
+    decimal? AvgGradingMinutesPerPaper
+);
+
+public record RecordHeartbeatRequest(int Seconds);
+
+public record GradingProgressDashboardDto(
+    IReadOnlyList<SubjectProgressDto> Subjects
+);
+
+/// <summary>Raw submitted scores for one subject, for the admin score distribution report.
+/// Bucketing into a histogram happens in ReportingService (it knows the subject's MaxScore).</summary>
+public record SubjectScoreDistributionDto(
+    Guid SubjectId,
+    int SubmittedCount,
+    decimal? ScoreAvg,
+    decimal? ScoreMin,
+    decimal? ScoreMax,
+    IReadOnlyList<decimal> Scores
+);
+
+public record ScoreDistributionDashboardDto(
+    IReadOnlyList<SubjectScoreDistributionDto> Subjects
+);
+
+/// <summary>One audit entry, unscoped (not tied to a single caller-known entity). Used by the
+/// admin global audit log viewer, unlike AuditLogEntryDto which is scoped to one assignment.</summary>
+public record AuditLogRecordDto(
+    Guid Id,
+    Guid UserId,
+    string Action,
+    string EntityType,
+    Guid? EntityId,
+    string? OldValue,
+    string? NewValue,
+    string? Reason,
+    DateTime CreatedAt
+);
+
+public record AuditLogPageDto(
+    IReadOnlyList<AuditLogRecordDto> Items,
+    int TotalCount
+);
+
+public record MarkerAssignmentDto(
+    Guid Id,
+    Guid SubjectId,
+    Guid TeacherId,
+    int AliasStart,
+    int AliasEnd,
+    Guid AssignedBy,
+    DateTime AssignedAt
+);
+
+/// <summary>Either (AliasStart, AliasEnd) or Quota must be provided; Quota auto-picks the next
+/// contiguous, non-overlapping range for the subject (starting right after the highest AliasEnd
+/// already assigned, or at 1 if none).</summary>
+public record CreateMarkerAssignmentRequest(
+    Guid TeacherId,
+    int? AliasStart,
+    int? AliasEnd,
+    int? Quota
+);
+
+public record ReassignMarkerAssignmentRequest(
+    Guid TeacherId,
+    int AliasStart,
+    int AliasEnd
 );

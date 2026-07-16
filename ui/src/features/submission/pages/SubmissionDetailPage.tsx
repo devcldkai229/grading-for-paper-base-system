@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { isAxiosError } from "axios";
 import { submissionService } from "@/services/submissionService";
 import type { StudentPaperDetail, FileUrlResponse } from "@/types/submission";
 import { FileViewer } from "@/components/FileViewer";
@@ -13,6 +14,8 @@ export function SubmissionDetailPage() {
   const [loading, setLoading] = useState(true);
   const [fileView, setFileView] = useState<FileUrlResponse | null>(null);
   const [fileLoading, setFileLoading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -40,6 +43,28 @@ export function SubmissionDetailPage() {
     },
     [paperId]
   );
+
+  const handleDelete = async () => {
+    if (!paperId || !detail) return;
+    const label = detail.studentAlias || `#${detail.aliasNumber}`;
+    if (!window.confirm(`Xóa bài làm "${label}"? Hành động này không thể hoàn tác.`)) {
+      return;
+    }
+    setDeleteError(null);
+    setDeleting(true);
+    try {
+      await submissionService.deleteSubmission(paperId);
+      navigate(-1);
+    } catch (err) {
+      setDeleteError(
+        isAxiosError(err)
+          ? err.response?.data?.message ?? "Không thể xóa bài làm."
+          : "Không thể xóa bài làm."
+      );
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -72,16 +97,33 @@ export function SubmissionDetailPage() {
         </span>
       </nav>
 
-      <div className="mb-8">
-        <h1 className="font-display text-3xl font-semibold text-ink">
-          {detail.studentAlias || `Bài làm #${detail.aliasNumber}`}
-        </h1>
-        <div className="flex gap-4 mt-2 text-sm text-ink-soft">
-          <span>
-            Trạng thái: <strong className="text-ink">{detail.status}</strong>
-          </span>
-          <span>{detail.files.length} file</span>
+      <div className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="font-display text-3xl font-semibold text-ink">
+            {detail.studentAlias || `Bài làm #${detail.aliasNumber}`}
+          </h1>
+          <div className="flex gap-4 mt-2 text-sm text-ink-soft">
+            <span>
+              Trạng thái: <strong className="text-ink">{detail.status}</strong>
+            </span>
+            <span>{detail.files.length} file</span>
+          </div>
+          {deleteError && (
+            <div className="mt-3 p-3 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-sm">
+              {deleteError}
+            </div>
+          )}
         </div>
+        {detail.status === "ReadyToAssign" && (
+          <button
+            type="button"
+            onClick={() => void handleDelete()}
+            disabled={deleting}
+            className="shrink-0 px-4 py-2 rounded-lg text-sm font-medium border border-destructive/30 text-destructive hover:bg-destructive/10 disabled:opacity-50 transition-colors"
+          >
+            {deleting ? "Đang xóa..." : "Xóa bài làm"}
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

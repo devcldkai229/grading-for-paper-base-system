@@ -5,6 +5,18 @@ export interface BatchStatus {
   status: string;
   totalPapers: number;
   errorMessage: string | null;
+  duplicateWarnings: DuplicateFileWarning[];
+}
+
+export interface DuplicateFileEntry {
+  paperId: string;
+  studentAlias: string | null;
+  fileName: string | null;
+}
+
+export interface DuplicateFileWarning {
+  contentHash: string;
+  files: DuplicateFileEntry[];
 }
 
 export interface StudentPaper {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
+import { isAxiosError } from "axios";
 import { submissionService } from "@/services/submissionService";
 import { gradingService } from "@/services/gradingService";
 import { startGradingFlow } from "@/lib/startGradingFlow";
@@ -38,7 +39,42 @@ export function SubmissionsPage() {
   const [startingGrading, setStartingGrading] = useState(false);
   const [gradingError, setGradingError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  const reloadPapers = () => {
+    if (!subjectId) return;
+    submissionService
+      .getSubmissions(subjectId, statusFilter, page)
+      .then((result) => {
+        setPapers(result.items);
+        setTotalPages(result.totalPages);
+        setTotalCount(result.totalCount ?? result.items.length);
+      })
+      .catch(console.error);
+  };
+
+  const handleDeletePaper = async (paper: StudentPaper) => {
+    const label = paper.studentAlias || `Paper #${paper.aliasNumber}`;
+    if (!window.confirm(`Xóa bài làm "${label}"? Hành động này không thể hoàn tác.`)) {
+      return;
+    }
+    setDeleteError(null);
+    setDeletingId(paper.id);
+    try {
+      await submissionService.deleteSubmission(paper.id);
+      reloadPapers();
+    } catch (err) {
+      setDeleteError(
+        isAxiosError(err)
+          ? err.response?.data?.message ?? "Không thể xóa bài làm."
+          : "Không thể xóa bài làm."
+      );
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const handleExport = async () => {
     setExporting(true);
@@ -90,8 +126,12 @@ export function SubmissionsPage() {
     setGradingError(null);
     try {
       await startGradingFlow(batchIdForGrading, navigate);
-    } catch {
-      setGradingError("Không thể bắt đầu chấm bài. Kiểm tra API Grading.");
+    } catch (err) {
+      setGradingError(
+        isAxiosError(err)
+          ? err.response?.data?.message ?? "Không thể bắt đầu chấm bài. Kiểm tra API Grading."
+          : "Không thể bắt đầu chấm bài. Kiểm tra API Grading."
+      );
     } finally {
       setStartingGrading(false);
     }
@@ -163,6 +203,12 @@ export function SubmissionsPage() {
         ))}
       </FilterBar>
 
+      {deleteError && (
+        <div className="mb-4 p-3 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-sm">
+          {deleteError}
+        </div>
+      )}
+
       {loading ? (
         <div className="flex justify-center py-20">
           <div className="animate-spin w-8 h-8 border-2 border-line border-t-brand-red rounded-full" />
@@ -179,27 +225,43 @@ export function SubmissionsPage() {
         <div className="grid gap-3">
           {papers.map((p) => {
             const sc = statusColors[p.status] || "bg-secondary text-ink-soft border-line";
+            const canDelete = p.status === "ReadyToAssign";
             return (
-              <ContentBlockButton
-                key={p.id}
-                onClick={() => navigate(`/submissions/${p.id}`)}
-                className="group flex items-center justify-between"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center text-sm font-score font-bold text-brand-red">
-                    {p.aliasNumber || "?"}
+              <div key={p.id} className="relative group">
+                <ContentBlockButton
+                  onClick={() => navigate(`/submissions/${p.id}`)}
+                  className={`flex items-center justify-between ${canDelete ? "pr-16" : ""}`}
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center text-sm font-score font-bold text-brand-red">
+                      {p.aliasNumber || "?"}
+                    </div>
+                    <div>
+                      <h3 className="font-medium group-hover:text-brand-red transition-colors text-ink">
+                        {p.studentAlias || `Paper #${p.aliasNumber}`}
+                      </h3>
+                      <span className="text-xs text-ink-soft">{p.fileCount} files</span>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-medium group-hover:text-brand-red transition-colors text-ink">
-                      {p.studentAlias || `Paper #${p.aliasNumber}`}
-                    </h3>
-                    <span className="text-xs text-ink-soft">{p.fileCount} files</span>
-                  </div>
-                </div>
-                <span className={`px-2.5 py-1 rounded-full text-xs font-medium border ${sc}`}>
-                  {statusLabels[p.status] || p.status}
-                </span>
-              </ContentBlockButton>
+                  <span className={`px-2.5 py-1 rounded-full text-xs font-medium border ${sc}`}>
+                    {statusLabels[p.status] || p.status}
+                  </span>
+                </ContentBlockButton>
+                {canDelete && (
+                  <button
+                    type="button"
+                    title="Xóa bài làm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleDeletePaper(p);
+                    }}
+                    disabled={deletingId === p.id}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded-lg text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50 transition-colors"
+                  >
+                    {deletingId === p.id ? "Đang xóa..." : "Xóa"}
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>

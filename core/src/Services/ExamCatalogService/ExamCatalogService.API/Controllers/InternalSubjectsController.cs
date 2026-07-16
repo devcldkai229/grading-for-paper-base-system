@@ -26,6 +26,7 @@ public class InternalSubjectsController : ControllerBase
         var grid = new
         {
             subjectId = subject.Id,
+            status = subject.Status,
             maxScore = subject.MaxScore,
             rubricVersion = subject.RubricVersion,
             questions = subject.Questions
@@ -41,5 +42,37 @@ public class InternalSubjectsController : ControllerBase
         };
 
         return Ok(new { data = grid, responsedAt = DateTime.UtcNow });
+    }
+
+    /// <summary>
+    /// Minimal exam context for a subject (code, exam name, exam end date).
+    /// Consumed by GradingService to surface upcoming grading deadlines on a lecturer's dashboard.
+    /// </summary>
+    [HttpGet("{subjectId:guid}/exam-info")]
+    public async Task<IActionResult> GetExamInfo(Guid subjectId, CancellationToken ct = default)
+    {
+        var info = await _repository.GetSubjectExamInfoAsync(subjectId, ct);
+        if (info is null)
+        {
+            return NotFound(new { statusCode = 404, message = "Subject not found", responsedAt = DateTime.UtcNow });
+        }
+
+        return Ok(new { data = info, responsedAt = DateTime.UtcNow });
+    }
+
+    /// <summary>
+    /// Lists every subject matching an optional semester/exam filter (unpaginated — bounded by how
+    /// many subjects an exam catalog realistically has). Consumed by ReportingService to resolve
+    /// which subjects fall under a semester/exam filter for the admin grading progress dashboard.
+    /// </summary>
+    [HttpGet("search")]
+    public async Task<IActionResult> SearchSubjects(
+        [FromQuery] Guid? semesterId, [FromQuery] Guid? examId, CancellationToken ct = default)
+    {
+        var (items, _) = await _repository.SearchSubjectsAsync(
+            code: null, semesterId, examId, status: null, restrictToSubjectIds: null,
+            page: 1, pageSize: 1000, ct);
+
+        return Ok(new { data = items, responsedAt = DateTime.UtcNow });
     }
 }

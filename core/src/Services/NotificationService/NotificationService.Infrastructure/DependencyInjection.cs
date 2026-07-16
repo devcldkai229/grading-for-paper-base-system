@@ -1,7 +1,9 @@
 using BuildingBlocks.EfCore;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using NotificationService.Application.Interfaces;
 using NotificationService.Domain.Enums;
 
 namespace NotificationService.Infrastructure;
@@ -24,6 +26,73 @@ public static class DependencyInjection
             }));
 
         services.AddSingleton(new NotificationDatabaseSettings(connectionString));
+
+        // Repositories + application services
+        services.AddScoped<INotificationRepository, Repositories.NotificationRepository>();
+        services.AddScoped<INotificationDispatchService, Application.Services.NotificationDispatchService>();
+
+        // Redis (idempotency dedup for consumers)
+        var redisConnString = configuration.GetSection("Redis")["ConnectionString"];
+        if (!string.IsNullOrWhiteSpace(redisConnString))
+        {
+            services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
+                StackExchange.Redis.ConnectionMultiplexer.Connect(redisConnString));
+        }
+        services.AddSingleton<Consumers.NotificationIdempotencyGuard>();
+
+        // MassTransit + RabbitMQ (consume-only — this service publishes nothing)
+        var rabbitMq = configuration.GetSection("RabbitMq");
+        var rabbitHost = rabbitMq["Host"] ?? "localhost";
+        var rabbitPort = ushort.TryParse(rabbitMq["Port"], out var port) ? port : (ushort)5673;
+        var rabbitUser = rabbitMq["Username"] ?? "root";
+        var rabbitPass = rabbitMq["Password"] ?? "rootpassword";
+
+        services.AddMassTransit(x =>
+        {
+            x.AddConsumer<Consumers.AssignmentNotificationConsumer>();
+            x.AddConsumer<Consumers.DeadlineReminderConsumer>();
+            x.AddConsumer<Consumers.ExportReadyConsumer>();
+            x.AddConsumer<Consumers.RegradeNotificationConsumer>();
+
+            x.UsingRabbitMq((ctx, cfg) =>
+            {
+                cfg.Host(rabbitHost, rabbitPort, "/", h =>
+                {
+                    h.Username(rabbitUser);
+                    h.Password(rabbitPass);
+                });
+
+                cfg.ReceiveEndpoint("notification-assignment", e =>
+                {
+                    e.ConfigureConsumer<Consumers.AssignmentNotificationConsumer>(ctx);
+                    e.UseMessageRetry(r => r.Intervals(
+                        TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30)));
+                });
+
+                cfg.ReceiveEndpoint("notification-deadline-reminder", e =>
+                {
+                    e.ConfigureConsumer<Consumers.DeadlineReminderConsumer>(ctx);
+                    e.UseMessageRetry(r => r.Intervals(
+                        TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30)));
+                });
+
+                cfg.ReceiveEndpoint("notification-export-ready", e =>
+                {
+                    e.ConfigureConsumer<Consumers.ExportReadyConsumer>(ctx);
+                    e.UseMessageRetry(r => r.Intervals(
+                        TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30)));
+                });
+
+                cfg.ReceiveEndpoint("notification-regrade", e =>
+                {
+                    e.ConfigureConsumer<Consumers.RegradeNotificationConsumer>(ctx);
+                    e.UseMessageRetry(r => r.Intervals(
+                        TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30)));
+                });
+
+                cfg.ConfigureEndpoints(ctx);
+            });
+        });
 
         return services;
     }

@@ -59,6 +59,24 @@ public class SubmissionServiceClient : ISubmissionServiceClient
         }
     }
 
+    public async Task<SubjectPaperStatsClientDto?> GetSubjectPaperStatsAsync(Guid subjectId, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"/api/internal/papers/subjects/{subjectId}/stats", ct);
+            if (response.StatusCode == HttpStatusCode.NotFound) return null;
+            response.EnsureSuccessStatusCode();
+
+            var payload = await response.Content.ReadFromJsonAsync<Envelope<SubjectPaperStatsClientDto>>(JsonOptions, ct);
+            return payload?.Data;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            _logger.LogError(ex, "SubmissionService unreachable for subject {SubjectId} paper stats", subjectId);
+            return null;
+        }
+    }
+
     private sealed class Envelope<T>
     {
         [JsonPropertyName("data")]

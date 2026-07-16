@@ -224,6 +224,10 @@ namespace ExamCatalogService.Infrastructure.Persistence.Migrations
                         .HasDefaultValue(10m)
                         .HasColumnName("max_score");
 
+                    b.Property<decimal?>("PassScore")
+                        .HasColumnType("numeric(5,2)")
+                        .HasColumnName("pass_score");
+
                     b.Property<string>("RubricContentType")
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)")

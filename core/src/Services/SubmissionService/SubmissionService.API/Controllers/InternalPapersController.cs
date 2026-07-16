@@ -25,4 +25,15 @@ public class InternalPapersController : ControllerBase
 
         return Ok(new { data = summary, responsedAt = DateTime.UtcNow });
     }
+
+    /// <summary>
+    /// Aggregate paper stats (total count + highest alias number) for a subject. Consumed by
+    /// GradingService to validate marker-assignment alias ranges against what was actually submitted.
+    /// </summary>
+    [HttpGet("subjects/{subjectId:guid}/stats")]
+    public async Task<IActionResult> GetSubjectPaperStats(Guid subjectId, CancellationToken ct = default)
+    {
+        var stats = await _paperRepository.GetSubjectPaperStatsAsync(subjectId, ct);
+        return Ok(new { data = stats, responsedAt = DateTime.UtcNow });
+    }
 }

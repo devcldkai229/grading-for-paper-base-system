@@ -57,4 +57,15 @@ public class S3Service : IS3Service
 
         return Task.FromResult(_s3Client.GetPreSignedURL(request));
     }
+
+    public async Task DeleteAsync(string key, CancellationToken ct = default)
+    {
+        var request = new DeleteObjectRequest
+        {
+            BucketName = _settings.BucketName,
+            Key = key
+        };
+
+        await _s3Client.DeleteObjectAsync(request, ct);
+    }
 }

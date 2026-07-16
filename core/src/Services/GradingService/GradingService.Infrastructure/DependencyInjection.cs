@@ -3,7 +3,9 @@ using GradingService.Application.Interfaces;
 using GradingService.Domain.Enums;
 using GradingService.Infrastructure.Auth;
 using GradingService.Infrastructure.Clients;
-using GradingService.Infrastructure.Services;
+using GradingService.Infrastructure.Files;
+using GradingService.Infrastructure.Persistence.Repositories;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -33,12 +35,48 @@ public static class DependencyInjection
 
         services.Configure<InternalAuthSettings>(configuration.GetSection(InternalAuthSettings.SectionName));
 
-        services.AddScoped<IGradingSessionService, GradingSessionService>();
+        services.AddScoped<IGradingAssignmentRepository, GradingAssignmentRepository>();
+        services.AddScoped<IAuditLogRepository, AuditLogRepository>();
+        services.AddScoped<IGradingResumePointerRepository, GradingResumePointerRepository>();
+        services.AddScoped<IMarkerAssignmentRepository, MarkerAssignmentRepository>();
+        services.AddScoped<IUnitOfWork, GradingUnitOfWork>();
+        services.AddScoped<IGradeExportFileBuilder, MiniExcelGradeExportFileBuilder>();
+        services.AddScoped<IGradingSessionService, Application.Services.GradingSessionService>();
+        services.AddScoped<IMessagePublisher, Messaging.MassTransitMessagePublisher>();
+
+        services.Configure<Jobs.DeadlineReminderOptions>(configuration.GetSection(Jobs.DeadlineReminderOptions.SectionName));
+        services.AddHostedService<Jobs.DeadlineReminderBackgroundService>();
 
         RegisterInternalHttpClients(services, configuration);
         RegisterJwtAuthentication(services, configuration);
+        RegisterMessaging(services, configuration);
 
         return services;
+    }
+
+    private static void RegisterMessaging(IServiceCollection services, IConfiguration configuration)
+    {
+        // Publish-only: GradingService raises business events for NotificationService to consume;
+        // it has no consumers of its own.
+        var rabbitMq = configuration.GetSection("RabbitMq");
+        var rabbitHost = rabbitMq["Host"] ?? "localhost";
+        var rabbitPort = ushort.TryParse(rabbitMq["Port"], out var port) ? port : (ushort)5673;
+        var rabbitUser = rabbitMq["Username"] ?? "root";
+        var rabbitPass = rabbitMq["Password"] ?? "rootpassword";
+
+        services.AddMassTransit(x =>
+        {
+            x.UsingRabbitMq((ctx, cfg) =>
+            {
+                cfg.Host(rabbitHost, rabbitPort, "/", h =>
+                {
+                    h.Username(rabbitUser);
+                    h.Password(rabbitPass);
+                });
+
+                cfg.ConfigureEndpoints(ctx);
+            });
+        });
     }
 
     private static void RegisterInternalHttpClients(IServiceCollection services, IConfiguration configuration)

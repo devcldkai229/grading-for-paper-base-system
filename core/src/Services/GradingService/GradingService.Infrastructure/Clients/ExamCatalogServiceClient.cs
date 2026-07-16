@@ -41,6 +41,24 @@ public class ExamCatalogServiceClient : IExamCatalogServiceClient
         }
     }
 
+    public async Task<SubjectExamInfoClientDto?> GetExamInfoAsync(Guid subjectId, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"/api/internal/subjects/{subjectId}/exam-info", ct);
+            if (response.StatusCode == HttpStatusCode.NotFound) return null;
+            response.EnsureSuccessStatusCode();
+
+            var payload = await response.Content.ReadFromJsonAsync<Envelope<SubjectExamInfoClientDto>>(JsonOptions, ct);
+            return payload?.Data;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            _logger.LogError(ex, "ExamCatalogService unreachable for subject {SubjectId} exam-info", subjectId);
+            return null;
+        }
+    }
+
     private sealed class Envelope<T>
     {
         [JsonPropertyName("data")]

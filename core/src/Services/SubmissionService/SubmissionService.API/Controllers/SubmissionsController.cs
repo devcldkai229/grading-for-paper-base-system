@@ -1,7 +1,6 @@
-using BuildingBlocks.AwsS3;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Options;
+using SubmissionService.Application;
 using SubmissionService.Application.DTOs;
 using SubmissionService.Application.Interfaces;
 using System.Security.Claims;
@@ -13,18 +12,11 @@ namespace SubmissionService.API.Controllers;
 [Authorize]
 public class SubmissionsController : ControllerBase
 {
-    private readonly IStudentPaperRepository _paperRepository;
-    private readonly IS3Service _s3Service;
-    private readonly TimeSpan _presignedUrlTtl;
+    private readonly IPaperQueryService _paperQueryService;
 
-    public SubmissionsController(
-        IStudentPaperRepository paperRepository,
-        IS3Service s3Service,
-        IOptions<AwsS3Settings> s3Settings)
+    public SubmissionsController(IPaperQueryService paperQueryService)
     {
-        _paperRepository = paperRepository;
-        _s3Service = s3Service;
-        _presignedUrlTtl = s3Settings.Value.PresignedUrlTtl;
+        _paperQueryService = paperQueryService;
     }
 
     /// <summary>
@@ -39,15 +31,15 @@ public class SubmissionsController : ControllerBase
         [FromQuery] int pageSize = 20,
         CancellationToken ct = default)
     {
-        if (page < 1) page = 1;
-        if (pageSize < 1 || pageSize > 100) pageSize = 20;
-
-        var role = User.FindFirst(ClaimTypes.Role)?.Value
-                ?? User.FindFirst("role")?.Value;
+        // TokenService issues the role claim with literal Type "Role" (not the ClaimTypes.Role URI,
+        // and not lowercase "role") — .NET's default inbound claim map only remaps "role" (lowercase),
+        // so neither ClaimTypes.Role nor "role" ever matches a real token. Must match the exact case.
+        var role = User.FindFirst("Role")?.Value;
+        var isAdmin = string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase);
 
         Guid? uploadedByFilter = null;
 
-        if (!string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase))
+        if (!isAdmin)
         {
             var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
                 ?? User.FindFirst("sub")?.Value;
@@ -66,20 +58,59 @@ public class SubmissionsController : ControllerBase
             uploadedByFilter = lecturerId;
         }
 
-        var (items, totalCount) = await _paperRepository.GetPapersAsync(
-            subjectId, status, page, pageSize, uploadedByFilter, ct);
+        var result = await _paperQueryService.GetPapersAsync(subjectId, status, page, pageSize, uploadedByFilter, ct);
 
         return Ok(new ApiResponse<PagedResult<StudentPaperDto>>
         {
             StatusCode = 200,
             Message = "Submissions retrieved successfully",
-            Data = new PagedResult<StudentPaperDto>
+            Data = result,
+            ResponsedAt = DateTime.UtcNow
+        });
+    }
+
+    /// <summary>
+    /// Keyword search across every subject's papers (student alias / alias number), for the
+    /// global search box. Admin: sees all matching papers. Lecturer: only papers they uploaded.
+    /// </summary>
+    [HttpGet("search")]
+    public async Task<IActionResult> SearchSubmissions(
+        [FromQuery] string? keyword,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
+    {
+        var role = User.FindFirst("Role")?.Value;
+        var isAdmin = string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase);
+
+        Guid? uploadedByFilter = null;
+
+        if (!isAdmin)
+        {
+            var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                ?? User.FindFirst("sub")?.Value;
+
+            if (!Guid.TryParse(userIdString, out var lecturerId))
             {
-                Items = items,
-                Page = page,
-                PageSize = pageSize,
-                TotalCount = totalCount
-            },
+                return Unauthorized(new ApiResponse<object>
+                {
+                    StatusCode = 401,
+                    Message = "Invalid user ID",
+                    Data = null!,
+                    ResponsedAt = DateTime.UtcNow
+                });
+            }
+
+            uploadedByFilter = lecturerId;
+        }
+
+        var result = await _paperQueryService.SearchPapersAsync(keyword, page, pageSize, uploadedByFilter, ct);
+
+        return Ok(new ApiResponse<PagedResult<StudentPaperDto>>
+        {
+            StatusCode = 200,
+            Message = "Submissions search retrieved successfully",
+            Data = result,
             ResponsedAt = DateTime.UtcNow
         });
     }
@@ -92,7 +123,7 @@ public class SubmissionsController : ControllerBase
         Guid paperId,
         CancellationToken ct = default)
     {
-        var detail = await _paperRepository.GetPaperDetailAsync(paperId, ct);
+        var detail = await _paperQueryService.GetPaperDetailAsync(paperId, ct);
         if (detail is null)
         {
             return NotFound(new ApiResponse<object>
@@ -123,8 +154,8 @@ public class SubmissionsController : ControllerBase
         Guid fileId,
         CancellationToken ct = default)
     {
-        var info = await _paperRepository.GetPaperFileInfoAsync(paperId, fileId, ct);
-        if (info is null)
+        var result = await _paperQueryService.GetFileUrlAsync(paperId, fileId, ct);
+        if (result.Status == OperationStatus.NotFound)
         {
             return NotFound(new ApiResponse<object>
             {
@@ -135,15 +166,66 @@ public class SubmissionsController : ControllerBase
             });
         }
 
-        var (s3Key, fileName, contentType) = info.Value;
-        var url = await _s3Service.GeneratePresignedGetUrlAsync(s3Key, _presignedUrlTtl, ct);
-
         return Ok(new ApiResponse<FileUrlResponse>
         {
             StatusCode = 200,
             Message = "File URL generated successfully",
-            Data = new FileUrlResponse(url, contentType, fileName),
+            Data = result.Data!,
             ResponsedAt = DateTime.UtcNow
         });
+    }
+
+    /// <summary>
+    /// Delete a single student paper and its files — only while it has not started grading yet.
+    /// Lecturers may only delete papers they uploaded; Admins may delete any paper.
+    /// Purges the paper's S3 objects before removing the DB records, and records an audit log entry.
+    /// </summary>
+    [HttpDelete("{paperId:guid}")]
+    public async Task<IActionResult> DeletePaper(Guid paperId, CancellationToken ct = default)
+    {
+        var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value;
+        if (!Guid.TryParse(userIdString, out var userId))
+        {
+            return Unauthorized(new ApiResponse<object>
+            {
+                StatusCode = 401,
+                Message = "Invalid user ID",
+                Data = null!,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        // TokenService issues the role claim with literal Type "Role" (see GetSubmissions above).
+        var role = User.FindFirst("Role")?.Value;
+        var isAdmin = string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase);
+
+        var result = await _paperQueryService.DeletePaperAsync(paperId, userId, isAdmin, ct);
+
+        return result.Status switch
+        {
+            OperationStatus.NotFound => NotFound(new ApiResponse<object>
+            {
+                StatusCode = 404,
+                Message = "Submission not found",
+                Data = null!,
+                ResponsedAt = DateTime.UtcNow
+            }),
+            OperationStatus.Forbidden => Forbid(),
+            OperationStatus.Conflict => Conflict(new ApiResponse<object>
+            {
+                StatusCode = 409,
+                Message = result.Error!,
+                Data = null!,
+                ResponsedAt = DateTime.UtcNow
+            }),
+            _ => Ok(new ApiResponse<object>
+            {
+                StatusCode = 200,
+                Message = "Paper deleted successfully",
+                Data = null!,
+                ResponsedAt = DateTime.UtcNow
+            })
+        };
     }
 }

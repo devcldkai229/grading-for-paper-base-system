@@ -135,8 +135,77 @@ public class ExamCatalogRepository : IExamCatalogRepository
                 s.ExamPaperS3Key != null,
                 s.RubricS3Key != null,
                 s.Questions.Count,
-                s.CreatedAt
+                s.CreatedAt,
+                s.PassScore
             ))
+            .ToListAsync(ct);
+
+        return (items, totalCount);
+    }
+
+    public async Task<(IReadOnlyList<SubjectSearchResultDto> Items, int TotalCount)> SearchSubjectsAsync(
+        string? code,
+        Guid? semesterId,
+        Guid? examId,
+        SubjectStatus? status,
+        IReadOnlySet<Guid>? restrictToSubjectIds,
+        int page,
+        int pageSize,
+        CancellationToken ct = default)
+    {
+        var query = _context.Subjects
+            .AsNoTracking()
+            .Include(s => s.Exam)
+                .ThenInclude(e => e.Semester)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(code))
+        {
+            var normalizedCode = code.ToLowerInvariant();
+            query = query.Where(s => s.SubjectCode.ToLower().Contains(normalizedCode));
+        }
+
+        if (semesterId.HasValue)
+        {
+            query = query.Where(s => s.Exam.SemesterId == semesterId.Value);
+        }
+
+        if (examId.HasValue)
+        {
+            query = query.Where(s => s.ExamId == examId.Value);
+        }
+
+        if (status.HasValue)
+        {
+            query = query.Where(s => s.Status == status.Value);
+        }
+
+        if (restrictToSubjectIds is not null)
+        {
+            query = query.Where(s => restrictToSubjectIds.Contains(s.Id));
+        }
+
+        var totalCount = await query.CountAsync(ct);
+
+        var items = await query
+            .OrderBy(s => s.SubjectCode)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(s => new SubjectSearchResultDto(
+                s.Id,
+                s.ExamId,
+                s.Exam.Name,
+                s.Exam.SemesterId,
+                s.Exam.Semester.Code,
+                s.SubjectCode,
+                s.Title,
+                s.MaxScore,
+                s.Status.ToString(),
+                s.ExamPaperS3Key != null,
+                s.RubricS3Key != null,
+                s.Questions.Count,
+                s.CreatedAt,
+                s.PassScore))
             .ToListAsync(ct);
 
         return (items, totalCount);
@@ -173,8 +242,24 @@ public class ExamCatalogRepository : IExamCatalogRepository
                         q.OrderIndex
                     ))
                     .ToList(),
-                s.CreatedAt
+                s.CreatedAt,
+                s.PassScore
             ))
+            .FirstOrDefaultAsync(ct);
+    }
+
+    public async Task<SubjectExamInfoDto?> GetSubjectExamInfoAsync(
+        Guid subjectId, CancellationToken ct = default)
+    {
+        return await _context.Subjects
+            .AsNoTracking()
+            .Where(s => s.Id == subjectId)
+            .Select(s => new SubjectExamInfoDto(
+                s.Id,
+                s.SubjectCode,
+                s.ExamId,
+                s.Exam.Name,
+                s.Exam.EndDate))
             .FirstOrDefaultAsync(ct);
     }
 
@@ -446,6 +531,7 @@ public class ExamCatalogRepository : IExamCatalogRepository
             SubjectCode = request.SubjectCode.Trim(),
             Title = request.Title,
             MaxScore = request.MaxScore,
+            PassScore = request.PassScore,
             Status = status,
             RubricVersion = 1
         };
@@ -472,6 +558,7 @@ public class ExamCatalogRepository : IExamCatalogRepository
         subject.SubjectCode = request.SubjectCode.Trim();
         subject.Title = request.Title;
         subject.MaxScore = request.MaxScore;
+        subject.PassScore = request.PassScore;
         await _context.SaveChangesAsync(ct);
         return await GetSubjectDetailAsync(subjectId, ct);
     }

@@ -2,11 +2,13 @@ using BuildingBlocks.AwsS3;
 using ExamCatalogService.API.Authorization;
 using ExamCatalogService.Application.DTOs;
 using ExamCatalogService.Application.Interfaces;
+using ExamCatalogService.Domain.Enums;
 using ExamCatalogService.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using System.Security.Claims;
 
 namespace ExamCatalogService.API.Controllers;
 
@@ -30,6 +32,7 @@ public class SubjectsController : ControllerBase
     private readonly IExamCatalogRepository _repository;
     private readonly IS3Service _s3Service;
     private readonly IAiGradingClient _aiGradingClient;
+    private readonly ISubjectQueryService _subjectQueryService;
     private readonly ISubjectAdminService _subjectAdminService;
     private readonly SubjectFilePreviewService _filePreviewService;
     private readonly TimeSpan _presignedUrlTtl;
@@ -38,6 +41,7 @@ public class SubjectsController : ControllerBase
         IExamCatalogRepository repository,
         IS3Service s3Service,
         IAiGradingClient aiGradingClient,
+        ISubjectQueryService subjectQueryService,
         ISubjectAdminService subjectAdminService,
         SubjectFilePreviewService filePreviewService,
         IOptions<AwsS3Settings> s3Settings)
@@ -45,9 +49,74 @@ public class SubjectsController : ControllerBase
         _repository = repository;
         _s3Service = s3Service;
         _aiGradingClient = aiGradingClient;
+        _subjectQueryService = subjectQueryService;
         _subjectAdminService = subjectAdminService;
         _filePreviewService = filePreviewService;
         _presignedUrlTtl = s3Settings.Value.PresignedUrlTtl;
+    }
+
+    /// <summary>
+    /// Search subjects by code, semester, exam and/or status (paginated).
+    /// Admin sees all matching subjects; Lecturer only sees subjects they have a marker
+    /// assignment for (fetched from GradingService — fails closed to an empty result if unreachable).
+    /// </summary>
+    [HttpGet]
+    public async Task<IActionResult> SearchSubjects(
+        [FromQuery] string? code,
+        [FromQuery] Guid? semesterId,
+        [FromQuery] Guid? examId,
+        [FromQuery] string? status,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
+    {
+        Guid? lecturerId = null;
+        if (!IsAdmin())
+        {
+            var lecturerIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                ?? User.FindFirst("sub")?.Value;
+            if (!Guid.TryParse(lecturerIdString, out var parsedLecturerId))
+            {
+                return Unauthorized(new ApiResponse<object>
+                {
+                    StatusCode = 401,
+                    Message = "Invalid user ID",
+                    Data = null!,
+                    ResponsedAt = DateTime.UtcNow
+                });
+            }
+            lecturerId = parsedLecturerId;
+        }
+
+        var searchResult = await _subjectQueryService.SearchSubjectsAsync(
+            code, semesterId, examId, status, lecturerId, page, pageSize, ct);
+
+        if (searchResult.Error is not null)
+        {
+            return BadRequest(new ApiResponse<object>
+            {
+                StatusCode = 400,
+                Message = searchResult.Error,
+                Data = null!,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        var result = new PagedResult<SubjectSearchResultDto>
+        {
+            Items = searchResult.Items,
+            Page = searchResult.Page,
+            PageSize = searchResult.PageSize,
+            TotalCount = searchResult.TotalCount
+        };
+
+        return Ok(new ApiResponse<PagedResult<SubjectSearchResultDto>>
+        {
+            StatusCode = 200,
+            Message = "Subjects retrieved successfully",
+            Data = result,
+            ResponsedAt = DateTime.UtcNow
+        });
     }
 
     /// <summary>
@@ -237,6 +306,17 @@ public class SubjectsController : ControllerBase
             });
         }
 
+        if (request.PassScore is < 0 || request.PassScore > request.MaxScore)
+        {
+            return BadRequest(new ApiResponse<object>
+            {
+                StatusCode = 400,
+                Message = "passScore must be between 0 and maxScore",
+                Data = null!,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
         try
         {
             var subject = await _repository.CreateSubjectAsync(request, ct);
@@ -276,6 +356,56 @@ public class SubjectsController : ControllerBase
                 Data = null!,
                 ResponsedAt = DateTime.UtcNow
             });
+        }
+
+        if (request.PassScore is < 0 || request.PassScore > request.MaxScore)
+        {
+            return BadRequest(new ApiResponse<object>
+            {
+                StatusCode = 400,
+                Message = "passScore must be between 0 and maxScore",
+                Data = null!,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Status))
+        {
+            var existing = await _repository.GetSubjectDetailAsync(subjectId, ct);
+            if (existing is null)
+            {
+                return NotFound(new ApiResponse<object>
+                {
+                    StatusCode = 404,
+                    Message = "Subject not found",
+                    Data = null!,
+                    ResponsedAt = DateTime.UtcNow
+                });
+            }
+
+            if (!Enum.TryParse<SubjectStatus>(request.Status, ignoreCase: true, out var requestedStatus))
+            {
+                return BadRequest(new ApiResponse<object>
+                {
+                    StatusCode = 400,
+                    Message = $"Invalid status value: {request.Status}",
+                    Data = null!,
+                    ResponsedAt = DateTime.UtcNow
+                });
+            }
+
+            var currentStatus = Enum.Parse<SubjectStatus>(existing.Status, ignoreCase: true);
+            var transitionError = _subjectAdminService.ValidateStatusTransition(currentStatus, requestedStatus);
+            if (transitionError is not null)
+            {
+                return BadRequest(new ApiResponse<object>
+                {
+                    StatusCode = 400,
+                    Message = transitionError,
+                    Data = null!,
+                    ResponsedAt = DateTime.UtcNow
+                });
+            }
         }
 
         try
@@ -644,5 +774,14 @@ public class SubjectsController : ControllerBase
         using var buffer = new MemoryStream();
         await uploadStream.CopyToAsync(buffer, ct);
         return buffer.ToArray();
+    }
+
+    private bool IsAdmin()
+    {
+        // TokenService issues the role claim with literal Type "Role" (not the ClaimTypes.Role URI,
+        // and not lowercase "role") — .NET's default inbound claim map only remaps "role" (lowercase),
+        // so neither ClaimTypes.Role nor "role" ever matches a real token. Must match the exact case.
+        var role = User.FindFirst("Role")?.Value;
+        return string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase);
     }
 }

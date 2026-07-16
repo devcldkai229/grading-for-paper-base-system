@@ -4,6 +4,7 @@ import { authService } from "@/services/authService";
 import { LecturerPageShell } from "@/components/layout/LecturerPageShell";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ContentBlockButton } from "@/components/ui/content-block";
+import { GradingProgressCard } from "@/features/auth/components/GradingProgressCard";
 
 const quickLinks = [
   {
@@ -42,6 +43,8 @@ export function DashboardPage() {
         title={user?.email?.split("@")[0] ?? "Giảng viên"}
         subtitle="Chọn chức năng bên trái hoặc bắt đầu từ một thẻ bên dưới."
       />
+
+      <GradingProgressCard />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {quickLinks.map((item) => (

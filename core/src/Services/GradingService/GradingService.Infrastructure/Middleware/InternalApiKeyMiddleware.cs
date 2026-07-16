@@ -22,7 +22,11 @@ public class InternalApiKeyMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        if (!context.Request.Path.StartsWithSegments("/api/assignments", StringComparison.OrdinalIgnoreCase))
+        var isInternalPath =
+            context.Request.Path.StartsWithSegments("/api/assignments", StringComparison.OrdinalIgnoreCase)
+            || context.Request.Path.StartsWithSegments("/api/internal", StringComparison.OrdinalIgnoreCase);
+
+        if (!isInternalPath)
         {
             await _next(context);
             return;

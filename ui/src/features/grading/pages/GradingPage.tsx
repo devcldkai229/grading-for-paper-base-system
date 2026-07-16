@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { isAxiosError } from "axios";
 import { FileViewer } from "@/components/FileViewer";
+import { QuestionJumpList } from "@/components/grading/QuestionJumpList";
 import { RedGutter } from "@/components/grading/RedGutter";
 import { ScoreStamp } from "@/components/grading/ScoreStamp";
 import { ValidScoreTick } from "@/components/grading/ValidScoreTick";
@@ -12,8 +14,14 @@ import { gradingService } from "@/services/gradingService";
 import { submissionService } from "@/services/submissionService";
 import { clearGradingQueue, loadGradingQueue, saveGradingQueue, updateQueueAssignmentStatus, updateQueueCurrentAssignment } from "@/lib/gradingQueue";
 import type { FileUrlResponse } from "@/types/catalog";
-import type { GradingSession, SaveMarksPayload, AssignmentSummary } from "@/types/grading";
+import type { AuditLogEntry, GradingSession, SaveMarksPayload, AssignmentSummary } from "@/types/grading";
 import type { PaperFile, StudentPaperDetail } from "@/types/submission";
+
+const auditActionLabels: Record<string, string> = {
+  ScoreUpdated: "Lưu điểm",
+  FormSubmitted: "Nộp bài",
+  ScoreOverridden: "Override điểm",
+};
 
 type LeftMode = "answer" | "exam" | "rubric";
 type SaveStatus = "idle" | "saving" | "saved" | "error";
@@ -68,6 +76,12 @@ function buildQuestionGroups(questions: GradingSession["questions"]): QuestionGr
   return groups;
 }
 
+// Background "still actively grading" heartbeat (feeds GradingService's per-paper time
+// tracking / throughput analytics) — sent only while the tab is visible and the lecturer has
+// interacted within the idle threshold; no visible UI, purely instrumentation.
+const HEARTBEAT_INTERVAL_MS = 15_000;
+const IDLE_THRESHOLD_MS = 30_000;
+
 function isAxiosStatus(err: unknown, status: number): boolean {
   return (
     typeof err === "object" &&
@@ -101,9 +115,24 @@ export function GradingPage() {
   const [batchAssignments, setBatchAssignments] = useState<AssignmentSummary[]>([]);
   const [switchingAssignment, setSwitchingAssignment] = useState(false);
 
+  const [overrideMode, setOverrideMode] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
+  const [overriding, setOverriding] = useState(false);
+  const [overrideError, setOverrideError] = useState<string | null>(null);
+  const [showAuditLog, setShowAuditLog] = useState(false);
+  const [auditLog, setAuditLog] = useState<AuditLogEntry[] | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState<string | null>(null);
+
   const urlCacheRef = useRef<Record<string, { data: FileUrlResponse; expiresAt: number }>>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastActivityRef = useRef<number>(Date.now());
   const isReadOnly = session?.status === "Submitted";
+  const inputsLocked = isReadOnly && !overrideMode;
+
+  const [activeQuestionNumber, setActiveQuestionNumber] = useState<string | null>(null);
+  const questionRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const questionInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const queue = loadGradingQueue();
   const queueIndex = batchAssignments.findIndex((a) => a.assignmentId === assignmentId);
@@ -197,6 +226,37 @@ export function GradingPage() {
     }
     loadAll();
   }, [loadAll, navigate]);
+
+  const orderedQuestions = useMemo(
+    () => (session ? buildQuestionGroups(session.questions).flatMap((g) => g.items) : []),
+    [session]
+  );
+
+  // Default to the first question once a session loads, and re-clamp if the
+  // active question no longer exists (e.g. after switching to another paper).
+  useEffect(() => {
+    if (orderedQuestions.length === 0) {
+      setActiveQuestionNumber(null);
+      return;
+    }
+    setActiveQuestionNumber((prev) =>
+      prev && orderedQuestions.some((q) => q.questionNumber === prev)
+        ? prev
+        : orderedQuestions[0].questionNumber
+    );
+  }, [orderedQuestions]);
+
+  const jumpToQuestion = useCallback((questionNumber: string) => {
+    setActiveQuestionNumber(questionNumber);
+    // Wait a frame so the row/input refs are attached before we scroll/focus.
+    requestAnimationFrame(() => {
+      questionRowRefs.current[questionNumber]?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      });
+      questionInputRefs.current[questionNumber]?.focus();
+    });
+  }, []);
 
   const totalScore = useMemo(() => {
     if (!session) return 0;
@@ -322,7 +382,7 @@ export function GradingPage() {
   );
 
   const handleScoreChange = (questionNumber: string, maxScore: number, value: string) => {
-    if (isReadOnly) return;
+    if (inputsLocked) return;
     let next = value;
     if (next !== "" && !Number.isNaN(Number(next))) {
       const n = Number(next);
@@ -381,6 +441,74 @@ export function GradingPage() {
     [assignmentId, switchingAssignment, isReadOnly, persistMarks, navigate]
   );
 
+  const handleStartOverride = useCallback(() => {
+    setOverrideMode(true);
+    setOverrideReason("");
+    setOverrideError(null);
+  }, []);
+
+  const handleCancelOverride = useCallback(() => {
+    setOverrideMode(false);
+    setOverrideReason("");
+    setOverrideError(null);
+    if (session) applySession(session);
+  }, [session, applySession]);
+
+  const loadAuditLog = useCallback(async () => {
+    if (!assignmentId) return;
+    setAuditLoading(true);
+    setAuditError(null);
+    try {
+      const entries = await gradingService.getAuditLog(assignmentId);
+      setAuditLog(entries);
+    } catch {
+      setAuditError("Không tải được lịch sử chỉnh sửa");
+    } finally {
+      setAuditLoading(false);
+    }
+  }, [assignmentId]);
+
+  const handleConfirmOverride = useCallback(async () => {
+    if (!assignmentId || !session || overrideReason.trim() === "") return;
+    setOverriding(true);
+    setOverrideError(null);
+    try {
+      await gradingService.overrideMarks(assignmentId, {
+        reason: overrideReason.trim(),
+        paperComment,
+        internalComment,
+        questions: session.questions.map((q) => {
+          const raw = marks[q.questionNumber]?.score?.trim() ?? "";
+          const score = raw === "" ? 0 : Math.min(Math.max(0, Number(raw)), q.maxScore);
+          return {
+            questionNumber: q.questionNumber,
+            score: Number.isNaN(score) ? 0 : score,
+            questionComment: marks[q.questionNumber]?.questionComment ?? "",
+          };
+        }),
+      });
+      setOverrideMode(false);
+      setOverrideReason("");
+      await loadAll();
+      if (showAuditLog) await loadAuditLog();
+    } catch (err) {
+      const msg =
+        (isAxiosError(err) && (err.response?.data as { message?: string })?.message) ||
+        "Override thất bại";
+      setOverrideError(msg);
+    } finally {
+      setOverriding(false);
+    }
+  }, [assignmentId, session, overrideReason, paperComment, internalComment, marks, loadAll, showAuditLog, loadAuditLog]);
+
+  const toggleAuditLog = useCallback(() => {
+    setShowAuditLog((prev) => {
+      const next = !prev;
+      if (next && auditLog === null) void loadAuditLog();
+      return next;
+    });
+  }, [auditLog, loadAuditLog]);
+
   const assignmentStatusClass = (status: string, active: boolean) => {
     if (active) return "bg-brand-red/10 border-brand-red/50 text-brand-red font-semibold";
     if (status === "Submitted") return "bg-done/10 border-done/30 text-done";
@@ -390,11 +518,17 @@ export function GradingPage() {
 
   const handleSubmitRef = useRef(handleSubmit);
   const persistMarksRef = useRef(persistMarks);
+  const jumpToQuestionRef = useRef(jumpToQuestion);
+  const orderedQuestionsRef = useRef(orderedQuestions);
+  const activeQuestionNumberRef = useRef(activeQuestionNumber);
 
   useEffect(() => {
     handleSubmitRef.current = handleSubmit;
     persistMarksRef.current = persistMarks;
-  }, [handleSubmit, persistMarks]);
+    jumpToQuestionRef.current = jumpToQuestion;
+    orderedQuestionsRef.current = orderedQuestions;
+    activeQuestionNumberRef.current = activeQuestionNumber;
+  }, [handleSubmit, persistMarks, jumpToQuestion, orderedQuestions, activeQuestionNumber]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -406,10 +540,51 @@ export function GradingPage() {
         e.preventDefault();
         void handleSubmitRef.current();
       }
+      if (e.altKey && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+        const list = orderedQuestionsRef.current;
+        if (list.length === 0) return;
+        e.preventDefault();
+        const currentIndex = list.findIndex(
+          (q) => q.questionNumber === activeQuestionNumberRef.current
+        );
+        const delta = e.key === "ArrowDown" ? 1 : -1;
+        const nextIndex = Math.min(
+          Math.max((currentIndex === -1 ? 0 : currentIndex) + delta, 0),
+          list.length - 1
+        );
+        jumpToQuestionRef.current(list[nextIndex].questionNumber);
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  useEffect(() => {
+    const markActive = () => {
+      lastActivityRef.current = Date.now();
+    };
+    window.addEventListener("mousemove", markActive, { passive: true });
+    window.addEventListener("mousedown", markActive, { passive: true });
+    window.addEventListener("keydown", markActive, { passive: true });
+    window.addEventListener("scroll", markActive, { passive: true });
+    return () => {
+      window.removeEventListener("mousemove", markActive);
+      window.removeEventListener("mousedown", markActive);
+      window.removeEventListener("keydown", markActive);
+      window.removeEventListener("scroll", markActive);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!assignmentId || isReadOnly) return;
+    const interval = setInterval(() => {
+      const activeRecently = Date.now() - lastActivityRef.current < IDLE_THRESHOLD_MS;
+      if (document.visibilityState === "visible" && activeRecently) {
+        void gradingService.recordHeartbeat(assignmentId, HEARTBEAT_INTERVAL_MS / 1000).catch(() => {});
+      }
+    }, HEARTBEAT_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [assignmentId, isReadOnly]);
 
   if (loading) {
     return (
@@ -596,6 +771,16 @@ export function GradingPage() {
               Sổ điểm
             </h2>
 
+            <QuestionJumpList
+              questions={orderedQuestions}
+              activeQuestionNumber={activeQuestionNumber}
+              isAnswered={(qn) => {
+                const q = orderedQuestions.find((item) => item.questionNumber === qn);
+                return q ? isValidScore(marks[qn]?.score, q.maxScore) : false;
+              }}
+              onJump={jumpToQuestion}
+            />
+
             <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-1 mb-4">
               {questionGroups.map((group) => (
                 <div key={group.key}>
@@ -617,10 +802,18 @@ export function GradingPage() {
                     {group.items.map((q) => {
                       const scoreRaw = marks[q.questionNumber]?.score;
                       const valid = isValidScore(scoreRaw, q.maxScore);
+                      const isActive = q.questionNumber === activeQuestionNumber;
                       return (
                         <div
                           key={q.questionNumber}
-                          className="grid grid-cols-12 gap-2 items-center p-2 rounded-lg hover:bg-paper"
+                          ref={(el) => {
+                            questionRowRefs.current[q.questionNumber] = el;
+                          }}
+                          className={`grid grid-cols-12 gap-2 items-center p-2 rounded-lg transition-colors ${
+                            isActive
+                              ? "bg-brand-red/5 ring-1 ring-brand-red/30"
+                              : "hover:bg-paper"
+                          }`}
                         >
                           <div className="col-span-3 text-sm font-medium text-ink">
                             {q.label?.trim() || q.questionNumber}
@@ -630,11 +823,14 @@ export function GradingPage() {
                           </div>
                           <div className="col-span-3 flex items-center gap-1">
                             <input
+                              ref={(el) => {
+                                questionInputRefs.current[q.questionNumber] = el;
+                              }}
                               type="number"
                               min={0}
                               max={q.maxScore}
                               step={0.25}
-                              disabled={isReadOnly}
+                              disabled={inputsLocked}
                               value={scoreRaw ?? ""}
                               onChange={(e) =>
                                 handleScoreChange(
@@ -643,6 +839,7 @@ export function GradingPage() {
                                   e.target.value
                                 )
                               }
+                              onFocus={() => setActiveQuestionNumber(q.questionNumber)}
                               className={`${inputClass} font-score text-brand-red`}
                               placeholder="0"
                               aria-label={`Điểm câu ${q.questionNumber}`}
@@ -652,7 +849,7 @@ export function GradingPage() {
                           <div className="col-span-6">
                             <input
                               type="text"
-                              disabled={isReadOnly}
+                              disabled={inputsLocked}
                               value={marks[q.questionNumber]?.questionComment ?? ""}
                               onChange={(e) =>
                                 setMarks((prev) => ({
@@ -683,7 +880,7 @@ export function GradingPage() {
                   Nhận xét bài
                 </label>
                 <textarea
-                  disabled={isReadOnly}
+                  disabled={inputsLocked}
                   value={paperComment}
                   onChange={(e) => setPaperComment(e.target.value)}
                   rows={3}
@@ -695,7 +892,7 @@ export function GradingPage() {
                   Ghi chú nội bộ
                 </label>
                 <textarea
-                  disabled={isReadOnly}
+                  disabled={inputsLocked}
                   value={internalComment}
                   onChange={(e) => setInternalComment(e.target.value)}
                   rows={2}
@@ -721,6 +918,101 @@ export function GradingPage() {
                 >
                   {submitting ? "Đang nộp..." : "Nộp & bài tiếp"}
                 </button>
+              </div>
+            )}
+
+            {isReadOnly && (
+              <div className="space-y-3">
+                {!overrideMode ? (
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={handleStartOverride}
+                      className="px-4 py-2.5 border border-brand-red/40 text-brand-red hover:bg-brand-red/5 rounded-lg text-sm font-medium"
+                    >
+                      Sửa điểm (Override)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={toggleAuditLog}
+                      className="px-4 py-2.5 border border-line hover:bg-secondary rounded-lg text-sm font-medium text-ink"
+                    >
+                      {showAuditLog ? "Ẩn lịch sử chỉnh sửa" : "Xem lịch sử chỉnh sửa"}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-4 border border-brand-red/30 bg-brand-red/5 rounded-lg space-y-3">
+                    <p className="text-sm font-medium text-ink">
+                      Đang sửa điểm bài đã nộp — bắt buộc nhập lý do
+                    </p>
+                    <div>
+                      <label className="text-xs text-ink-soft mb-1 block">
+                        Lý do override <span className="text-destructive">*</span>
+                      </label>
+                      <textarea
+                        value={overrideReason}
+                        onChange={(e) => setOverrideReason(e.target.value)}
+                        rows={2}
+                        placeholder="Vd: Học sinh khiếu nại, chấm lại theo yêu cầu phòng đào tạo"
+                        className={`${inputClass} resize-none`}
+                      />
+                    </div>
+                    {overrideError && (
+                      <p className="text-sm text-destructive">{overrideError}</p>
+                    )}
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        onClick={handleCancelOverride}
+                        disabled={overriding}
+                        className="px-4 py-2.5 border border-line hover:bg-secondary rounded-lg text-sm font-medium text-ink disabled:opacity-50"
+                      >
+                        Huỷ
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleConfirmOverride()}
+                        disabled={overriding || overrideReason.trim() === ""}
+                        className="flex-1 min-w-[160px] px-4 py-2.5 bg-brand-red text-white hover:bg-brand-red/90 disabled:opacity-50 rounded-lg text-sm font-medium"
+                      >
+                        {overriding ? "Đang override..." : "Xác nhận override"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {showAuditLog && (
+                  <div className="p-3 border border-line rounded-lg max-h-64 overflow-y-auto">
+                    <p className="text-xs text-ink-soft mb-2 uppercase tracking-wide">
+                      Lịch sử chỉnh sửa
+                    </p>
+                    {auditLoading ? (
+                      <p className="text-sm text-ink-soft">Đang tải...</p>
+                    ) : auditError ? (
+                      <p className="text-sm text-destructive">{auditError}</p>
+                    ) : auditLog && auditLog.length > 0 ? (
+                      <ul className="space-y-2">
+                        {auditLog.map((entry) => (
+                          <li key={entry.id} className="text-sm border-b border-line pb-2 last:border-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-medium text-ink">
+                                {auditActionLabels[entry.action] ?? entry.action}
+                              </span>
+                              <span className="text-xs text-ink-soft">
+                                {new Date(entry.createdAt).toLocaleString("vi-VN")}
+                              </span>
+                            </div>
+                            {entry.reason && (
+                              <p className="text-xs text-ink-soft mt-1">Lý do: {entry.reason}</p>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-ink-soft">Chưa có lịch sử chỉnh sửa</p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </PaperCard>

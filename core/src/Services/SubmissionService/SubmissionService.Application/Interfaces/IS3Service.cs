@@ -10,4 +10,7 @@ public interface IS3Service
 
     /// <summary>Generate a pre-signed GET URL.</summary>
     Task<string> GeneratePresignedGetUrlAsync(string s3Key, TimeSpan ttl, CancellationToken ct = default);
+
+    /// <summary>Delete an object from S3. No-op (does not throw) if the key does not exist.</summary>
+    Task DeleteAsync(string key, CancellationToken ct = default);
 }

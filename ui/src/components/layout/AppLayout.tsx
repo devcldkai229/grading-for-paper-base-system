@@ -6,16 +6,19 @@ import {
   GraduationCap,
   LayoutDashboard,
   LogOut,
+  Search,
   Upload,
   User as UserIcon,
 } from "lucide-react";
 import { authService } from "@/services/authService";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { GlobalSearchBar } from "@/components/layout/GlobalSearchBar";
 
 const navItems = [
   { to: "/dashboard", label: "Tổng quan", icon: LayoutDashboard, end: true },
   { to: "/catalog/semesters", label: "Danh mục thi", icon: BookOpen },
+  { to: "/catalog/subjects/search", label: "Tìm môn thi", icon: Search },
   { to: "/submissions", label: "Bài đã nộp", icon: ClipboardList },
   { to: "/batches/upload", label: "Upload bài", icon: Upload },
 ];
@@ -154,8 +157,13 @@ export function AppLayout() {
         </div>
       </aside>
 
-      <main className="flex-1 min-w-0 overflow-auto bg-paper">
-        <Outlet />
+      <main className="flex-1 min-w-0 flex flex-col overflow-hidden bg-paper">
+        <header className="shrink-0 border-b border-line bg-card px-6 py-3">
+          <GlobalSearchBar />
+        </header>
+        <div className="flex-1 min-h-0 overflow-auto">
+          <Outlet />
+        </div>
       </main>
     </div>
   );

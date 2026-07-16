@@ -1,10 +1,14 @@
 using System.IO.Compression;
+using System.Security.Cryptography;
 using MassTransit;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 using StackExchange.Redis;
+using SubmissionService.Application;
+using SubmissionService.Application.DTOs;
 using SubmissionService.Application.Interfaces;
+using SubmissionService.Domain.Entities;
 using SubmissionService.Domain.Enums;
 using SubmissionService.Domain.Messages;
 using SubmissionService.Infrastructure.Persistence.Bson;
@@ -106,15 +110,23 @@ public class ParseBatchConsumer : IConsumer<ParseBatchJob>
             }
 
             int totalPapers;
+            IReadOnlyList<DuplicateFileWarningDto> duplicateWarnings;
             await using (var zipFs = new FileStream(tempZipPath, FileMode.Open, FileAccess.Read, FileShare.Read))
             using (var archive = new ZipArchive(zipFs, ZipArchiveMode.Read))
             {
-                totalPapers = await ProcessArchiveAsync(archive, job, ct);
+                (totalPapers, duplicateWarnings) = await ProcessArchiveAsync(archive, job, ct);
             }
 
-            await _batchRepository.UpdateBatchStatusAsync(job.BatchId, BatchStatus.Ready, totalPapers, ct: ct);
+            await _batchRepository.UpdateBatchStatusAsync(
+                job.BatchId, BatchStatus.Ready, totalPapers, duplicateWarnings: duplicateWarnings, ct: ct);
             _logger.LogInformation("ParseBatchJob completed: BatchId={BatchId}, TotalPapers={TotalPapers}",
                 job.BatchId, totalPapers);
+            if (duplicateWarnings.Count > 0)
+            {
+                _logger.LogWarning(
+                    "ParseBatchJob found {Count} duplicate content hash(es) in BatchId={BatchId}",
+                    duplicateWarnings.Count, job.BatchId);
+            }
         }
         catch (Exception ex)
         {
@@ -137,7 +149,8 @@ public class ParseBatchConsumer : IConsumer<ParseBatchJob>
         }
     }
 
-    private async Task<int> ProcessArchiveAsync(ZipArchive archive, ParseBatchJob job, CancellationToken ct)
+    private async Task<(int TotalPapers, IReadOnlyList<DuplicateFileWarningDto> DuplicateWarnings)> ProcessArchiveAsync(
+        ZipArchive archive, ParseBatchJob job, CancellationToken ct)
     {
         // Zip-bomb guards (declared sizes from the central directory).
         if (archive.Entries.Count > _zipLimits.MaxEntries)
@@ -177,6 +190,7 @@ public class ParseBatchConsumer : IConsumer<ParseBatchJob>
 
         int aliasNumber = 1;
         int totalPapers = 0;
+        var hashedFiles = new List<HashedFileEntry>();
 
         foreach (var group in studentGroups)
         {
@@ -238,6 +252,7 @@ public class ParseBatchConsumer : IConsumer<ParseBatchJob>
 
                 // ZipArchiveEntry.Open() is a non-seekable deflate stream; S3 PutObject needs a
                 // seekable stream with known length, so buffer this single entry first.
+                string contentHash;
                 using (var buffer = new MemoryStream())
                 {
                     await using (var entryStream = entry.Open())
@@ -245,8 +260,12 @@ public class ParseBatchConsumer : IConsumer<ParseBatchJob>
                         await entryStream.CopyToAsync(buffer, ct);
                     }
                     buffer.Position = 0;
+                    contentHash = Convert.ToHexStringLower(await SHA256.HashDataAsync(buffer, ct));
+                    buffer.Position = 0;
                     await _s3Service.UploadAsync(s3Key, buffer, contentType, ct);
                 }
+
+                hashedFiles.Add(new HashedFileEntry(contentHash, paperId, studentAlias, entry.Name));
 
                 // Upsert paper file (idempotent by paper + s3 key).
                 var fileFilter = Builders<PaperFile>.Filter.Eq(f => f.StudentPaperId, paperId)
@@ -263,6 +282,7 @@ public class ParseBatchConsumer : IConsumer<ParseBatchJob>
                         FileName = entry.Name,
                         ContentType = contentType,
                         SizeBytes = entry.Length,
+                        ContentHash = contentHash,
                         OrderIndex = fileIndex,
                         CreatedAt = DateTime.UtcNow
                     }, cancellationToken: ct);
@@ -275,7 +295,9 @@ public class ParseBatchConsumer : IConsumer<ParseBatchJob>
             totalPapers++;
         }
 
-        return totalPapers;
+        var duplicateWarnings = DuplicateFileDetector.Detect(hashedFiles);
+
+        return (totalPapers, duplicateWarnings);
     }
 
     /// <summary>

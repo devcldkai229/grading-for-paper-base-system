@@ -13,6 +13,9 @@ public class Subject : Entity
 
     public decimal MaxScore { get; set; } = 10;
 
+    /// <summary>Minimum score (inclusive) to pass this subject. Null = not configured yet — pass/fail reporting excludes the subject until an admin sets it.</summary>
+    public decimal? PassScore { get; set; }
+
     public string? ExamPaperS3Key { get; set; }
 
     public string? ExamPaperFileName { get; set; }

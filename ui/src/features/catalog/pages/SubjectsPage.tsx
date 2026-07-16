@@ -61,13 +61,14 @@ export function SubjectsPage() {
     subjectCode: "",
     title: "",
     maxScore: "10",
+    passScore: "",
     status: "Draft",
   });
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   const openCreate = () => {
-    setForm({ subjectCode: "", title: "", maxScore: "10", status: "Draft" });
+    setForm({ subjectCode: "", title: "", maxScore: "10", passScore: "", status: "Draft" });
     setFormError(null);
     setModalOpen(true);
   };
@@ -85,6 +86,7 @@ export function SubjectsPage() {
         subjectCode: form.subjectCode.trim(),
         title: form.title.trim() || undefined,
         maxScore: Number(form.maxScore) || 0,
+        passScore: form.passScore.trim() === "" ? null : Number(form.passScore),
         status: form.status,
       });
       setModalOpen(false);
@@ -219,6 +221,12 @@ export function SubjectsPage() {
                     Điểm tối đa:{" "}
                     <strong className="font-score text-brand-red">{s.maxScore}</strong>
                   </span>
+                  <span>
+                    Điểm đậu:{" "}
+                    <strong className="font-score text-ink">
+                      {s.passScore ?? "Chưa cấu hình"}
+                    </strong>
+                  </span>
                   <span>{s.questionCount} câu hỏi</span>
                   <div className="flex items-center gap-3 ml-auto">
                     <span
@@ -287,6 +295,16 @@ export function SubjectsPage() {
             step={0.5}
             value={form.maxScore}
             onChange={(e) => setForm({ ...form, maxScore: e.target.value })}
+          />
+        </AdminField>
+        <AdminField label="Điểm đậu (để trống nếu chưa xác định)">
+          <AdminTextInput
+            type="number"
+            min={0}
+            step={0.5}
+            value={form.passScore}
+            onChange={(e) => setForm({ ...form, passScore: e.target.value })}
+            placeholder="vd: 5"
           />
         </AdminField>
         <AdminField label="Trạng thái">

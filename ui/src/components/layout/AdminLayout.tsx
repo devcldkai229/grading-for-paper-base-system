@@ -1,15 +1,24 @@
 import { useState, useEffect } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { BookOpen, LayoutDashboard, LogOut, Settings2, Users, User as UserIcon, ShieldAlert } from "lucide-react";
+import { Activity, BarChart3, BookOpen, CheckCircle2, FileSpreadsheet, LayoutDashboard, LogOut, PenLine, Search, Settings2, Split, Users, User as UserIcon, ShieldAlert, ScrollText } from "lucide-react";
 import { authService } from "@/services/authService";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { GlobalSearchBar } from "@/components/layout/GlobalSearchBar";
 
 const navItems = [
   { to: "/admin/dashboard", label: "Tổng quan", icon: LayoutDashboard, end: true },
   { to: "/admin/catalog/semesters", label: "Danh mục thi", icon: BookOpen },
+  { to: "/admin/catalog/subjects/search", label: "Tìm môn thi", icon: Search },
   { to: "/admin/users", label: "Tài khoản", icon: Users },
-  { to: "/admin/audit-logs", label: "Lịch sử hoạt động", icon: ShieldAlert },
+  { to: "/admin/grading/override", label: "Override điểm", icon: PenLine },
+  { to: "/admin/grading/marker-assignments", label: "Phân phối bài chấm", icon: Split },
+  { to: "/admin/reports/grading-progress", label: "Tiến độ chấm bài", icon: Activity },
+  { to: "/admin/reports/score-distribution", label: "Phân phối điểm", icon: BarChart3 },
+  { to: "/admin/reports/pass-fail", label: "Thống kê đậu/rớt", icon: CheckCircle2 },
+  { to: "/admin/reports/feedback-export", label: "Xuất feedback", icon: FileSpreadsheet },
+  { to: "/admin/reports/audit-logs", label: "Nhật ký toàn hệ thống", icon: ScrollText },
+  { to: "/admin/audit-logs", label: "Lịch sử hoạt động (tài khoản)", icon: ShieldAlert },
 ];
 
 export function AdminLayout() {
@@ -144,8 +153,13 @@ export function AdminLayout() {
         </div>
       </aside>
 
-      <main className="flex-1 min-w-0 overflow-auto bg-paper">
-        <Outlet />
+      <main className="flex-1 min-w-0 flex flex-col overflow-hidden bg-paper">
+        <header className="shrink-0 border-b border-line bg-card px-6 py-3">
+          <GlobalSearchBar />
+        </header>
+        <div className="flex-1 min-h-0 overflow-auto">
+          <Outlet />
+        </div>
       </main>
     </div>
   );

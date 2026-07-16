@@ -11,6 +11,7 @@ import { AdminUsersPage } from "@/features/admin/pages/AdminUsersPage";
 import { SemestersPage } from "@/features/catalog/pages/SemestersPage";
 import { ExamsPage } from "@/features/catalog/pages/ExamsPage";
 import { SubjectsPage } from "@/features/catalog/pages/SubjectsPage";
+import { SubjectSearchPage } from "@/features/catalog/pages/SubjectSearchPage";
 import { SubjectDetailPage } from "@/features/catalog/pages/SubjectDetailPage";
 import { AdminSubjectDetailPage } from "@/features/admin/pages/AdminSubjectDetailPage";
 import { BatchUploadPage } from "@/features/submission/pages/BatchUploadPage";
@@ -21,6 +22,13 @@ import { ProfilePage } from "@/features/auth/pages/ProfilePage";
 import { ForgotPasswordPage } from "@/features/auth/pages/ForgotPasswordPage";
 import { ResetPasswordPage } from "@/features/auth/pages/ResetPasswordPage";
 import { AdminAuditLogsPage } from "@/features/admin/pages/AdminAuditLogsPage";
+import { AdminOverridePage } from "@/features/admin/pages/AdminOverridePage";
+import { AdminMarkerAssignmentsPage } from "@/features/admin/pages/AdminMarkerAssignmentsPage";
+import { AdminFeedbackExportPage } from "@/features/admin/pages/AdminFeedbackExportPage";
+import { AdminGradingProgressPage } from "@/features/admin/pages/AdminGradingProgressPage";
+import { AdminScoreDistributionPage } from "@/features/admin/pages/AdminScoreDistributionPage";
+import { AdminPassFailReportPage } from "@/features/admin/pages/AdminPassFailReportPage";
+import { AdminGlobalAuditLogPage } from "@/features/admin/pages/AdminGlobalAuditLogPage";
 import { authService } from "@/services/authService";
 import { getHomePath } from "@/lib/roles";
 
@@ -52,10 +60,21 @@ function App() {
               <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
               <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/audit-logs" element={<AdminAuditLogsPage />} />
+              <Route path="/admin/grading/override" element={<AdminOverridePage />} />
+              <Route path="/admin/grading/marker-assignments" element={<AdminMarkerAssignmentsPage />} />
+              <Route path="/admin/reports/feedback-export" element={<AdminFeedbackExportPage />} />
+              <Route path="/admin/reports/grading-progress" element={<AdminGradingProgressPage />} />
+              <Route path="/admin/reports/score-distribution" element={<AdminScoreDistributionPage />} />
+              <Route path="/admin/reports/pass-fail" element={<AdminPassFailReportPage />} />
+              <Route path="/admin/reports/audit-logs" element={<AdminGlobalAuditLogPage />} />
               <Route path="/admin/catalog/semesters" element={<SemestersPage />} />
               <Route
                 path="/admin/catalog/semesters/:semesterId/exams"
                 element={<ExamsPage />}
+              />
+              <Route
+                path="/admin/catalog/subjects/search"
+                element={<SubjectSearchPage />}
               />
               <Route
                 path="/admin/catalog/semesters/:semesterId/exams/:examId/subjects"
@@ -69,6 +88,10 @@ function App() {
                 path="/admin/catalog/subjects/:subjectId"
                 element={<AdminSubjectDetailPage />}
               />
+              <Route
+                path="/admin/submissions/:paperId"
+                element={<SubmissionDetailPage />}
+              />
               <Route path="/admin/profile" element={<ProfilePage />} />
             </Route>
           </Route>
@@ -80,6 +103,10 @@ function App() {
               <Route
                 path="/catalog/semesters/:semesterId/exams"
                 element={<ExamsPage />}
+              />
+              <Route
+                path="/catalog/subjects/search"
+                element={<SubjectSearchPage />}
               />
               <Route
                 path="/catalog/semesters/:semesterId/exams/:examId/subjects"

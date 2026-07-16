@@ -17,7 +17,29 @@ public interface IExamCatalogRepository
     Task<(IReadOnlyList<SubjectSummaryDto> Items, int TotalCount)> GetSubjectsByExamAsync(
         Guid examId, int page, int pageSize, CancellationToken ct = default);
 
+    /// <summary>
+    /// Cross-exam subject search by code (substring, case-insensitive), semester, exam and/or status.
+    /// When <paramref name="restrictToSubjectIds"/> is non-null, results are additionally limited to
+    /// that set (used to scope a Lecturer to only the subjects they're assigned to grade).
+    /// </summary>
+    Task<(IReadOnlyList<SubjectSearchResultDto> Items, int TotalCount)> SearchSubjectsAsync(
+        string? code,
+        Guid? semesterId,
+        Guid? examId,
+        Domain.Enums.SubjectStatus? status,
+        IReadOnlySet<Guid>? restrictToSubjectIds,
+        int page,
+        int pageSize,
+        CancellationToken ct = default);
+
     Task<SubjectDetailDto?> GetSubjectDetailAsync(
+        Guid subjectId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Minimal exam context for a subject — used by GradingService (internal, service-to-service)
+    /// to surface upcoming grading deadlines without exposing the full subject/exam graph.
+    /// </summary>
+    Task<SubjectExamInfoDto?> GetSubjectExamInfoAsync(
         Guid subjectId, CancellationToken ct = default);
 
     /// <summary>

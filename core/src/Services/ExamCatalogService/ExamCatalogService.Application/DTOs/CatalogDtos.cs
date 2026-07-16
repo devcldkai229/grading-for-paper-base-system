@@ -32,7 +32,33 @@ public record SubjectSummaryDto(
     bool HasExamPaper,
     bool HasRubric,
     int QuestionCount,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    decimal? PassScore = null
+);
+
+public record SubjectExamInfoDto(
+    Guid SubjectId,
+    string SubjectCode,
+    Guid ExamId,
+    string ExamName,
+    DateOnly? ExamEndDate
+);
+
+public record SubjectSearchResultDto(
+    Guid Id,
+    Guid ExamId,
+    string ExamName,
+    Guid SemesterId,
+    string SemesterCode,
+    string SubjectCode,
+    string? Title,
+    decimal MaxScore,
+    string Status,
+    bool HasExamPaper,
+    bool HasRubric,
+    int QuestionCount,
+    DateTime CreatedAt,
+    decimal? PassScore = null
 );
 
 public record SubjectDetailDto(
@@ -50,7 +76,8 @@ public record SubjectDetailDto(
     string? RubricContentType,
     int RubricVersion,
     IReadOnlyList<QuestionDto> Questions,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    decimal? PassScore = null
 );
 
 public record QuestionDto(
@@ -100,14 +127,16 @@ public record CreateSubjectRequest(
     string SubjectCode,
     string? Title,
     decimal MaxScore,
-    string? Status = null
+    string? Status = null,
+    decimal? PassScore = null
 );
 
 public record UpdateSubjectRequest(
     string SubjectCode,
     string? Title,
     decimal MaxScore,
-    string? Status = null
+    string? Status = null,
+    decimal? PassScore = null
 );
 
 public record QuestionInputDto(
