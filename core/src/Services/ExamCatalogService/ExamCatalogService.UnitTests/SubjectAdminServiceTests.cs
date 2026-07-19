@@ -217,5 +217,78 @@ namespace ExamCatalogService.UnitTests
 
             Assert.NotNull(error);
         }
+
+        [Fact]
+        public void ValidateTemplateQuestions_WithNoQuestions_ReturnsError()
+        {
+            var (errors, warnings) = _service.ValidateTemplateQuestions(new List<QuestionInputDto>());
+
+            Assert.Contains(errors, e => e.Contains("At least one question"));
+            Assert.Empty(warnings);
+        }
+
+        [Fact]
+        public void ValidateTemplateQuestions_WithMaxScoreZeroOrNegative_ReturnsError()
+        {
+            var questions = new List<QuestionInputDto> { Q("1", 0m), Q("2", -5m) };
+
+            var (errors, _) = _service.ValidateTemplateQuestions(questions);
+
+            Assert.Contains(errors, e => e.Contains("Question 1") && e.Contains("maxScore must be greater than 0"));
+            Assert.Contains(errors, e => e.Contains("Question 2") && e.Contains("maxScore must be greater than 0"));
+        }
+
+        [Fact]
+        public void ValidateTemplateQuestions_WithDuplicateQuestionNumbers_ReturnsError()
+        {
+            var questions = new List<QuestionInputDto> { Q("1", 5m), Q("1", 5m) };
+
+            var (errors, _) = _service.ValidateTemplateQuestions(questions);
+
+            Assert.Contains(errors, e => e.Contains("Duplicate questionNumber"));
+        }
+
+        [Fact]
+        public void ValidateTemplateQuestions_IgnoresTotalSum_NoSubjectMaxScoreToCheckAgainst()
+        {
+            // A template isn't tied to a subject, so any total is fine — unlike ValidateQuestions,
+            // there's no subjectMaxScore to compare against.
+            var questions = new List<QuestionInputDto> { Q("1", 3m), Q("2", 999m) };
+
+            var (errors, _) = _service.ValidateTemplateQuestions(questions);
+
+            Assert.Empty(errors);
+        }
+
+        [Fact]
+        public void ValidateTemplateQuestions_IgnoresGroupPercentBudgets_NoSubjectMaxScoreToCheckAgainst()
+        {
+            // Even a group label that declares a percentage budget (e.g. "Request 1 (20%)") isn't
+            // checked at template-save time — that only makes sense once applied to a subject.
+            var questions = new List<QuestionInputDto>
+            {
+                Q("1", 50m, "Request 1 (20%)"),
+                Q("2", 1m, "Request 2 (80%)"),
+            };
+
+            var (errors, _) = _service.ValidateTemplateQuestions(questions);
+
+            Assert.Empty(errors);
+        }
+
+        [Fact]
+        public void ValidateTemplateQuestions_WithValidQuestions_ReturnsNoErrorsOrWarnings()
+        {
+            var questions = new List<QuestionInputDto>
+            {
+                Q("1", 2m, "Request 1 (20%)"),
+                Q("2", 8m, "Request 2 (80%)"),
+            };
+
+            var (errors, warnings) = _service.ValidateTemplateQuestions(questions);
+
+            Assert.Empty(errors);
+            Assert.Empty(warnings);
+        }
     }
 }

@@ -156,6 +156,29 @@ public record ReplaceQuestionsResponse(
     IReadOnlyList<string> Warnings
 );
 
+public record CreateScoreGridTemplateRequest(
+    string Name,
+    IReadOnlyList<QuestionInputDto> Questions
+);
+
+/// <summary>List-view row — omits the questions payload so listing templates never needs to
+/// deserialize any JSON.</summary>
+public record ScoreGridTemplateSummaryDto(
+    Guid Id,
+    string Name,
+    Guid CreatedBy,
+    int QuestionCount,
+    DateTime CreatedAt
+);
+
+public record ScoreGridTemplateDetailDto(
+    Guid Id,
+    string Name,
+    Guid CreatedBy,
+    IReadOnlyList<QuestionInputDto> Questions,
+    DateTime CreatedAt
+);
+
 public record ExtractedQuestionDto(
     string? GroupLabel,
     string QuestionNumber,

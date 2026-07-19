@@ -29,6 +29,7 @@ public static class DependencyInjection
 
         // Repositories & domain services
         services.AddScoped<Application.Interfaces.IExamCatalogRepository, Repositories.ExamCatalogRepository>();
+        services.AddScoped<Application.Interfaces.IScoreGridTemplateRepository, Repositories.ScoreGridTemplateRepository>();
         services.AddScoped<Application.Interfaces.ISubjectAdminService, Services.SubjectAdminService>();
         services.AddScoped<Services.SubjectFilePreviewService>();
         services.AddScoped<Application.Interfaces.ISubjectQueryService, Application.Services.SubjectQueryService>();
