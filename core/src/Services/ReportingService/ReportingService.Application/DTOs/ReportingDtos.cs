@@ -33,7 +33,8 @@ public record LecturerProgressClientDto(
     decimal? ThroughputPerHour,
     DateTime? LastActivityAt,
     DateTime? EstimatedFinish,
-    decimal? AvgGradingMinutesPerPaper
+    decimal? AvgGradingMinutesPerPaper,
+    int FlaggedCount = 0
 );
 
 public record SubjectProgressClientDto(
@@ -49,7 +50,8 @@ public record SubjectProgressClientDto(
     decimal? ThroughputPerHour,
     DateTime? EstimatedFinish,
     IReadOnlyList<LecturerProgressClientDto> Lecturers,
-    decimal? AvgGradingMinutesPerPaper
+    decimal? AvgGradingMinutesPerPaper,
+    int FlaggedCount = 0
 );
 
 public record GradingProgressDashboardClientDto(
@@ -89,7 +91,8 @@ public record GradingProgressSubjectDto(
     DateTime? EstimatedFinish,
     IReadOnlyList<LecturerProgressClientDto> Lecturers,
     decimal? AvgGradingMinutesPerPaper,
-    DateOnly? GradingDeadline = null
+    DateOnly? GradingDeadline = null,
+    int FlaggedCount = 0
 );
 
 public record GradingProgressDashboardResultDto(

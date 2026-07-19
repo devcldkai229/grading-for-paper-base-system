@@ -218,6 +218,9 @@ export function AdminGradingProgressPage() {
                   >
                     Hạn chấm: {formatDeadline(s.gradingDeadline)}
                   </span>
+                  <span className={s.flaggedCount > 0 ? "text-brand-red font-medium" : undefined}>
+                    Đã gắn cờ: {s.flaggedCount}
+                  </span>
                   {s.scoreAvg !== null && (
                     <span>
                       Điểm TB: <strong className="text-ink">{s.scoreAvg}</strong> (min {s.scoreMin}, max{" "}
@@ -242,7 +245,8 @@ export function AdminGradingProgressPage() {
                               <th className="py-2 pr-4 font-medium">Tốc độ</th>
                               <th className="py-2 pr-4 font-medium">TB phút/bài</th>
                               <th className="py-2 pr-4 font-medium">Hoạt động gần nhất</th>
-                              <th className="py-2 font-medium">Dự kiến xong</th>
+                              <th className="py-2 pr-4 font-medium">Dự kiến xong</th>
+                              <th className="py-2 font-medium">Đã gắn cờ</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -259,7 +263,10 @@ export function AdminGradingProgressPage() {
                                 <td className="py-2 pr-4">{formatThroughput(l.throughputPerHour)}</td>
                                 <td className="py-2 pr-4">{formatAvgMinutes(l.avgGradingMinutesPerPaper)}</td>
                                 <td className="py-2 pr-4">{formatDateTime(l.lastActivityAt)}</td>
-                                <td className="py-2">{formatDateTime(l.estimatedFinish)}</td>
+                                <td className="py-2 pr-4">{formatDateTime(l.estimatedFinish)}</td>
+                                <td className={`py-2 ${l.flaggedCount > 0 ? "text-brand-red font-medium" : ""}`}>
+                                  {l.flaggedCount}
+                                </td>
                               </tr>
                             ))}
                           </tbody>

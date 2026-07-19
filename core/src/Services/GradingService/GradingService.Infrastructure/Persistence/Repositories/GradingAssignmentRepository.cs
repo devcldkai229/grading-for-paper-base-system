@@ -113,7 +113,8 @@ public class GradingAssignmentRepository : IGradingAssignmentRepository
                 a.Status,
                 a.GradingForm != null ? a.GradingForm.SubmittedAt : null,
                 a.GradingForm != null ? (decimal?)a.GradingForm.TotalScore : null,
-                a.GradingForm != null ? a.GradingForm.ActiveSecondsSpent : 0))
+                a.GradingForm != null ? a.GradingForm.ActiveSecondsSpent : 0,
+                a.IsFlagged))
             .ToListAsync(ct);
     }
 

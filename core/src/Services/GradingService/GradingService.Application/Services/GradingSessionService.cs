@@ -775,7 +775,8 @@ public class GradingSessionService : IGradingSessionService
                     throughput > 0 ? Math.Round(throughput, 2) : null,
                     estimatedFinish,
                     lecturers,
-                    ComputeAvgGradingMinutesPerPaper(subjectGroup));
+                    ComputeAvgGradingMinutesPerPaper(subjectGroup),
+                    subjectGroup.Count(r => r.IsFlagged));
             })
             .OrderBy(s => s.CompletionPercent)
             .ToList();
@@ -831,7 +832,8 @@ public class GradingSessionService : IGradingSessionService
             teacherId, assigned, completed, drafting, notStarted,
             completedScores.Count > 0 ? Math.Round(completedScores.Average(), 2) : null,
             throughput, lastActivity, estimatedFinish,
-            ComputeAvgGradingMinutesPerPaper(rows));
+            ComputeAvgGradingMinutesPerPaper(rows),
+            rows.Count(r => r.IsFlagged));
     }
 
     public async Task<ScoreDistributionDashboardDto> GetScoreDistributionAsync(

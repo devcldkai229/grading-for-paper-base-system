@@ -57,7 +57,7 @@ public sealed record AssignmentProgressRow(Guid Id, Guid SubjectId, GradingProgr
 
 public sealed record SubjectProgressRow(
     Guid SubjectId, Guid TeacherId, GradingProgressStatus Status, DateTime? SubmittedAt, decimal? TotalScore,
-    int ActiveSecondsSpent);
+    int ActiveSecondsSpent, bool IsFlagged);
 
 public sealed record SubjectScoreRow(Guid SubjectId, decimal Score);
 

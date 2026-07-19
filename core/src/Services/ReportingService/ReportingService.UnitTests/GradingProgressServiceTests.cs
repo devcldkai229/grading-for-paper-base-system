@@ -17,11 +17,12 @@ namespace ReportingService.UnitTests
             Guid id, string code = "PRN232", DateOnly? gradingDeadline = null) =>
             new(id, code, "Title", Guid.NewGuid(), "FE Exam", Guid.NewGuid(), "SP26", 10m, GradingDeadline: gradingDeadline);
 
-        private static SubjectProgressClientDto MakeProgress(Guid subjectId, int total, int completed) =>
+        private static SubjectProgressClientDto MakeProgress(
+            Guid subjectId, int total, int completed, int flaggedCount = 0) =>
             new(subjectId, total, completed, 0, total - completed,
                 total == 0 ? 0 : Math.Round(100m * completed / total, 1),
                 null, null, null, null, null,
-                new List<LecturerProgressClientDto>(), null);
+                new List<LecturerProgressClientDto>(), null, FlaggedCount: flaggedCount);
 
         [Fact]
         public async Task GetDashboardAsync_WhenCatalogUnreachable_ReturnsError()
@@ -142,6 +143,27 @@ namespace ReportingService.UnitTests
 
             Assert.Null(error);
             Assert.Equal(deadline, Assert.Single(result!.Subjects).GradingDeadline);
+        }
+
+        [Fact]
+        public async Task GetDashboardAsync_PassesThroughFlaggedCountFromProgress()
+        {
+            var subjectId = Guid.NewGuid();
+            var catalogClient = Substitute.For<IExamCatalogServiceClient>();
+            catalogClient.SearchSubjectsAsync(null, null, Arg.Any<CancellationToken>())
+                .Returns(new List<SubjectFilterResultClientDto> { MakeSubject(subjectId) });
+            var gradingClient = Substitute.For<IGradingServiceClient>();
+            gradingClient.GetProgressDashboardAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+                .Returns(new GradingProgressDashboardClientDto(new List<SubjectProgressClientDto>
+                {
+                    MakeProgress(subjectId, total: 5, completed: 2, flaggedCount: 3)
+                }));
+            var service = new GradingProgressService(catalogClient, gradingClient);
+
+            var (result, error) = await service.GetDashboardAsync(null, null, CancellationToken.None);
+
+            Assert.Null(error);
+            Assert.Equal(3, Assert.Single(result!.Subjects).FlaggedCount);
         }
     }
 }

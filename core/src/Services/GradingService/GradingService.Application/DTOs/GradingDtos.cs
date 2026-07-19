@@ -196,7 +196,8 @@ public record LecturerProgressDto(
     decimal? ThroughputPerHour,
     DateTime? LastActivityAt,
     DateTime? EstimatedFinish,
-    decimal? AvgGradingMinutesPerPaper
+    decimal? AvgGradingMinutesPerPaper,
+    int FlaggedCount = 0
 );
 
 /// <summary>Aggregate grading progress for one subject, broken down per lecturer.</summary>
@@ -213,7 +214,8 @@ public record SubjectProgressDto(
     decimal? ThroughputPerHour,
     DateTime? EstimatedFinish,
     IReadOnlyList<LecturerProgressDto> Lecturers,
-    decimal? AvgGradingMinutesPerPaper
+    decimal? AvgGradingMinutesPerPaper,
+    int FlaggedCount = 0
 );
 
 public record RecordHeartbeatRequest(int Seconds);

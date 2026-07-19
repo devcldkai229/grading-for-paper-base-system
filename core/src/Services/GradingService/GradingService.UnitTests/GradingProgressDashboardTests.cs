@@ -38,14 +38,15 @@ namespace GradingService.UnitTests
 
         private static GradingAssignment MakeAssignment(
             Guid teacherId, Guid subjectId, GradingProgressStatus status,
-            decimal? score = null, DateTime? submittedAt = null)
+            decimal? score = null, DateTime? submittedAt = null, bool isFlagged = false)
         {
             var assignment = new GradingAssignment
             {
                 StudentPaperId = Guid.NewGuid(),
                 SubjectId = subjectId,
                 TeacherId = teacherId,
-                Status = status
+                Status = status,
+                IsFlagged = isFlagged
             };
 
             if (score.HasValue || submittedAt.HasValue)
@@ -183,6 +184,29 @@ namespace GradingService.UnitTests
 
             var subject = Assert.Single(result.Subjects);
             Assert.Equal(wantedSubject, subject.SubjectId);
+        }
+
+        [Fact]
+        public async Task GetProgressDashboardAsync_CountsFlaggedPapersPerSubjectAndPerLecturer()
+        {
+            using var db = NewInMemoryContext();
+            var subjectId = Guid.NewGuid();
+            var teacherA = Guid.NewGuid();
+            var teacherB = Guid.NewGuid();
+            db.GradingAssignments.AddRange(
+                MakeAssignment(teacherA, subjectId, GradingProgressStatus.Submitted, score: 8m, isFlagged: true),
+                MakeAssignment(teacherA, subjectId, GradingProgressStatus.NotStarted, isFlagged: false),
+                MakeAssignment(teacherB, subjectId, GradingProgressStatus.Drafting, isFlagged: true));
+            await db.SaveChangesAsync();
+
+            var result = await NewService(db).GetProgressDashboardAsync(null, CancellationToken.None);
+
+            var subject = Assert.Single(result.Subjects);
+            Assert.Equal(2, subject.FlaggedCount);
+            var lecturerA = subject.Lecturers.Single(l => l.TeacherId == teacherA);
+            var lecturerB = subject.Lecturers.Single(l => l.TeacherId == teacherB);
+            Assert.Equal(1, lecturerA.FlaggedCount);
+            Assert.Equal(1, lecturerB.FlaggedCount);
         }
     }
 }

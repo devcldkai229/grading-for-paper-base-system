@@ -11,6 +11,7 @@ export interface LecturerProgress {
   lastActivityAt: string | null;
   estimatedFinish: string | null;
   avgGradingMinutesPerPaper: number | null;
+  flaggedCount: number;
 }
 
 export interface SubjectGradingProgress {
@@ -32,6 +33,7 @@ export interface SubjectGradingProgress {
   lecturers: LecturerProgress[];
   avgGradingMinutesPerPaper: number | null;
   gradingDeadline: string | null;
+  flaggedCount: number;
 }
 
 export interface GradingProgressDashboard {
