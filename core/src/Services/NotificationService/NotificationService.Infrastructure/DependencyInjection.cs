@@ -30,6 +30,9 @@ public static class DependencyInjection
         // Repositories + application services
         services.AddScoped<INotificationRepository, Repositories.NotificationRepository>();
         services.AddScoped<INotificationDispatchService, Application.Services.NotificationDispatchService>();
+        services.AddScoped<INotificationQueryService, Application.Services.NotificationQueryService>();
+
+        RegisterJwtAuthentication(services, configuration);
 
         // Redis (idempotency dedup for consumers)
         var redisConnString = configuration.GetSection("Redis")["ConnectionString"];
@@ -95,6 +98,37 @@ public static class DependencyInjection
         });
 
         return services;
+    }
+
+    private static void RegisterJwtAuthentication(IServiceCollection services, IConfiguration configuration)
+    {
+        var jwtSettings = configuration.GetSection("JwtSettings");
+        var secret = jwtSettings["Secret"];
+        if (string.IsNullOrEmpty(secret)) return;
+
+        var key = System.Text.Encoding.ASCII.GetBytes(secret);
+        services.AddAuthentication(options =>
+        {
+            options.DefaultAuthenticateScheme = Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme;
+            options.DefaultChallengeScheme = Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme;
+        })
+        .AddJwtBearer(options =>
+        {
+            options.SaveToken = true;
+            options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+            {
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(key),
+                ValidateIssuer = true,
+                ValidIssuer = jwtSettings["Issuer"],
+                ValidateAudience = true,
+                ValidAudience = jwtSettings["Audience"],
+                ValidateLifetime = true,
+                ClockSkew = TimeSpan.Zero
+            };
+        });
+
+        services.AddAuthorization();
     }
 
     public static async Task MigrateNotificationDatabaseAsync(this IServiceProvider serviceProvider)

@@ -15,6 +15,7 @@ import { authService } from "@/services/authService";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { GlobalSearchBar } from "@/components/layout/GlobalSearchBar";
+import { NotificationBell } from "@/components/layout/NotificationBell";
 
 const navItems = [
   { to: "/dashboard", label: "Tổng quan", icon: LayoutDashboard, end: true },
@@ -160,8 +161,11 @@ export function AppLayout() {
       </aside>
 
       <main className="flex-1 min-w-0 flex flex-col overflow-hidden bg-paper">
-        <header className="shrink-0 border-b border-line bg-card px-6 py-3">
+        <header className="shrink-0 border-b border-line bg-card px-6 py-3 flex items-center gap-3">
           <GlobalSearchBar />
+          <div className="ml-auto">
+            <NotificationBell />
+          </div>
         </header>
         <div className="flex-1 min-h-0 overflow-auto">
           <Outlet />
