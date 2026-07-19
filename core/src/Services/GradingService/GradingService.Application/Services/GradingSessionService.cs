@@ -706,22 +706,18 @@ public class GradingSessionService : IGradingSessionService
         var deadlineTasks = subjectsWithRemainingWork.Select(async s =>
         {
             var info = await _catalogClient.GetExamInfoAsync(s.SubjectId, ct);
-            return info?.ExamEndDate is null
-                ? null
-                : new UpcomingDeadlineDto(
-                    s.SubjectId,
-                    info.SubjectCode,
-                    info.ExamName,
-                    info.ExamEndDate.Value,
-                    s.Total,
-                    s.Submitted,
-                    s.Total - s.Submitted,
-                    s.NextAssignmentId);
+            return new UpcomingDeadlineDto(
+                s.SubjectId,
+                info?.SubjectCode ?? "Unknown",
+                info?.ExamName ?? "N/A",
+                info?.ExamEndDate ?? new DateOnly(9999, 12, 31),
+                s.Total,
+                s.Submitted,
+                s.Total - s.Submitted,
+                s.NextAssignmentId);
         });
 
         var upcomingDeadlines = (await Task.WhenAll(deadlineTasks))
-            .Where(d => d is not null)
-            .Select(d => d!)
             .OrderBy(d => d.ExamEndDate)
             .ToList();
 
