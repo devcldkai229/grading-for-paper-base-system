@@ -31,6 +31,18 @@ function formatAvgMinutes(value: number | null): string {
   return `${value.toFixed(1)} phút/bài`;
 }
 
+function formatDeadline(value: string | null): string {
+  if (!value) return "—";
+  return new Date(value).toLocaleDateString("vi-VN");
+}
+
+function isOverdue(value: string | null): boolean {
+  if (!value) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return new Date(value) < today;
+}
+
 export function AdminGradingProgressPage() {
   const [semesterId, setSemesterId] = useState("");
   const [examId, setExamId] = useState("");
@@ -197,6 +209,15 @@ export function AdminGradingProgressPage() {
                   <span>Tốc độ: {formatThroughput(s.throughputPerHour)}</span>
                   <span>TB thời gian/bài: {formatAvgMinutes(s.avgGradingMinutesPerPaper)}</span>
                   <span>Dự kiến xong: {formatDateTime(s.estimatedFinish)}</span>
+                  <span
+                    className={
+                      isOverdue(s.gradingDeadline) && s.completionPercent < 100
+                        ? "text-brand-red font-medium"
+                        : undefined
+                    }
+                  >
+                    Hạn chấm: {formatDeadline(s.gradingDeadline)}
+                  </span>
                   {s.scoreAvg !== null && (
                     <span>
                       Điểm TB: <strong className="text-ink">{s.scoreAvg}</strong> (min {s.scoreMin}, max{" "}

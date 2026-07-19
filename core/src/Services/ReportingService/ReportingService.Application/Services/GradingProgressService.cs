@@ -60,7 +60,8 @@ public class GradingProgressService : IGradingProgressService
                     p?.ThroughputPerHour,
                     p?.EstimatedFinish,
                     p?.Lecturers ?? Array.Empty<LecturerProgressClientDto>(),
-                    p?.AvgGradingMinutesPerPaper);
+                    p?.AvgGradingMinutesPerPaper,
+                    s.GradingDeadline);
             })
             .OrderBy(s => s.CompletionPercent)
             .ToList();

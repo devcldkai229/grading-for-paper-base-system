@@ -24,7 +24,7 @@ public class NotificationDispatchService : INotificationDispatchService
     public Task HandleDeadlineReminderAsync(DeadlineReminderEvent evt, CancellationToken ct = default) =>
         DispatchAsync(
             evt.TeacherId, NotificationType.DeadlineReminder, "Sắp đến hạn chấm bài",
-            () => $"Môn {evt.SubjectCode} còn {evt.RemainingCount} bài chưa chấm, hạn chót {evt.ExamEndDate:yyyy-MM-dd}.",
+            () => $"Môn {evt.SubjectCode} còn {evt.RemainingCount} bài chưa chấm, hạn chót {evt.Deadline:yyyy-MM-dd}.",
             evt, ct);
 
     public Task HandleExportReadyAsync(ExportReadyEvent evt, CancellationToken ct = default) =>

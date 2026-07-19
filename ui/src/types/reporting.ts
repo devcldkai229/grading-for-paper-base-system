@@ -31,6 +31,7 @@ export interface SubjectGradingProgress {
   estimatedFinish: string | null;
   lecturers: LecturerProgress[];
   avgGradingMinutesPerPaper: number | null;
+  gradingDeadline: string | null;
 }
 
 export interface GradingProgressDashboard {

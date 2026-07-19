@@ -4,6 +4,7 @@ using ExamCatalogService.Domain.Enums;
 using ExamCatalogService.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ExamCatalogService.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(ExamCatalogDbContext))]
-    partial class ExamCatalogDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260719142754_AddGradingDeadlineToSubjects")]
+    partial class AddGradingDeadlineToSubjects
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

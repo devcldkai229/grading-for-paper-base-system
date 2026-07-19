@@ -122,6 +122,7 @@ export interface SubjectDetail {
   rubricVersion: number;
   questions: Question[];
   createdAt: string;
+  gradingDeadline: string | null;
 }
 
 export interface FileUrlResponse {

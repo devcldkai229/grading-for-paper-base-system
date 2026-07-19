@@ -632,13 +632,14 @@ public class GradingSessionService : IGradingSessionService
         var deadlineTasks = subjectsWithRemainingWork.Select(async s =>
         {
             var info = await _catalogClient.GetExamInfoAsync(s.SubjectId, ct);
-            return info?.ExamEndDate is null
+            var effectiveDeadline = info?.GradingDeadline ?? info?.ExamEndDate;
+            return effectiveDeadline is null
                 ? null
                 : new UpcomingDeadlineDto(
                     s.SubjectId,
-                    info.SubjectCode,
+                    info!.SubjectCode,
                     info.ExamName,
-                    info.ExamEndDate.Value,
+                    effectiveDeadline.Value,
                     s.Total,
                     s.Submitted,
                     s.Total - s.Submitted,
@@ -648,7 +649,7 @@ public class GradingSessionService : IGradingSessionService
         var upcomingDeadlines = (await Task.WhenAll(deadlineTasks))
             .Where(d => d is not null)
             .Select(d => d!)
-            .OrderBy(d => d.ExamEndDate)
+            .OrderBy(d => d.Deadline)
             .ToList();
 
         var nextAssignmentId = upcomingDeadlines.FirstOrDefault()?.NextAssignmentId
@@ -973,27 +974,28 @@ public class GradingSessionService : IGradingSessionService
         if (pendingGroups.Count == 0) return 0;
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var deadline = today.AddDays(reminderWindowDays);
+        var cutoff = today.AddDays(reminderWindowDays);
 
         var subjectIds = pendingGroups.Select(g => g.SubjectId).Distinct().ToList();
         var examInfoResults = await Task.WhenAll(subjectIds.Select(async id =>
             new { SubjectId = id, Info = await _catalogClient.GetExamInfoAsync(id, ct) }));
-        var examInfoBySubject = examInfoResults
-            .Where(x => x.Info?.ExamEndDate is not null)
-            .ToDictionary(x => x.SubjectId, x => x.Info!);
+        var deadlineBySubject = examInfoResults
+            .Select(x => new { x.SubjectId, x.Info, Effective = x.Info?.GradingDeadline ?? x.Info?.ExamEndDate })
+            .Where(x => x.Effective is not null)
+            .ToDictionary(x => x.SubjectId, x => (Info: x.Info!, Deadline: x.Effective!.Value));
 
         var publishedCount = 0;
         foreach (var group in pendingGroups)
         {
-            if (!examInfoBySubject.TryGetValue(group.SubjectId, out var info)) continue;
-            if (info.ExamEndDate!.Value > deadline) continue;
+            if (!deadlineBySubject.TryGetValue(group.SubjectId, out var entry)) continue;
+            if (entry.Deadline > cutoff) continue;
 
             var remaining = group.Total - group.Submitted;
             var messageId = DeterministicDailyMessageId(group.SubjectId, group.TeacherId, today);
 
             await _messagePublisher.PublishAsync(new DeadlineReminderEvent(
-                messageId, group.TeacherId, group.SubjectId, info.SubjectCode,
-                info.ExamEndDate.Value, remaining, DateTime.UtcNow), ct);
+                messageId, group.TeacherId, group.SubjectId, entry.Info.SubjectCode,
+                entry.Deadline, remaining, DateTime.UtcNow), ct);
 
             publishedCount++;
         }

@@ -132,7 +132,8 @@ public record SubjectExamInfoClientDto(
     string SubjectCode,
     Guid ExamId,
     string ExamName,
-    DateOnly? ExamEndDate
+    DateOnly? ExamEndDate,
+    DateOnly? GradingDeadline = null
 );
 
 public record MyProgressDto(
@@ -147,7 +148,7 @@ public record UpcomingDeadlineDto(
     Guid SubjectId,
     string SubjectCode,
     string ExamName,
-    DateOnly ExamEndDate,
+    DateOnly Deadline,
     int TotalCount,
     int SubmittedCount,
     int RemainingCount,

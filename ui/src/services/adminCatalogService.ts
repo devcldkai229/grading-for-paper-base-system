@@ -87,6 +87,7 @@ export const adminCatalogService = {
       maxScore: number;
       status?: string;
       passScore?: number | null;
+      gradingDeadline?: string | null;
     }
   ): Promise<SubjectDetail> {
     const res = await api.put<ApiResponse<SubjectDetail>>(`/subjects/${id}`, payload);

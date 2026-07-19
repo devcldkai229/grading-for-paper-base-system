@@ -66,7 +66,8 @@ public record SubjectFilterResultClientDto(
     Guid SemesterId,
     string SemesterCode,
     decimal MaxScore,
-    decimal? PassScore = null
+    decimal? PassScore = null,
+    DateOnly? GradingDeadline = null
 );
 
 /// <summary>One subject's grading progress dashboard row — subject metadata merged with progress numbers.</summary>
@@ -87,7 +88,8 @@ public record GradingProgressSubjectDto(
     decimal? ThroughputPerHour,
     DateTime? EstimatedFinish,
     IReadOnlyList<LecturerProgressClientDto> Lecturers,
-    decimal? AvgGradingMinutesPerPaper
+    decimal? AvgGradingMinutesPerPaper,
+    DateOnly? GradingDeadline = null
 );
 
 public record GradingProgressDashboardResultDto(

@@ -16,6 +16,9 @@ public class Subject : Entity
     /// <summary>Minimum score (inclusive) to pass this subject. Null = not configured yet — pass/fail reporting excludes the subject until an admin sets it.</summary>
     public decimal? PassScore { get; set; }
 
+    /// <summary>Admin-set marking/grading deadline for this subject. Null = not configured yet — reminders fall back to the exam's end date.</summary>
+    public DateOnly? GradingDeadline { get; set; }
+
     public string? ExamPaperS3Key { get; set; }
 
     public string? ExamPaperFileName { get; set; }

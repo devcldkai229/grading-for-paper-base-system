@@ -56,13 +56,13 @@ namespace GradingService.UnitTests
         }
 
         private static IExamCatalogServiceClient StubExamInfo(
-            Guid subjectId, DateOnly? examEndDate, string subjectCode = "PRN232")
+            Guid subjectId, DateOnly? examEndDate, string subjectCode = "PRN232", DateOnly? gradingDeadline = null)
         {
             var client = Substitute.For<IExamCatalogServiceClient>();
             client.GetExamInfoAsync(subjectId, Arg.Any<CancellationToken>())
-                .Returns(examEndDate is null
+                .Returns(examEndDate is null && gradingDeadline is null
                     ? null
-                    : new SubjectExamInfoClientDto(subjectId, subjectCode, Guid.NewGuid(), "Final Exam", examEndDate));
+                    : new SubjectExamInfoClientDto(subjectId, subjectCode, Guid.NewGuid(), "Final Exam", examEndDate, gradingDeadline));
             return client;
         }
 
@@ -254,7 +254,7 @@ namespace GradingService.UnitTests
             await publisher.Received(1).PublishAsync(
                 Arg.Is<DeadlineReminderEvent>(e =>
                     e.TeacherId == teacherId && e.SubjectId == subjectId &&
-                    e.RemainingCount == 1 && e.ExamEndDate == examEndDate),
+                    e.RemainingCount == 1 && e.Deadline == examEndDate),
                 Arg.Any<CancellationToken>());
         }
 
@@ -301,6 +301,46 @@ namespace GradingService.UnitTests
             var subjectId = Guid.NewGuid();
             var teacherId = Guid.NewGuid();
             var catalogClient = StubExamInfo(subjectId, examEndDate: null);
+            var service = NewService(db, publisher, catalogClient: catalogClient);
+            SeedAssignment(db, teacherId, subjectId, GradingProgressStatus.NotStarted);
+
+            var published = await service.RunDeadlineReminderSweepAsync(reminderWindowDays: 3, ct: CancellationToken.None);
+
+            Assert.Equal(0, published);
+            await publisher.DidNotReceive().PublishAsync(Arg.Any<DeadlineReminderEvent>(), Arg.Any<CancellationToken>());
+        }
+
+        [Fact]
+        public async Task RunDeadlineReminderSweepAsync_WhenGradingDeadlineSet_UsesItInsteadOfExamEndDate()
+        {
+            using var db = NewInMemoryContext();
+            var publisher = Substitute.For<IMessagePublisher>();
+            var subjectId = Guid.NewGuid();
+            var teacherId = Guid.NewGuid();
+            var farFutureExamEndDate = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30);
+            var nearGradingDeadline = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(2);
+            var catalogClient = StubExamInfo(subjectId, farFutureExamEndDate, gradingDeadline: nearGradingDeadline);
+            var service = NewService(db, publisher, catalogClient: catalogClient);
+            SeedAssignment(db, teacherId, subjectId, GradingProgressStatus.NotStarted);
+
+            var published = await service.RunDeadlineReminderSweepAsync(reminderWindowDays: 3, ct: CancellationToken.None);
+
+            Assert.Equal(1, published);
+            await publisher.Received(1).PublishAsync(
+                Arg.Is<DeadlineReminderEvent>(e => e.Deadline == nearGradingDeadline),
+                Arg.Any<CancellationToken>());
+        }
+
+        [Fact]
+        public async Task RunDeadlineReminderSweepAsync_WhenGradingDeadlineFarButExamEndDateNear_DoesNotUseExamEndDate()
+        {
+            using var db = NewInMemoryContext();
+            var publisher = Substitute.For<IMessagePublisher>();
+            var subjectId = Guid.NewGuid();
+            var teacherId = Guid.NewGuid();
+            var nearExamEndDate = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(2);
+            var farGradingDeadline = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30);
+            var catalogClient = StubExamInfo(subjectId, nearExamEndDate, gradingDeadline: farGradingDeadline);
             var service = NewService(db, publisher, catalogClient: catalogClient);
             SeedAssignment(db, teacherId, subjectId, GradingProgressStatus.NotStarted);
 

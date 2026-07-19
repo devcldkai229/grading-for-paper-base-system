@@ -62,6 +62,9 @@ export function AdminSubjectDetailPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
+  const [deadlineInput, setDeadlineInput] = useState("");
+  const [savingDeadline, setSavingDeadline] = useState(false);
+
   const paperInputRef = useRef<HTMLInputElement>(null);
   const rubricInputRef = useRef<HTMLInputElement>(null);
 
@@ -71,6 +74,7 @@ export function AdminSubjectDetailPage() {
     try {
       const detail = await catalogService.getSubjectDetail(subjectId);
       setSubject(detail);
+      setDeadlineInput(detail.gradingDeadline ?? "");
       const examData = await catalogService.getExam(detail.examId);
       setExam(examData);
       const semesterData = await catalogService.getSemester(examData.semesterId);
@@ -294,6 +298,34 @@ export function AdminSubjectDetailPage() {
     }
   };
 
+  const handleSaveDeadline = async () => {
+    if (!subjectId || !subject) return;
+
+    setSavingDeadline(true);
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      await adminCatalogService.updateSubject(subjectId, {
+        subjectCode: subject.subjectCode,
+        title: subject.title ?? undefined,
+        maxScore: subject.maxScore,
+        passScore: subject.passScore,
+        status: subject.status,
+        gradingDeadline: deadlineInput || null,
+      });
+      setActionSuccess("Đã lưu hạn chấm.");
+      await loadSubject();
+    } catch (err) {
+      setActionError(
+        isAxiosError(err)
+          ? err.response?.data?.message ?? "Lưu hạn chấm thất bại."
+          : "Lưu hạn chấm thất bại."
+      );
+    } finally {
+      setSavingDeadline(false);
+    }
+  };
+
   const handleAdvanceStatus = async () => {
     if (!subjectId || !subject) return;
     const nextStatus = NEXT_STATUS[subject.status];
@@ -393,6 +425,26 @@ export function AdminSubjectDetailPage() {
                 <strong className="text-ink">{STATUS_LABELS[subject.status] ?? subject.status}</strong>
               </span>
               {subject.hasRubric && <span>Barem v{subject.rubricVersion}</span>}
+            </div>
+            <div className="flex items-center gap-2 mt-3">
+              <label className="text-sm text-ink-soft" htmlFor="grading-deadline-input">
+                Hạn chấm:
+              </label>
+              <input
+                id="grading-deadline-input"
+                type="date"
+                value={deadlineInput}
+                onChange={(e) => setDeadlineInput(e.target.value)}
+                className="px-2 py-1 bg-card border border-line rounded text-sm text-ink outline-none focus:border-primary"
+              />
+              <button
+                type="button"
+                onClick={() => void handleSaveDeadline()}
+                disabled={savingDeadline || deadlineInput === (subject.gradingDeadline ?? "")}
+                className="px-3 py-1 border border-brand-red/40 text-brand-red hover:bg-brand-red/5 disabled:opacity-50 rounded-lg text-sm font-medium"
+              >
+                {savingDeadline ? "Đang lưu..." : "Lưu hạn chấm"}
+              </button>
             </div>
           </div>
           {NEXT_STATUS[subject.status] && (

@@ -88,7 +88,7 @@ export interface UpcomingDeadline {
   subjectId: string;
   subjectCode: string;
   examName: string;
-  examEndDate: string;
+  deadline: string;
   totalCount: number;
   submittedCount: number;
   remainingCount: number;

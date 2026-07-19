@@ -13,8 +13,9 @@ namespace ReportingService.UnitTests
 {
     public class GradingProgressServiceTests
     {
-        private static SubjectFilterResultClientDto MakeSubject(Guid id, string code = "PRN232") =>
-            new(id, code, "Title", Guid.NewGuid(), "FE Exam", Guid.NewGuid(), "SP26", 10m);
+        private static SubjectFilterResultClientDto MakeSubject(
+            Guid id, string code = "PRN232", DateOnly? gradingDeadline = null) =>
+            new(id, code, "Title", Guid.NewGuid(), "FE Exam", Guid.NewGuid(), "SP26", 10m, GradingDeadline: gradingDeadline);
 
         private static SubjectProgressClientDto MakeProgress(Guid subjectId, int total, int completed) =>
             new(subjectId, total, completed, 0, total - completed,
@@ -122,6 +123,25 @@ namespace ReportingService.UnitTests
             Assert.Equal(0, subject.TotalPapers);
             Assert.Equal(0m, subject.CompletionPercent);
             Assert.Empty(subject.Lecturers);
+        }
+
+        [Fact]
+        public async Task GetDashboardAsync_PassesThroughGradingDeadlineFromSubjectMetadata()
+        {
+            var subjectId = Guid.NewGuid();
+            var deadline = new DateOnly(2026, 7, 27);
+            var catalogClient = Substitute.For<IExamCatalogServiceClient>();
+            catalogClient.SearchSubjectsAsync(null, null, Arg.Any<CancellationToken>())
+                .Returns(new List<SubjectFilterResultClientDto> { MakeSubject(subjectId, gradingDeadline: deadline) });
+            var gradingClient = Substitute.For<IGradingServiceClient>();
+            gradingClient.GetProgressDashboardAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+                .Returns(new GradingProgressDashboardClientDto(new List<SubjectProgressClientDto>()));
+            var service = new GradingProgressService(catalogClient, gradingClient);
+
+            var (result, error) = await service.GetDashboardAsync(null, null, CancellationToken.None);
+
+            Assert.Null(error);
+            Assert.Equal(deadline, Assert.Single(result!.Subjects).GradingDeadline);
         }
     }
 }

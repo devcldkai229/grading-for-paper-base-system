@@ -35,7 +35,7 @@ function DeadlineRow({
   deadline: UpcomingDeadline;
   onJump: (assignmentId: string) => void;
 }) {
-  const days = daysUntil(deadline.examEndDate);
+  const days = daysUntil(deadline.deadline);
   return (
     <div
       className={cn(
