@@ -638,7 +638,11 @@ public class GradingSessionService : IGradingSessionService
         rows.Add(row2);
 
         // Student Data Rows
-        foreach (var a in assignments)
+        var sortedAssignments = assignments
+            .OrderBy(a => paperMap.TryGetValue(a.StudentPaperId, out var paper) ? (paper.AliasNumber ?? int.MaxValue) : int.MaxValue)
+            .ToList();
+
+        foreach (var a in sortedAssignments)
         {
             paperMap.TryGetValue(a.StudentPaperId, out var paper);
             teacherMarkerCodes.TryGetValue(a.TeacherId, out var markerCode);
