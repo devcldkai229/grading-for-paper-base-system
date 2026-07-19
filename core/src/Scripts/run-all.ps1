@@ -110,6 +110,7 @@ function Start-ServiceProcess {
         "run"
         "--project", $ProjectPath
         "--launch-profile", "http"
+        "--no-build"
     )
 
     if ($NoNewWindow) {
@@ -118,7 +119,7 @@ function Start-ServiceProcess {
         $logFile = Join-Path $PidDir "$Name.log"
         $errFile = Join-Path $PidDir "$Name.err.log"
         Start-Process -FilePath "dotnet" -ArgumentList @(
-            "run", "--project", $ProjectPath, "--launch-profile", "http"
+            "run", "--project", $ProjectPath, "--launch-profile", "http", "--no-build"
         ) -WorkingDirectory $SrcRoot -WindowStyle Hidden -RedirectStandardOutput $logFile -RedirectStandardError $errFile
         return
     }
@@ -158,10 +159,11 @@ function Start-AiGradingProcess {
 
     if ($NoNewWindow) {
         Write-Host "[AIGradingService] Starting on port $port (background, log: $logFile)..."
+        $errFile = Join-Path $PidDir "AIGradingService.err.log"
         $proc = Start-Process -FilePath $uvicorn -ArgumentList @(
             "app.main:app", "--host", "0.0.0.0", "--port", "$port", "--reload"
         ) -WorkingDirectory $AiRoot -WindowStyle Hidden -PassThru `
-            -RedirectStandardOutput $logFile -RedirectStandardError $logFile
+            -RedirectStandardOutput $logFile -RedirectStandardError $errFile
         $proc.Id | Out-File -FilePath (Join-Path $PidDir "AIGradingService.pid") -Encoding ascii
         return
     }
