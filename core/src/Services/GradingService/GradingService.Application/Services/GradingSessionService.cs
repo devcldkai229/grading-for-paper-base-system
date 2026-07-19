@@ -140,7 +140,8 @@ public class GradingSessionService : IGradingSessionService
             assignment.GradingForm.InternalComment,
             paper?.StudentAlias,
             paper?.AliasNumber,
-            questions);
+            questions,
+            assignment.IsFlagged);
     }
 
     public async Task<(SaveMarksResultDto? Result, bool Conflict, string? Error)> SaveMarksAsync(
@@ -229,6 +230,72 @@ public class GradingSessionService : IGradingSessionService
         }
 
         return true;
+    }
+
+    public async Task<bool> SetFlagAsync(
+        Guid assignmentId, Guid teacherId, bool isFlagged, CancellationToken ct = default)
+    {
+        var assignment = await _assignments.GetWithFormAsync(assignmentId, teacherId, asNoTracking: false, ct);
+        if (assignment is null) return false;
+
+        assignment.IsFlagged = isFlagged;
+        await _uow.SaveChangesAsync(ct);
+        return true;
+    }
+
+    public async Task<GradingQueuePageDto> GetGradingQueueAsync(
+        Guid teacherId, GradingProgressStatus? status, bool? flaggedOnly, string? aliasSearch,
+        int page, int pageSize, CancellationToken ct = default)
+    {
+        var rows = await _assignments.ListQueueRowsAsync(teacherId, status, flaggedOnly, ct);
+        if (rows.Count == 0)
+        {
+            return new GradingQueuePageDto(Array.Empty<GradingQueueRowDto>(), page, pageSize, 0, 0);
+        }
+
+        var paperIds = rows.Select(r => r.StudentPaperId).Distinct().ToList();
+        var papers = await _submissionClient.GetPaperSummariesAsync(paperIds, ct);
+        var paperById = (papers ?? Array.Empty<InternalPaperSummaryClientDto>())
+            .ToDictionary(p => p.Id);
+
+        var joined = rows.Select(r =>
+        {
+            paperById.TryGetValue(r.StudentPaperId, out var paper);
+            return (Row: r, StudentAlias: paper?.StudentAlias, AliasNumber: paper?.AliasNumber);
+        });
+
+        if (!string.IsNullOrWhiteSpace(aliasSearch))
+        {
+            var keyword = aliasSearch.Trim();
+            var isNumeric = int.TryParse(keyword, out var aliasNumberMatch);
+            joined = joined.Where(j =>
+                (j.StudentAlias?.Contains(keyword, StringComparison.OrdinalIgnoreCase) ?? false)
+                || (isNumeric && j.AliasNumber == aliasNumberMatch));
+        }
+
+        var ordered = joined
+            .OrderBy(j => j.AliasNumber ?? int.MaxValue)
+            .ThenBy(j => j.Row.CreatedAt)
+            .ToList();
+
+        var totalCount = ordered.Count;
+        var totalPages = totalCount == 0 ? 0 : (int)Math.Ceiling(totalCount / (double)pageSize);
+
+        var items = ordered
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(j => new GradingQueueRowDto(
+                j.Row.AssignmentId,
+                j.StudentAlias,
+                j.AliasNumber,
+                j.Row.SubjectId,
+                ToStatusLabel(j.Row.Status),
+                j.Row.IsFlagged,
+                j.Row.TotalScore,
+                j.Row.SubmittedAt))
+            .ToList();
+
+        return new GradingQueuePageDto(items, page, pageSize, totalCount, totalPages);
     }
 
     public async Task<(OverrideMarksResultDto? Result, bool NotFound, string? Error)> OverrideMarksAsync(

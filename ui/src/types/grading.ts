@@ -37,6 +37,7 @@ export interface GradingSession {
   studentAlias: string | null;
   aliasNumber: number | null;
   questions: GradingQuestionMark[];
+  isFlagged: boolean;
 }
 
 export interface SaveMarksPayload {
@@ -124,4 +125,23 @@ export interface ReassignMarkerAssignmentPayload {
   teacherId: string;
   aliasStart: number;
   aliasEnd: number;
+}
+
+export interface GradingQueueRow {
+  assignmentId: string;
+  studentAlias: string | null;
+  aliasNumber: number | null;
+  subjectId: string;
+  status: string;
+  isFlagged: boolean;
+  totalScore: number | null;
+  submittedAt: string | null;
+}
+
+export interface GradingQueuePage {
+  items: GradingQueueRow[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
 }

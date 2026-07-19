@@ -17,5 +17,8 @@ public class GradingAssignment : Entity
 
     public AiSyncStatus AiStatus { get; set; } = AiSyncStatus.NotRequested;
 
+    /// <summary>Independent needs-review marker set by the grading lecturer — does not replace or interact with Status.</summary>
+    public bool IsFlagged { get; set; }
+
     public GradingForm? GradingForm { get; set; }
 }

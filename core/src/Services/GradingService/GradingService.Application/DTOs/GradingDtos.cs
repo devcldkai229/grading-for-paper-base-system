@@ -38,7 +38,8 @@ public record GradingSessionDto(
     string? InternalComment,
     string? StudentAlias,
     int? AliasNumber,
-    IReadOnlyList<QuestionMarkDto> Questions
+    IReadOnlyList<QuestionMarkDto> Questions,
+    bool IsFlagged = false
 );
 
 public record SaveMarksRequest(
@@ -57,6 +58,27 @@ public record QuestionMarkInput(
 public record SaveMarksResultDto(int RowVersion);
 
 public record SubmitResultDto(Guid? NextAssignmentId);
+
+public record GradingQueueRowDto(
+    Guid AssignmentId,
+    string? StudentAlias,
+    int? AliasNumber,
+    Guid SubjectId,
+    string Status,
+    bool IsFlagged,
+    decimal? TotalScore,
+    DateTime? SubmittedAt
+);
+
+public record GradingQueuePageDto(
+    IReadOnlyList<GradingQueueRowDto> Items,
+    int Page,
+    int PageSize,
+    int TotalCount,
+    int TotalPages
+);
+
+public record SetFlagRequest(bool IsFlagged);
 
 public record OverrideMarksRequest(
     IReadOnlyList<QuestionMarkInput> Questions,

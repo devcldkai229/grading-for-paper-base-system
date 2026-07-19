@@ -5,6 +5,7 @@ import {
   ClipboardList,
   GraduationCap,
   LayoutDashboard,
+  ListTodo,
   LogOut,
   Search,
   Upload,
@@ -20,6 +21,7 @@ const navItems = [
   { to: "/catalog/semesters", label: "Danh mục thi", icon: BookOpen },
   { to: "/catalog/subjects/search", label: "Tìm môn thi", icon: Search },
   { to: "/submissions", label: "Bài đã nộp", icon: ClipboardList },
+  { to: "/grading/queue", label: "Hàng chờ chấm bài", icon: ListTodo },
   { to: "/batches/upload", label: "Upload bài", icon: Upload },
 ];
 

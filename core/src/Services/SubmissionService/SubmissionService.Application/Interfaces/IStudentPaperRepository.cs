@@ -28,6 +28,11 @@ public interface IStudentPaperRepository
 
     Task<InternalPaperSummaryDto?> GetPaperSummaryAsync(Guid paperId, CancellationToken ct = default);
 
+    /// <summary>Bulk-resolves summaries (alias, batch, subject) for an arbitrary set of paper ids
+    /// in one round trip. Consumed by GradingService to attach aliases to a lecturer's grading queue.</summary>
+    Task<IReadOnlyList<InternalPaperSummaryDto>> GetPapersByIdsAsync(
+        IReadOnlyCollection<Guid> paperIds, CancellationToken ct = default);
+
     Task<(Guid PaperId, string StudentAlias)> CreateSinglePaperWithFilesAsync(
         Guid batchId, Guid subjectId, Guid uploadedBy, int aliasNumber,
         IReadOnlyList<(string FileName, string ContentType, long SizeBytes, string S3Key)> files,

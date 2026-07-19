@@ -151,6 +151,22 @@ public class StudentPaperRepository : IStudentPaperRepository
             paper.StudentAlias, paper.AliasNumber, paper.UploadedBy);
     }
 
+    public async Task<IReadOnlyList<InternalPaperSummaryDto>> GetPapersByIdsAsync(
+        IReadOnlyCollection<Guid> paperIds, CancellationToken ct = default)
+    {
+        if (paperIds.Count == 0) return Array.Empty<InternalPaperSummaryDto>();
+
+        var papers = await PapersCollection
+            .Find(Builders<StudentPaper>.Filter.In(p => p.Id, paperIds))
+            .ToListAsync(ct);
+
+        return papers
+            .Select(paper => new InternalPaperSummaryDto(
+                paper.Id, paper.BatchId, paper.SubjectId,
+                paper.StudentAlias, paper.AliasNumber, paper.UploadedBy))
+            .ToList();
+    }
+
     public async Task<(Guid PaperId, string StudentAlias)> CreateSinglePaperWithFilesAsync(
         Guid batchId, Guid subjectId, Guid uploadedBy, int aliasNumber,
         IReadOnlyList<(string FileName, string ContentType, long SizeBytes, string S3Key)> files,
