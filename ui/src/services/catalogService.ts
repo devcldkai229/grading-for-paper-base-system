@@ -17,6 +17,7 @@ export interface SubjectSearchParams {
   status?: string;
   page?: number;
   pageSize?: number;
+  all?: boolean;
 }
 
 export const catalogService = {
@@ -71,12 +72,13 @@ export const catalogService = {
   async searchSubjects(
     params: SubjectSearchParams
   ): Promise<PagedResult<SubjectSearchResult>> {
-    const { page = 1, pageSize = 10, code, semesterId, examId, status } = params;
-    const query: Record<string, string | number> = { page, pageSize };
+    const { page = 1, pageSize = 10, code, semesterId, examId, status, all } = params;
+    const query: Record<string, string | number | boolean> = { page, pageSize };
     if (code) query.code = code;
     if (semesterId) query.semesterId = semesterId;
     if (examId) query.examId = examId;
     if (status) query.status = status;
+    if (all !== undefined) query.all = all;
     const res = await api.get<ApiResponse<PagedResult<SubjectSearchResult>>>(
       "/subjects",
       { params: query }

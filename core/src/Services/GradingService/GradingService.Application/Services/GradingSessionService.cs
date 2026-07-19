@@ -88,10 +88,15 @@ public class GradingSessionService : IGradingSessionService
 
     public async Task<GradingSessionDto?> GetSessionAsync(Guid assignmentId, Guid teacherId, CancellationToken ct = default)
     {
-        var assignment = await _assignments.GetWithFormAndDetailsAsync(assignmentId, teacherId, asNoTracking: true, ct);
+        var assignment = await _assignments.GetWithFormAndDetailsAsync(assignmentId, teacherId, asNoTracking: false, ct);
         if (assignment?.GradingForm is null) return null;
 
-        var dto = await BuildSessionDtoAsync(assignment, ct);
+        var grid = await _catalogClient.GetGradingGridAsync(assignment.SubjectId, ct);
+        if (grid is null) return null;
+
+        await SeedMissingQuestionsAsync(assignment, grid, ct);
+
+        var dto = await BuildSessionDtoAsync(assignment, grid, ct);
         if (dto is null) return null;
 
         await UpsertResumePointerAsync(teacherId, dto.BatchId, assignmentId, ct);
@@ -100,17 +105,20 @@ public class GradingSessionService : IGradingSessionService
 
     public async Task<GradingSessionDto?> GetAssignmentForOverrideAsync(Guid assignmentId, CancellationToken ct = default)
     {
-        var assignment = await _assignments.GetWithFormAndDetailsAsync(assignmentId, null, asNoTracking: true, ct);
+        var assignment = await _assignments.GetWithFormAndDetailsAsync(assignmentId, null, asNoTracking: false, ct);
         if (assignment?.GradingForm is null) return null;
 
-        return await BuildSessionDtoAsync(assignment, ct);
-    }
-
-    private async Task<GradingSessionDto?> BuildSessionDtoAsync(GradingAssignment assignment, CancellationToken ct)
-    {
         var grid = await _catalogClient.GetGradingGridAsync(assignment.SubjectId, ct);
         if (grid is null) return null;
 
+        await SeedMissingQuestionsAsync(assignment, grid, ct);
+
+        return await BuildSessionDtoAsync(assignment, grid, ct);
+    }
+
+    private async Task<GradingSessionDto?> BuildSessionDtoAsync(
+        GradingAssignment assignment, SubjectGradingGridClientDto grid, CancellationToken ct)
+    {
         var paper = await _submissionClient.GetPaperSummaryAsync(assignment.StudentPaperId, ct);
         if (paper is null) return null;
 
@@ -154,6 +162,7 @@ public class GradingSessionService : IGradingSessionService
         if (form.RowVersion != request.RowVersion) return (null, true, null);
 
         // Validation: Scores validated 0..max per leaf
+        var hasChanges = false;
         foreach (var input in request.Questions)
         {
             var detail = form.QuestionGradeDetails
@@ -164,6 +173,21 @@ public class GradingSessionService : IGradingSessionService
             {
                 return (null, false, $"Score for question {input.QuestionNumber} must be between 0 and {detail.MaxScore}.");
             }
+
+            if (detail.Score != input.Score || detail.QuestionComment != input.QuestionComment)
+            {
+                hasChanges = true;
+            }
+        }
+
+        if (form.PaperComment != request.PaperComment || form.InternalComment != request.InternalComment)
+        {
+            hasChanges = true;
+        }
+
+        if (!hasChanges)
+        {
+            return (new SaveMarksResultDto(form.RowVersion), false, null);
         }
 
         var oldSnapshot = SerializeForm(form);

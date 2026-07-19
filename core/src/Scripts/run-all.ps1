@@ -116,9 +116,10 @@ function Start-ServiceProcess {
         Write-Host "[$Name] Starting on port $Port (background process)..."
         New-Item -ItemType Directory -Force -Path $PidDir | Out-Null
         $logFile = Join-Path $PidDir "$Name.log"
+        $errFile = Join-Path $PidDir "$Name.err.log"
         Start-Process -FilePath "dotnet" -ArgumentList @(
             "run", "--project", $ProjectPath, "--launch-profile", "http"
-        ) -WorkingDirectory $SrcRoot -WindowStyle Hidden -RedirectStandardOutput $logFile -RedirectStandardError $logFile
+        ) -WorkingDirectory $SrcRoot -WindowStyle Hidden -RedirectStandardOutput $logFile -RedirectStandardError $errFile
         return
     }
 

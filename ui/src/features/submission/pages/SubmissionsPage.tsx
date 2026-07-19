@@ -3,9 +3,11 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { isAxiosError } from "axios";
 import { submissionService } from "@/services/submissionService";
 import { gradingService } from "@/services/gradingService";
+import { catalogService } from "@/services/catalogService";
 import { startGradingFlow } from "@/lib/startGradingFlow";
 import { loadGradingQueue } from "@/lib/gradingQueue";
 import type { StudentPaper } from "@/types/submission";
+import type { SubjectSearchResult } from "@/types/catalog";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { LecturerPageShell } from "@/components/layout/LecturerPageShell";
 import { ListPagination } from "@/components/catalog/ListPagination";
@@ -31,7 +33,19 @@ export function SubmissionsPage() {
   const [searchParams] = useSearchParams();
   const subjectId = searchParams.get("subjectId") || "";
   const [papers, setPapers] = useState<StudentPaper[]>([]);
+  const [subjects, setSubjects] = useState<SubjectSearchResult[]>([]);
+  const [loadingSubjects, setLoadingSubjects] = useState(true);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    catalogService
+      .searchSubjects({ pageSize: 100, all: true })
+      .then((res) => {
+        setSubjects(res.items);
+      })
+      .catch(console.error)
+      .finally(() => setLoadingSubjects(false));
+  }, []);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
@@ -149,9 +163,39 @@ export function SubmissionsPage() {
         subtitle={
           subjectId
             ? `Môn thi: ${subjectId}`
-            : "Chọn môn từ Danh mục thi hoặc thêm ?subjectId= vào URL"
+            : "Chọn môn thi từ danh sách bên dưới để xem bài làm"
         }
       />
+
+      <div className="mb-6 max-w-md">
+        <label htmlFor="subject-selector" className="text-xs text-ink-soft mb-1.5 block font-medium uppercase tracking-wide">
+          Chọn môn thi
+        </label>
+        {loadingSubjects ? (
+          <div className="h-9 w-full bg-secondary animate-pulse rounded-lg border border-line" />
+        ) : (
+          <select
+            id="subject-selector"
+            value={subjectId}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val) {
+                navigate(`/submissions?subjectId=${val}`);
+              } else {
+                navigate("/submissions");
+              }
+            }}
+            className="w-full px-3 py-2 bg-card border border-line rounded-lg text-sm text-ink focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none cursor-pointer"
+          >
+            <option value="">-- Chọn môn thi --</option>
+            {subjects.map((sub) => (
+              <option key={sub.id} value={sub.id}>
+                [{sub.subjectCode}] {sub.title || "Chưa đặt tên"} ({sub.semesterCode} - {sub.examName})
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
 
       {papers.length > 0 && batchIdForGrading && (
         <div className="mb-6 flex flex-wrap items-center gap-3">
@@ -214,8 +258,8 @@ export function SubmissionsPage() {
           <div className="animate-spin w-8 h-8 border-2 border-line border-t-brand-red rounded-full" />
         </div>
       ) : !subjectId ? (
-        <div className="text-center py-20 text-ink-soft">
-          Chưa có môn thi. Vào Danh mục thi để chọn môn.
+        <div className="text-center py-20 text-ink-soft border border-dashed border-line rounded-xl bg-card">
+          Vui lòng chọn môn thi ở danh sách bên trên để xem danh sách bài làm.
         </div>
       ) : papers.length === 0 ? (
         <div className="text-center py-20 text-ink-soft">
