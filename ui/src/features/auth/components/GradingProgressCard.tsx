@@ -35,12 +35,13 @@ function DeadlineRow({
   deadline: UpcomingDeadline;
   onJump: (assignmentId: string) => void;
 }) {
-  const days = daysUntil(deadline.examEndDate);
+  const isNoDeadline = deadline.examEndDate?.startsWith("9999");
+  const days = isNoDeadline ? 999999 : daysUntil(deadline.examEndDate);
   return (
     <div
       className={cn(
         "flex items-center justify-between gap-3 p-3 rounded-lg border",
-        urgencyClass(days)
+        isNoDeadline ? "bg-card border-line text-ink-soft" : urgencyClass(days)
       )}
     >
       <div className="min-w-0">
@@ -50,7 +51,7 @@ function DeadlineRow({
         </p>
         <p className="text-xs mt-0.5 flex items-center gap-1.5">
           <CalendarClock className="h-3.5 w-3.5 shrink-0" />
-          {deadlineLabel(days)} · còn {deadline.remainingCount}/{deadline.totalCount} bài
+          {isNoDeadline ? "Không hạn" : deadlineLabel(days)} · còn {deadline.remainingCount}/{deadline.totalCount} bài
         </p>
       </div>
       {deadline.nextAssignmentId && (

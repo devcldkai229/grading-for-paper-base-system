@@ -101,6 +101,15 @@ public static class DependencyInjection
             client.Timeout = TimeSpan.FromSeconds(10);
             client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
         });
+
+        var iamUrl = configuration.GetValue<string>("IamServiceUrl")
+            ?? throw new InvalidOperationException("IamServiceUrl is missing.");
+        services.AddHttpClient<IIamServiceClient, Clients.IamServiceClient>(client =>
+        {
+            client.BaseAddress = new Uri(iamUrl);
+            client.Timeout = TimeSpan.FromSeconds(10);
+            client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
+        });
     }
 
     private static void RegisterJwtAuthentication(IServiceCollection services, IConfiguration configuration)

@@ -68,10 +68,11 @@ public class SubjectsController : ControllerBase
         [FromQuery] string? status,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
+        [FromQuery] bool all = false,
         CancellationToken ct = default)
     {
         Guid? lecturerId = null;
-        if (!IsAdmin())
+        if (!IsAdmin() && !all)
         {
             var lecturerIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
                 ?? User.FindFirst("sub")?.Value;

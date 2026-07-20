@@ -4,4 +4,5 @@ namespace GradingService.Application.Interfaces;
 public interface IGradeExportFileBuilder
 {
     byte[] Build(IReadOnlyList<Dictionary<string, object>> rows);
+    byte[] Build(IEnumerable<Dictionary<string, object>> rows, bool printHeader);
 }
