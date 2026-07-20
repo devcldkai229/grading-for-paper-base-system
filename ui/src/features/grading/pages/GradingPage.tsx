@@ -101,6 +101,8 @@ export function GradingPage() {
   const [paperComment, setPaperComment] = useState("");
   const [internalComment, setInternalComment] = useState("");
   const [rowVersion, setRowVersion] = useState(0);
+  const [isFlagged, setIsFlagged] = useState(false);
+  const [togglingFlag, setTogglingFlag] = useState(false);
 
   const [leftMode, setLeftMode] = useState<LeftMode>("answer");
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
@@ -188,6 +190,7 @@ export function GradingPage() {
     setRowVersion(data.rowVersion);
     setPaperComment(data.paperComment ?? "");
     setInternalComment(data.internalComment ?? "");
+    setIsFlagged(data.isFlagged);
     const draft: Record<string, MarkDraft> = {};
     for (const q of data.questions) {
       draft[q.questionNumber] = {
@@ -428,6 +431,20 @@ export function GradingPage() {
     }));
     setSaveStatus("idle");
   };
+
+  const handleToggleFlag = useCallback(async () => {
+    if (!assignmentId) return;
+    const next = !isFlagged;
+    setTogglingFlag(true);
+    try {
+      await gradingService.setFlag(assignmentId, next);
+      setIsFlagged(next);
+    } catch {
+      setError("Không thể cập nhật cờ đánh dấu");
+    } finally {
+      setTogglingFlag(false);
+    }
+  }, [assignmentId, isFlagged]);
 
   const handleSubmit = useCallback(async () => {
     if (!assignmentId || isReadOnly) return;
@@ -950,6 +967,21 @@ export function GradingPage() {
                   className={`${inputClass} resize-none`}
                 />
               </div>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => void handleToggleFlag()}
+                disabled={togglingFlag}
+                className={`px-4 py-2.5 rounded-lg text-sm font-medium border disabled:opacity-50 ${
+                  isFlagged
+                    ? "bg-brand-red/10 text-brand-red border-brand-red/30 hover:bg-brand-red/15"
+                    : "border-line hover:bg-secondary text-ink"
+                }`}
+              >
+                {isFlagged ? "Đã gắn cờ" : "Đánh dấu cần xem lại"}
+              </button>
             </div>
 
             {!isReadOnly && (

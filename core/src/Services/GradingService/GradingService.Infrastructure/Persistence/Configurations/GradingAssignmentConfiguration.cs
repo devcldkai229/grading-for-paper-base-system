@@ -40,6 +40,11 @@ public class GradingAssignmentConfiguration : IEntityTypeConfiguration<GradingAs
             .HasColumnName("ai_status")
             .HasColumnType("ai_sync_status");
 
+        builder.Property(x => x.IsFlagged)
+            .HasColumnName("is_flagged")
+            .HasDefaultValue(false)
+            .IsRequired();
+
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .IsRequired();
@@ -64,5 +69,8 @@ public class GradingAssignmentConfiguration : IEntityTypeConfiguration<GradingAs
 
         builder.HasIndex(x => x.AiStatus)
             .HasDatabaseName("idx_assign_ai_status");
+
+        builder.HasIndex(x => x.IsFlagged)
+            .HasDatabaseName("idx_assign_flagged");
     }
 }

@@ -1,5 +1,8 @@
-import type { QuestionInput } from "@/types/catalog";
+import { useEffect, useState } from "react";
+import { isAxiosError } from "axios";
+import type { QuestionInput, ScoreGridTemplateSummary } from "@/types/catalog";
 import { PaperCard } from "@/components/ui/paper-card";
+import { adminCatalogService } from "@/services/adminCatalogService";
 
 export interface ScoreGridRow extends QuestionInput {
   confidence?: number;
@@ -57,6 +60,79 @@ export function ScoreGridEditor({
   const totalMismatch = Math.abs(total - subjectMaxScore) > 0.01;
   const groupBudgets = computeGroupBudgets(rows, subjectMaxScore);
 
+  const [templates, setTemplates] = useState<ScoreGridTemplateSummary[]>([]);
+  const [applyingTemplateId, setApplyingTemplateId] = useState("");
+  const [templateError, setTemplateError] = useState<string | null>(null);
+
+  const [showSaveForm, setShowSaveForm] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+  const [savingTemplate, setSavingTemplate] = useState(false);
+
+  useEffect(() => {
+    if (readOnly) return;
+    adminCatalogService
+      .listScoreGridTemplates()
+      .then(setTemplates)
+      .catch(() => setTemplates([]));
+  }, [readOnly]);
+
+  const handleApplyTemplate = async (templateId: string) => {
+    setApplyingTemplateId(templateId);
+    setTemplateError(null);
+    try {
+      const detail = await adminCatalogService.getScoreGridTemplate(templateId);
+      onChange(
+        detail.questions.map((q, i) => ({
+          groupLabel: q.groupLabel,
+          questionNumber: q.questionNumber,
+          label: q.label,
+          maxScore: q.maxScore,
+          orderIndex: i,
+        }))
+      );
+    } catch (err) {
+      setTemplateError(
+        isAxiosError(err)
+          ? err.response?.data?.message ?? "Không áp dụng được mẫu."
+          : "Không áp dụng được mẫu."
+      );
+    } finally {
+      setApplyingTemplateId("");
+    }
+  };
+
+  const handleSaveAsTemplate = async () => {
+    if (!templateName.trim()) {
+      setTemplateError("Vui lòng nhập tên mẫu.");
+      return;
+    }
+    setSavingTemplate(true);
+    setTemplateError(null);
+    try {
+      const created = await adminCatalogService.createScoreGridTemplate(
+        templateName.trim(),
+        rows.map((r) => ({
+          groupLabel: r.groupLabel,
+          questionNumber: r.questionNumber,
+          label: r.label,
+          maxScore: r.maxScore,
+          orderIndex: r.orderIndex,
+        }))
+      );
+      setTemplates((prev) => [created, ...prev]);
+      setShowSaveForm(false);
+      setTemplateName("");
+    } catch (err) {
+      setTemplateError(
+        isAxiosError(err)
+          ? err.response?.data?.message ?? "Không lưu được mẫu."
+          : "Không lưu được mẫu."
+      );
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
   const updateRow = (index: number, patch: Partial<ScoreGridRow>) => {
     const next = rows.map((r, i) => (i === index ? { ...r, ...patch } : r));
     onChange(next);
@@ -88,6 +164,62 @@ export function ScoreGridEditor({
 
   return (
     <div className="space-y-4">
+      {!readOnly && (
+        <div className="flex flex-wrap items-center gap-3">
+          <select
+            className="px-2 py-1.5 bg-card border border-line rounded text-sm text-ink outline-none disabled:opacity-60"
+            value={applyingTemplateId}
+            disabled={applyingTemplateId !== ""}
+            onChange={(e) => {
+              const id = e.target.value;
+              if (id) void handleApplyTemplate(id);
+            }}
+          >
+            <option value="">Áp dụng mẫu có sẵn…</option>
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name} ({t.questionCount} câu)
+              </option>
+            ))}
+          </select>
+
+          <button
+            type="button"
+            onClick={() => {
+              setShowSaveForm((prev) => !prev);
+              setTemplateError(null);
+            }}
+            className="text-sm text-brand-red hover:underline"
+          >
+            {showSaveForm ? "Huỷ lưu mẫu" : "Lưu làm mẫu"}
+          </button>
+
+          {showSaveForm && (
+            <div className="flex items-center gap-2">
+              <input
+                autoFocus
+                className={inputClass}
+                placeholder="Tên mẫu, vd: PRN232 chuẩn"
+                value={templateName}
+                onChange={(e) => setTemplateName(e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={() => void handleSaveAsTemplate()}
+                disabled={savingTemplate}
+                className="px-3 py-1.5 bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 rounded-lg text-sm font-medium whitespace-nowrap"
+              >
+                {savingTemplate ? "Đang lưu..." : "Lưu"}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {templateError && (
+        <p className="text-sm text-destructive">{templateError}</p>
+      )}
+
       {(warnings.length > 0 || totalMismatch) && (
         <div className="rounded-lg border border-brand-orange/30 bg-brand-orange/5 p-3 text-sm text-brand-orange space-y-1">
           {totalMismatch && (

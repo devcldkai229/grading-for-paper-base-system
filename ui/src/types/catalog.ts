@@ -89,6 +89,22 @@ export interface ReplaceQuestionsResult {
   warnings: string[];
 }
 
+export interface ScoreGridTemplateSummary {
+  id: string;
+  name: string;
+  createdBy: string;
+  questionCount: number;
+  createdAt: string;
+}
+
+export interface ScoreGridTemplateDetail {
+  id: string;
+  name: string;
+  createdBy: string;
+  questions: QuestionInput[];
+  createdAt: string;
+}
+
 export interface SubjectDetail {
   id: string;
   examId: string;
@@ -106,6 +122,7 @@ export interface SubjectDetail {
   rubricVersion: number;
   questions: Question[];
   createdAt: string;
+  gradingDeadline: string | null;
 }
 
 export interface FileUrlResponse {

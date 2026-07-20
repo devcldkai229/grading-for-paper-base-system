@@ -151,7 +151,8 @@ public class GradingSessionService : IGradingSessionService
             assignment.GradingForm.InternalComment,
             paper?.StudentAlias,
             paper?.AliasNumber,
-            questions);
+            questions,
+            assignment.IsFlagged);
     }
 
     public async Task<(SaveMarksResultDto? Result, bool Conflict, string? Error)> SaveMarksAsync(
@@ -256,6 +257,72 @@ public class GradingSessionService : IGradingSessionService
         }
 
         return true;
+    }
+
+    public async Task<bool> SetFlagAsync(
+        Guid assignmentId, Guid teacherId, bool isFlagged, CancellationToken ct = default)
+    {
+        var assignment = await _assignments.GetWithFormAsync(assignmentId, teacherId, asNoTracking: false, ct);
+        if (assignment is null) return false;
+
+        assignment.IsFlagged = isFlagged;
+        await _uow.SaveChangesAsync(ct);
+        return true;
+    }
+
+    public async Task<GradingQueuePageDto> GetGradingQueueAsync(
+        Guid teacherId, GradingProgressStatus? status, bool? flaggedOnly, string? aliasSearch,
+        int page, int pageSize, CancellationToken ct = default)
+    {
+        var rows = await _assignments.ListQueueRowsAsync(teacherId, status, flaggedOnly, ct);
+        if (rows.Count == 0)
+        {
+            return new GradingQueuePageDto(Array.Empty<GradingQueueRowDto>(), page, pageSize, 0, 0);
+        }
+
+        var paperIds = rows.Select(r => r.StudentPaperId).Distinct().ToList();
+        var papers = await _submissionClient.GetPaperSummariesAsync(paperIds, ct);
+        var paperById = (papers ?? Array.Empty<InternalPaperSummaryClientDto>())
+            .ToDictionary(p => p.Id);
+
+        var joined = rows.Select(r =>
+        {
+            paperById.TryGetValue(r.StudentPaperId, out var paper);
+            return (Row: r, StudentAlias: paper?.StudentAlias, AliasNumber: paper?.AliasNumber);
+        });
+
+        if (!string.IsNullOrWhiteSpace(aliasSearch))
+        {
+            var keyword = aliasSearch.Trim();
+            var isNumeric = int.TryParse(keyword, out var aliasNumberMatch);
+            joined = joined.Where(j =>
+                (j.StudentAlias?.Contains(keyword, StringComparison.OrdinalIgnoreCase) ?? false)
+                || (isNumeric && j.AliasNumber == aliasNumberMatch));
+        }
+
+        var ordered = joined
+            .OrderBy(j => j.AliasNumber ?? int.MaxValue)
+            .ThenBy(j => j.Row.CreatedAt)
+            .ToList();
+
+        var totalCount = ordered.Count;
+        var totalPages = totalCount == 0 ? 0 : (int)Math.Ceiling(totalCount / (double)pageSize);
+
+        var items = ordered
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(j => new GradingQueueRowDto(
+                j.Row.AssignmentId,
+                j.StudentAlias,
+                j.AliasNumber,
+                j.Row.SubjectId,
+                ToStatusLabel(j.Row.Status),
+                j.Row.IsFlagged,
+                j.Row.TotalScore,
+                j.Row.SubmittedAt))
+            .ToList();
+
+        return new GradingQueuePageDto(items, page, pageSize, totalCount, totalPages);
     }
 
     public async Task<(OverrideMarksResultDto? Result, bool NotFound, string? Error)> OverrideMarksAsync(
@@ -706,19 +773,24 @@ public class GradingSessionService : IGradingSessionService
         var deadlineTasks = subjectsWithRemainingWork.Select(async s =>
         {
             var info = await _catalogClient.GetExamInfoAsync(s.SubjectId, ct);
-            return new UpcomingDeadlineDto(
-                s.SubjectId,
-                info?.SubjectCode ?? "Unknown",
-                info?.ExamName ?? "N/A",
-                info?.ExamEndDate ?? new DateOnly(9999, 12, 31),
-                s.Total,
-                s.Submitted,
-                s.Total - s.Submitted,
-                s.NextAssignmentId);
+            var effectiveDeadline = info?.GradingDeadline ?? info?.ExamEndDate;
+            return effectiveDeadline is null
+                ? null
+                : new UpcomingDeadlineDto(
+                    s.SubjectId,
+                    info!.SubjectCode,
+                    info.ExamName,
+                    effectiveDeadline.Value,
+                    s.Total,
+                    s.Submitted,
+                    s.Total - s.Submitted,
+                    s.NextAssignmentId);
         });
 
         var upcomingDeadlines = (await Task.WhenAll(deadlineTasks))
-            .OrderBy(d => d.ExamEndDate)
+            .Where(d => d is not null)
+            .Select(d => d!)
+            .OrderBy(d => d.Deadline)
             .ToList();
 
         var nextAssignmentId = upcomingDeadlines.FirstOrDefault()?.NextAssignmentId
@@ -777,7 +849,8 @@ public class GradingSessionService : IGradingSessionService
                     throughput > 0 ? Math.Round(throughput, 2) : null,
                     estimatedFinish,
                     lecturers,
-                    ComputeAvgGradingMinutesPerPaper(subjectGroup));
+                    ComputeAvgGradingMinutesPerPaper(subjectGroup),
+                    subjectGroup.Count(r => r.IsFlagged));
             })
             .OrderBy(s => s.CompletionPercent)
             .ToList();
@@ -833,7 +906,8 @@ public class GradingSessionService : IGradingSessionService
             teacherId, assigned, completed, drafting, notStarted,
             completedScores.Count > 0 ? Math.Round(completedScores.Average(), 2) : null,
             throughput, lastActivity, estimatedFinish,
-            ComputeAvgGradingMinutesPerPaper(rows));
+            ComputeAvgGradingMinutesPerPaper(rows),
+            rows.Count(r => r.IsFlagged));
     }
 
     public async Task<ScoreDistributionDashboardDto> GetScoreDistributionAsync(
@@ -1043,27 +1117,28 @@ public class GradingSessionService : IGradingSessionService
         if (pendingGroups.Count == 0) return 0;
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var deadline = today.AddDays(reminderWindowDays);
+        var cutoff = today.AddDays(reminderWindowDays);
 
         var subjectIds = pendingGroups.Select(g => g.SubjectId).Distinct().ToList();
         var examInfoResults = await Task.WhenAll(subjectIds.Select(async id =>
             new { SubjectId = id, Info = await _catalogClient.GetExamInfoAsync(id, ct) }));
-        var examInfoBySubject = examInfoResults
-            .Where(x => x.Info?.ExamEndDate is not null)
-            .ToDictionary(x => x.SubjectId, x => x.Info!);
+        var deadlineBySubject = examInfoResults
+            .Select(x => new { x.SubjectId, x.Info, Effective = x.Info?.GradingDeadline ?? x.Info?.ExamEndDate })
+            .Where(x => x.Effective is not null)
+            .ToDictionary(x => x.SubjectId, x => (Info: x.Info!, Deadline: x.Effective!.Value));
 
         var publishedCount = 0;
         foreach (var group in pendingGroups)
         {
-            if (!examInfoBySubject.TryGetValue(group.SubjectId, out var info)) continue;
-            if (info.ExamEndDate!.Value > deadline) continue;
+            if (!deadlineBySubject.TryGetValue(group.SubjectId, out var entry)) continue;
+            if (entry.Deadline > cutoff) continue;
 
             var remaining = group.Total - group.Submitted;
             var messageId = DeterministicDailyMessageId(group.SubjectId, group.TeacherId, today);
 
             await _messagePublisher.PublishAsync(new DeadlineReminderEvent(
-                messageId, group.TeacherId, group.SubjectId, info.SubjectCode,
-                info.ExamEndDate.Value, remaining, DateTime.UtcNow), ct);
+                messageId, group.TeacherId, group.SubjectId, entry.Info.SubjectCode,
+                entry.Deadline, remaining, DateTime.UtcNow), ct);
 
             publishedCount++;
         }

@@ -1,6 +1,7 @@
 using GradingService.API;
 using GradingService.Application.DTOs;
 using GradingService.Application.Interfaces;
+using GradingService.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -349,6 +350,81 @@ public class GradingController : ControllerBase
             StatusCode = 200,
             Message = "Progress retrieved",
             Data = result,
+            ResponsedAt = DateTime.UtcNow
+        });
+    }
+
+    /// <summary>
+    /// The caller's own grading queue: assignments filtered by status and/or flagged state,
+    /// optionally narrowed by an alias search, paginated.
+    /// </summary>
+    [HttpGet("queue")]
+    public async Task<IActionResult> GetGradingQueue(
+        [FromQuery] string? status,
+        [FromQuery] bool? flagged,
+        [FromQuery] string? alias,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
+    {
+        GradingProgressStatus? parsedStatus = null;
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            if (!Enum.TryParse<GradingProgressStatus>(status, ignoreCase: true, out var result))
+            {
+                return BadRequest(new ApiResponse<object>
+                {
+                    StatusCode = 400,
+                    Message = $"Invalid status value: {status}",
+                    Data = null,
+                    ResponsedAt = DateTime.UtcNow
+                });
+            }
+            parsedStatus = result;
+        }
+
+        var teacherId = GetUserId();
+        var queue = await _gradingSessionService.GetGradingQueueAsync(
+            teacherId, parsedStatus, flagged, alias, page, pageSize, ct);
+
+        return Ok(new ApiResponse<GradingQueuePageDto>
+        {
+            StatusCode = 200,
+            Message = "Grading queue retrieved",
+            Data = queue,
+            ResponsedAt = DateTime.UtcNow
+        });
+    }
+
+    /// <summary>
+    /// Sets or clears the caller's own "needs review" flag on an assignment. Independent of the
+    /// assignment's grading Status.
+    /// </summary>
+    [HttpPut("sessions/{assignmentId:guid}/flag")]
+    public async Task<IActionResult> SetFlag(
+        Guid assignmentId,
+        [FromBody] SetFlagRequest request,
+        CancellationToken ct = default)
+    {
+        var teacherId = GetUserId();
+        var updated = await _gradingSessionService.SetFlagAsync(assignmentId, teacherId, request.IsFlagged, ct);
+
+        if (!updated)
+        {
+            return NotFound(new ApiResponse<object>
+            {
+                StatusCode = 404,
+                Message = "Session not found",
+                Data = null,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        return Ok(new ApiResponse<object>
+        {
+            StatusCode = 200,
+            Message = "Flag updated",
+            Data = null,
             ResponsedAt = DateTime.UtcNow
         });
     }

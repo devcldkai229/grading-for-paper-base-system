@@ -227,6 +227,9 @@ export function AdminOverridePage() {
               <StatusBadge variant={session.status === "Submitted" ? "done" : "default"}>
                 {session.status}
               </StatusBadge>
+              {session.isFlagged && (
+                <StatusBadge variant="error">Đã gắn cờ</StatusBadge>
+              )}
               <span className="text-xs text-ink-soft font-normal ml-auto">
                 Tổng điểm hiện tại: {totalScore.toFixed(2)} / {session.subjectMaxScore.toFixed(2)}
               </span>

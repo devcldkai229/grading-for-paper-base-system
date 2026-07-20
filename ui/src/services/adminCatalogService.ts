@@ -7,6 +7,8 @@ import type {
   QuestionInput,
   ExtractGridResult,
   ReplaceQuestionsResult,
+  ScoreGridTemplateSummary,
+  ScoreGridTemplateDetail,
 } from "@/types/catalog";
 
 export const adminCatalogService = {
@@ -85,6 +87,7 @@ export const adminCatalogService = {
       maxScore: number;
       status?: string;
       passScore?: number | null;
+      gradingDeadline?: string | null;
     }
   ): Promise<SubjectDetail> {
     const res = await api.put<ApiResponse<SubjectDetail>>(`/subjects/${id}`, payload);
@@ -129,5 +132,34 @@ export const adminCatalogService = {
       { questions }
     );
     return res.data.data;
+  },
+
+  async listScoreGridTemplates(): Promise<ScoreGridTemplateSummary[]> {
+    const res = await api.get<ApiResponse<ScoreGridTemplateSummary[]>>(
+      "/score-grid-templates"
+    );
+    return res.data.data;
+  },
+
+  async getScoreGridTemplate(id: string): Promise<ScoreGridTemplateDetail> {
+    const res = await api.get<ApiResponse<ScoreGridTemplateDetail>>(
+      `/score-grid-templates/${id}`
+    );
+    return res.data.data;
+  },
+
+  async createScoreGridTemplate(
+    name: string,
+    questions: QuestionInput[]
+  ): Promise<ScoreGridTemplateSummary> {
+    const res = await api.post<ApiResponse<ScoreGridTemplateSummary>>(
+      "/score-grid-templates",
+      { name, questions }
+    );
+    return res.data.data;
+  },
+
+  async deleteScoreGridTemplate(id: string): Promise<void> {
+    await api.delete(`/score-grid-templates/${id}`);
   },
 };

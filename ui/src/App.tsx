@@ -18,6 +18,7 @@ import { BatchUploadPage } from "@/features/submission/pages/BatchUploadPage";
 import { SubmissionsPage } from "@/features/submission/pages/SubmissionsPage";
 import { SubmissionDetailPage } from "@/features/submission/pages/SubmissionDetailPage";
 import { GradingPage } from "@/features/grading/pages/GradingPage";
+import { GradingQueuePage } from "@/features/grading/pages/GradingQueuePage";
 import { ProfilePage } from "@/features/auth/pages/ProfilePage";
 import { ForgotPasswordPage } from "@/features/auth/pages/ForgotPasswordPage";
 import { ResetPasswordPage } from "@/features/auth/pages/ResetPasswordPage";
@@ -121,6 +122,7 @@ function App() {
                 element={<SubjectDetailPage />}
               />
               <Route path="/batches/upload" element={<BatchUploadPage />} />
+              <Route path="/grading/queue" element={<GradingQueuePage />} />
               <Route path="/submissions" element={<SubmissionsPage />} />
               <Route
                 path="/submissions/:paperId"

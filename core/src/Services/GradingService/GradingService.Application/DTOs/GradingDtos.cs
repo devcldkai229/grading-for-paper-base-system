@@ -38,7 +38,8 @@ public record GradingSessionDto(
     string? InternalComment,
     string? StudentAlias,
     int? AliasNumber,
-    IReadOnlyList<QuestionMarkDto> Questions
+    IReadOnlyList<QuestionMarkDto> Questions,
+    bool IsFlagged = false
 );
 
 public record SaveMarksRequest(
@@ -57,6 +58,27 @@ public record QuestionMarkInput(
 public record SaveMarksResultDto(int RowVersion);
 
 public record SubmitResultDto(Guid? NextAssignmentId);
+
+public record GradingQueueRowDto(
+    Guid AssignmentId,
+    string? StudentAlias,
+    int? AliasNumber,
+    Guid SubjectId,
+    string Status,
+    bool IsFlagged,
+    decimal? TotalScore,
+    DateTime? SubmittedAt
+);
+
+public record GradingQueuePageDto(
+    IReadOnlyList<GradingQueueRowDto> Items,
+    int Page,
+    int PageSize,
+    int TotalCount,
+    int TotalPages
+);
+
+public record SetFlagRequest(bool IsFlagged);
 
 public record OverrideMarksRequest(
     IReadOnlyList<QuestionMarkInput> Questions,
@@ -132,7 +154,8 @@ public record SubjectExamInfoClientDto(
     string SubjectCode,
     Guid ExamId,
     string ExamName,
-    DateOnly? ExamEndDate
+    DateOnly? ExamEndDate,
+    DateOnly? GradingDeadline = null
 );
 
 public record MyProgressDto(
@@ -147,7 +170,7 @@ public record UpcomingDeadlineDto(
     Guid SubjectId,
     string SubjectCode,
     string ExamName,
-    DateOnly ExamEndDate,
+    DateOnly Deadline,
     int TotalCount,
     int SubmittedCount,
     int RemainingCount,
@@ -173,7 +196,8 @@ public record LecturerProgressDto(
     decimal? ThroughputPerHour,
     DateTime? LastActivityAt,
     DateTime? EstimatedFinish,
-    decimal? AvgGradingMinutesPerPaper
+    decimal? AvgGradingMinutesPerPaper,
+    int FlaggedCount = 0
 );
 
 /// <summary>Aggregate grading progress for one subject, broken down per lecturer.</summary>
@@ -190,7 +214,8 @@ public record SubjectProgressDto(
     decimal? ThroughputPerHour,
     DateTime? EstimatedFinish,
     IReadOnlyList<LecturerProgressDto> Lecturers,
-    decimal? AvgGradingMinutesPerPaper
+    decimal? AvgGradingMinutesPerPaper,
+    int FlaggedCount = 0
 );
 
 public record RecordHeartbeatRequest(int Seconds);

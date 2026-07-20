@@ -31,6 +31,18 @@ function formatAvgMinutes(value: number | null): string {
   return `${value.toFixed(1)} phút/bài`;
 }
 
+function formatDeadline(value: string | null): string {
+  if (!value) return "—";
+  return new Date(value).toLocaleDateString("vi-VN");
+}
+
+function isOverdue(value: string | null): boolean {
+  if (!value) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return new Date(value) < today;
+}
+
 export function AdminGradingProgressPage() {
   const [semesterId, setSemesterId] = useState("");
   const [examId, setExamId] = useState("");
@@ -197,6 +209,18 @@ export function AdminGradingProgressPage() {
                   <span>Tốc độ: {formatThroughput(s.throughputPerHour)}</span>
                   <span>TB thời gian/bài: {formatAvgMinutes(s.avgGradingMinutesPerPaper)}</span>
                   <span>Dự kiến xong: {formatDateTime(s.estimatedFinish)}</span>
+                  <span
+                    className={
+                      isOverdue(s.gradingDeadline) && s.completionPercent < 100
+                        ? "text-brand-red font-medium"
+                        : undefined
+                    }
+                  >
+                    Hạn chấm: {formatDeadline(s.gradingDeadline)}
+                  </span>
+                  <span className={s.flaggedCount > 0 ? "text-brand-red font-medium" : undefined}>
+                    Đã gắn cờ: {s.flaggedCount}
+                  </span>
                   {s.scoreAvg !== null && (
                     <span>
                       Điểm TB: <strong className="text-ink">{s.scoreAvg}</strong> (min {s.scoreMin}, max{" "}
@@ -221,7 +245,8 @@ export function AdminGradingProgressPage() {
                               <th className="py-2 pr-4 font-medium">Tốc độ</th>
                               <th className="py-2 pr-4 font-medium">TB phút/bài</th>
                               <th className="py-2 pr-4 font-medium">Hoạt động gần nhất</th>
-                              <th className="py-2 font-medium">Dự kiến xong</th>
+                              <th className="py-2 pr-4 font-medium">Dự kiến xong</th>
+                              <th className="py-2 font-medium">Đã gắn cờ</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -238,7 +263,10 @@ export function AdminGradingProgressPage() {
                                 <td className="py-2 pr-4">{formatThroughput(l.throughputPerHour)}</td>
                                 <td className="py-2 pr-4">{formatAvgMinutes(l.avgGradingMinutesPerPaper)}</td>
                                 <td className="py-2 pr-4">{formatDateTime(l.lastActivityAt)}</td>
-                                <td className="py-2">{formatDateTime(l.estimatedFinish)}</td>
+                                <td className="py-2 pr-4">{formatDateTime(l.estimatedFinish)}</td>
+                                <td className={`py-2 ${l.flaggedCount > 0 ? "text-brand-red font-medium" : ""}`}>
+                                  {l.flaggedCount}
+                                </td>
                               </tr>
                             ))}
                           </tbody>

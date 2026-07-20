@@ -48,6 +48,10 @@ public class SubjectConfiguration : IEntityTypeConfiguration<Subject>
             .HasColumnName("pass_score")
             .HasColumnType("numeric(5,2)");
 
+        builder.Property(subject => subject.GradingDeadline)
+            .HasColumnName("grading_deadline")
+            .HasColumnType("date");
+
         builder.Property(subject => subject.ExamPaperS3Key)
             .HasColumnName("exam_paper_s3_key");
 

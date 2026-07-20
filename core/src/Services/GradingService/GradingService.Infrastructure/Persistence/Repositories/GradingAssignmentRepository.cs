@@ -113,7 +113,8 @@ public class GradingAssignmentRepository : IGradingAssignmentRepository
                 a.Status,
                 a.GradingForm != null ? a.GradingForm.SubmittedAt : null,
                 a.GradingForm != null ? (decimal?)a.GradingForm.TotalScore : null,
-                a.GradingForm != null ? a.GradingForm.ActiveSecondsSpent : 0))
+                a.GradingForm != null ? a.GradingForm.ActiveSecondsSpent : 0,
+                a.IsFlagged))
             .ToListAsync(ct);
     }
 
@@ -130,6 +131,34 @@ public class GradingAssignmentRepository : IGradingAssignmentRepository
 
         return await query
             .Select(a => new SubjectScoreRow(a.SubjectId, a.GradingForm!.TotalScore))
+            .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<GradingQueueRow>> ListQueueRowsAsync(
+        Guid teacherId, GradingProgressStatus? status, bool? flaggedOnly, CancellationToken ct = default)
+    {
+        var query = _db.GradingAssignments.AsNoTracking().Where(a => a.TeacherId == teacherId);
+
+        if (status.HasValue)
+        {
+            query = query.Where(a => a.Status == status.Value);
+        }
+
+        if (flaggedOnly == true)
+        {
+            query = query.Where(a => a.IsFlagged);
+        }
+
+        return await query
+            .Select(a => new GradingQueueRow(
+                a.Id,
+                a.StudentPaperId,
+                a.SubjectId,
+                a.Status,
+                a.IsFlagged,
+                a.GradingForm != null ? (decimal?)a.GradingForm.TotalScore : null,
+                a.GradingForm != null ? a.GradingForm.SubmittedAt : null,
+                a.CreatedAt))
             .ToListAsync(ct);
     }
 
