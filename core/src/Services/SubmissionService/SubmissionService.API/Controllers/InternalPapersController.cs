@@ -69,5 +69,16 @@ public class InternalPapersController : ControllerBase
         }
 
         return Ok(new { data = files, responsedAt = DateTime.UtcNow });
+    /// Bulk-resolves summaries (alias, batch, subject) for an arbitrary set of paper ids in one
+    /// round trip. Consumed by GradingService to attach aliases to a lecturer's grading queue.
+    /// </summary>
+    [HttpPost("batch")]
+    public async Task<IActionResult> GetPapersByIds(
+        [FromBody] BatchPaperIdsRequest request, CancellationToken ct = default)
+    {
+        var summaries = await _paperRepository.GetPapersByIdsAsync(request.PaperIds, ct);
+        return Ok(new { data = summaries, responsedAt = DateTime.UtcNow });
     }
 }
+
+public record BatchPaperIdsRequest(IReadOnlyList<Guid> PaperIds);

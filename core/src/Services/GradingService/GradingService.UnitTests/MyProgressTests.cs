@@ -170,6 +170,50 @@ namespace GradingService.UnitTests
         }
 
         [Fact]
+        public async Task GetMyProgressAsync_WhenGradingDeadlineSet_UsesItInsteadOfExamEndDate()
+        {
+            using var db = NewInMemoryContext();
+            var teacherId = Guid.NewGuid();
+            var subjectId = Guid.NewGuid();
+            db.GradingAssignments.Add(
+                MakeAssignment(teacherId, subjectId, GradingProgressStatus.NotStarted, DateTime.UtcNow));
+            await db.SaveChangesAsync();
+
+            var gradingDeadline = new DateOnly(2026, 7, 27);
+            var catalogClient = Substitute.For<IExamCatalogServiceClient>();
+            catalogClient.GetExamInfoAsync(subjectId, Arg.Any<CancellationToken>())
+                .Returns(new SubjectExamInfoClientDto(
+                    subjectId, "PRN232", Guid.NewGuid(), "Final Exam",
+                    ExamEndDate: new DateOnly(2026, 12, 31), GradingDeadline: gradingDeadline));
+            var service = NewService(db, catalogClient);
+
+            var result = await service.GetMyProgressAsync(teacherId, CancellationToken.None);
+
+            Assert.Equal(gradingDeadline, Assert.Single(result.UpcomingDeadlines).Deadline);
+        }
+
+        [Fact]
+        public async Task GetMyProgressAsync_WhenGradingDeadlineNotSet_FallsBackToExamEndDate()
+        {
+            using var db = NewInMemoryContext();
+            var teacherId = Guid.NewGuid();
+            var subjectId = Guid.NewGuid();
+            db.GradingAssignments.Add(
+                MakeAssignment(teacherId, subjectId, GradingProgressStatus.NotStarted, DateTime.UtcNow));
+            await db.SaveChangesAsync();
+
+            var examEndDate = new DateOnly(2026, 12, 31);
+            var catalogClient = Substitute.For<IExamCatalogServiceClient>();
+            catalogClient.GetExamInfoAsync(subjectId, Arg.Any<CancellationToken>())
+                .Returns(new SubjectExamInfoClientDto(subjectId, "PRN232", Guid.NewGuid(), "Final Exam", examEndDate));
+            var service = NewService(db, catalogClient);
+
+            var result = await service.GetMyProgressAsync(teacherId, CancellationToken.None);
+
+            Assert.Equal(examEndDate, Assert.Single(result.UpcomingDeadlines).Deadline);
+        }
+
+        [Fact]
         public async Task GetMyProgressAsync_WhenNothingRemaining_NextAssignmentIdIsNull()
         {
             using var db = NewInMemoryContext();

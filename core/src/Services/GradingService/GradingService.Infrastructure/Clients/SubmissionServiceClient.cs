@@ -95,6 +95,22 @@ public class SubmissionServiceClient : ISubmissionServiceClient
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             _logger.LogError(ex, "SubmissionService unreachable for paper {PaperId} files", paperId);
+    public async Task<IReadOnlyList<InternalPaperSummaryClientDto>?> GetPaperSummariesAsync(
+        IReadOnlyCollection<Guid> paperIds, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsJsonAsync(
+                "/api/internal/papers/batch", new { PaperIds = paperIds }, ct);
+            response.EnsureSuccessStatusCode();
+
+            var payload = await response.Content
+                .ReadFromJsonAsync<Envelope<IReadOnlyList<InternalPaperSummaryClientDto>>>(JsonOptions, ct);
+            return payload?.Data;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            _logger.LogError(ex, "SubmissionService unreachable for bulk paper summaries");
             return null;
         }
     }

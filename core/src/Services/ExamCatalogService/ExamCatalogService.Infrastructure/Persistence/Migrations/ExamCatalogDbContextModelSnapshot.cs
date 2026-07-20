@@ -126,6 +126,45 @@ namespace ExamCatalogService.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("ExamCatalogService.Domain.Entities.ScoreGridTemplate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("QuestionCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("question_count");
+
+                    b.Property<string>("QuestionsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("questions_json");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .HasDatabaseName("idx_score_grid_templates_name");
+
+                    b.ToTable("score_grid_templates", (string)null);
+                });
+
             modelBuilder.Entity("ExamCatalogService.Domain.Entities.Semester", b =>
                 {
                     b.Property<Guid>("Id")
@@ -217,6 +256,10 @@ namespace ExamCatalogService.Infrastructure.Persistence.Migrations
                     b.Property<string>("ExamPaperS3Key")
                         .HasColumnType("text")
                         .HasColumnName("exam_paper_s3_key");
+
+                    b.Property<DateOnly?>("GradingDeadline")
+                        .HasColumnType("date")
+                        .HasColumnName("grading_deadline");
 
                     b.Property<decimal>("MaxScore")
                         .ValueGeneratedOnAdd()

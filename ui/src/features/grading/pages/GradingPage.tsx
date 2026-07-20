@@ -101,6 +101,8 @@ export function GradingPage() {
   const [paperComment, setPaperComment] = useState("");
   const [internalComment, setInternalComment] = useState("");
   const [rowVersion, setRowVersion] = useState(0);
+  const [isFlagged, setIsFlagged] = useState(false);
+  const [togglingFlag, setTogglingFlag] = useState(false);
 
   const [leftMode, setLeftMode] = useState<LeftMode>("answer");
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
@@ -128,7 +130,8 @@ export function GradingPage() {
 
   const urlCacheRef = useRef<Record<string, { data: FileUrlResponse; expiresAt: number }>>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastActivityRef = useRef<number>(Date.now());
+  const lastSavedPayloadRef = useRef<string>("");
+  const lastActivityRef = useRef<number>(0);
   const isReadOnly = session?.status === "Submitted";
   const inputsLocked = isReadOnly && !overrideMode;
 
@@ -189,6 +192,7 @@ export function GradingPage() {
     setRowVersion(data.rowVersion);
     setPaperComment(data.paperComment ?? "");
     setInternalComment(data.internalComment ?? "");
+    setIsFlagged(data.isFlagged);
     const draft: Record<string, MarkDraft> = {};
     for (const q of data.questions) {
       draft[q.questionNumber] = {
@@ -197,12 +201,29 @@ export function GradingPage() {
       };
     }
     setMarks(draft);
+
+    const initialPayload = JSON.stringify({
+      paperComment: data.paperComment ?? "",
+      internalComment: data.internalComment ?? "",
+      questions: data.questions.map((q) => {
+        const raw = draft[q.questionNumber]?.score?.trim() ?? "";
+        const score = raw === "" ? 0 : Math.min(Math.max(0, Number(raw)), q.maxScore);
+        return {
+          questionNumber: q.questionNumber,
+          score: Number.isNaN(score) ? 0 : score,
+          questionComment: draft[q.questionNumber]?.questionComment ?? "",
+        };
+      })
+    });
+    lastSavedPayloadRef.current = initialPayload;
   }, []);
 
   const loadAll = useCallback(async () => {
     if (!assignmentId) return;
     setLoading(true);
     setError(null);
+    setFileView(null);
+    setSelectedFileId(null);
     try {
       const data = await gradingService.getSession(assignmentId);
       applySession(data);
@@ -351,12 +372,23 @@ export function GradingPage() {
       const payload = buildPayload();
       if (!payload) return;
 
+      const serialized = JSON.stringify({
+        paperComment: payload.paperComment,
+        internalComment: payload.internalComment,
+        questions: payload.questions,
+      });
+
+      if (serialized === lastSavedPayloadRef.current) {
+        return;
+      }
+
       if (!silent) setSaveStatus("saving");
       try {
         const result = await gradingService.saveMarks(assignmentId, payload);
         setRowVersion(result.rowVersion);
         setSaveStatus("saved");
         setConflictMsg(null);
+        lastSavedPayloadRef.current = serialized;
       } catch (err) {
         if (isAxiosStatus(err, 409)) {
           setConflictMsg("Dữ liệu đã thay đổi ở nơi khác. Đang tải lại...");
@@ -391,6 +423,7 @@ export function GradingPage() {
       try {
         const data = await submissionService.getFileUrl(session.studentPaperId, fileId);
         setFileView(data);
+        setError(null);
       } catch {
         setError("Không tải được file bài làm");
       } finally {
@@ -457,6 +490,20 @@ export function GradingPage() {
     setSaveStatus("idle");
   };
 
+  const handleToggleFlag = useCallback(async () => {
+    if (!assignmentId) return;
+    const next = !isFlagged;
+    setTogglingFlag(true);
+    try {
+      await gradingService.setFlag(assignmentId, next);
+      setIsFlagged(next);
+    } catch {
+      setError("Không thể cập nhật cờ đánh dấu");
+    } finally {
+      setTogglingFlag(false);
+    }
+  }, [assignmentId, isFlagged]);
+
   const handleSubmit = useCallback(async () => {
     if (!assignmentId || isReadOnly) return;
     setSubmitting(true);
@@ -498,6 +545,15 @@ export function GradingPage() {
     },
     [assignmentId, switchingAssignment, isReadOnly, persistMarks, navigate]
   );
+
+  const handleBackToDashboard = useCallback(async () => {
+    try {
+      if (!isReadOnly) await persistMarks(true);
+    } catch (e) {
+      console.error("Failed to save progress before leaving:", e);
+    }
+    navigate("/dashboard");
+  }, [isReadOnly, persistMarks, navigate]);
 
   const handleStartOverride = useCallback(() => {
     setOverrideMode(true);
@@ -621,6 +677,7 @@ export function GradingPage() {
     const markActive = () => {
       lastActivityRef.current = Date.now();
     };
+    markActive();
     window.addEventListener("mousemove", markActive, { passive: true });
     window.addEventListener("mousedown", markActive, { passive: true });
     window.addEventListener("keydown", markActive, { passive: true });
@@ -703,6 +760,26 @@ export function GradingPage() {
               )}
               {isReadOnly && <StatusBadge variant="done">Đã nộp</StatusBadge>}
             </p>
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => void handleBackToDashboard()}
+              className="inline-flex items-center gap-2 text-sm text-ink-soft hover:text-brand-red font-medium transition-colors mb-1 cursor-pointer w-fit"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              Quay lại Dashboard
+            </button>
+            <div>
+              <h1 className="font-display text-2xl font-semibold text-ink">
+                Chấm bài — {session.studentAlias ?? `#${session.aliasNumber}`}
+              </h1>
+              <p className="text-sm text-ink-soft mt-1 flex flex-wrap items-center gap-2">
+                {queueLabel && <span>{queueLabel}</span>}
+                {isReadOnly && <StatusBadge variant="done">Đã nộp</StatusBadge>}
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-3 text-sm text-ink-soft">
             {saveLabel && (
@@ -970,6 +1047,21 @@ export function GradingPage() {
                   className={`${inputClass} resize-none`}
                 />
               </div>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => void handleToggleFlag()}
+                disabled={togglingFlag}
+                className={`px-4 py-2.5 rounded-lg text-sm font-medium border disabled:opacity-50 ${
+                  isFlagged
+                    ? "bg-brand-red/10 text-brand-red border-brand-red/30 hover:bg-brand-red/15"
+                    : "border-line hover:bg-secondary text-ink"
+                }`}
+              >
+                {isFlagged ? "Đã gắn cờ" : "Đánh dấu cần xem lại"}
+              </button>
             </div>
 
             {!isReadOnly && (

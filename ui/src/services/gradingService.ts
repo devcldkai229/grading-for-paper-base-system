@@ -3,6 +3,7 @@ import type { ApiResponse } from "@/types/auth";
 import type {
   AuditLogEntry,
   CreateMarkerAssignmentPayload,
+  GradingQueuePage,
   GradingSession,
   MarkerAssignment,
   MyProgress,
@@ -129,6 +130,25 @@ export const gradingService = {
 
   async deleteMarkerAssignment(id: string): Promise<void> {
     await api.delete<ApiResponse<null>>(`/grading/marker-assignments/${id}`);
+  },
+
+  async listQueue(params: {
+    status?: string;
+    flagged?: boolean;
+    alias?: string;
+    page: number;
+    pageSize: number;
+  }): Promise<GradingQueuePage> {
+    const res = await api.get<ApiResponse<GradingQueuePage>>("/grading/queue", {
+      params,
+    });
+    return res.data.data;
+  },
+
+  async setFlag(assignmentId: string, isFlagged: boolean): Promise<void> {
+    await api.put<ApiResponse<null>>(`/grading/sessions/${assignmentId}/flag`, {
+      isFlagged,
+    });
   },
 };
 

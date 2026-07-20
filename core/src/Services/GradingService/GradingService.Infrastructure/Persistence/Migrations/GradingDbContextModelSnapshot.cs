@@ -99,6 +99,12 @@ namespace GradingService.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<bool>("IsFlagged")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_flagged");
+
                     b.Property<GradingProgressStatus>("Status")
                         .HasColumnType("grading_progress_status")
                         .HasColumnName("status");
@@ -123,6 +129,9 @@ namespace GradingService.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("AiStatus")
                         .HasDatabaseName("idx_assign_ai_status");
+
+                    b.HasIndex("IsFlagged")
+                        .HasDatabaseName("idx_assign_flagged");
 
                     b.HasIndex("Status")
                         .HasDatabaseName("idx_assign_status");

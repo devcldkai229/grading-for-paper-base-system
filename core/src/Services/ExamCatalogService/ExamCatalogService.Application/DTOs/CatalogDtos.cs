@@ -41,7 +41,8 @@ public record SubjectExamInfoDto(
     string SubjectCode,
     Guid ExamId,
     string ExamName,
-    DateOnly? ExamEndDate
+    DateOnly? ExamEndDate,
+    DateOnly? GradingDeadline = null
 );
 
 public record SubjectSearchResultDto(
@@ -58,7 +59,8 @@ public record SubjectSearchResultDto(
     bool HasRubric,
     int QuestionCount,
     DateTime CreatedAt,
-    decimal? PassScore = null
+    decimal? PassScore = null,
+    DateOnly? GradingDeadline = null
 );
 
 public record SubjectDetailDto(
@@ -77,7 +79,8 @@ public record SubjectDetailDto(
     int RubricVersion,
     IReadOnlyList<QuestionDto> Questions,
     DateTime CreatedAt,
-    decimal? PassScore = null
+    decimal? PassScore = null,
+    DateOnly? GradingDeadline = null
 );
 
 public record QuestionDto(
@@ -128,7 +131,8 @@ public record CreateSubjectRequest(
     string? Title,
     decimal MaxScore,
     string? Status = null,
-    decimal? PassScore = null
+    decimal? PassScore = null,
+    DateOnly? GradingDeadline = null
 );
 
 public record UpdateSubjectRequest(
@@ -136,7 +140,8 @@ public record UpdateSubjectRequest(
     string? Title,
     decimal MaxScore,
     string? Status = null,
-    decimal? PassScore = null
+    decimal? PassScore = null,
+    DateOnly? GradingDeadline = null
 );
 
 public record QuestionInputDto(
@@ -154,6 +159,29 @@ public record ReplaceQuestionsRequest(
 public record ReplaceQuestionsResponse(
     IReadOnlyList<QuestionDto> Questions,
     IReadOnlyList<string> Warnings
+);
+
+public record CreateScoreGridTemplateRequest(
+    string Name,
+    IReadOnlyList<QuestionInputDto> Questions
+);
+
+/// <summary>List-view row — omits the questions payload so listing templates never needs to
+/// deserialize any JSON.</summary>
+public record ScoreGridTemplateSummaryDto(
+    Guid Id,
+    string Name,
+    Guid CreatedBy,
+    int QuestionCount,
+    DateTime CreatedAt
+);
+
+public record ScoreGridTemplateDetailDto(
+    Guid Id,
+    string Name,
+    Guid CreatedBy,
+    IReadOnlyList<QuestionInputDto> Questions,
+    DateTime CreatedAt
 );
 
 public record ExtractedQuestionDto(

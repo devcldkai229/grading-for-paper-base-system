@@ -135,6 +135,12 @@ public static class DependencyInjection
             client.BaseAddress = new Uri(aiGradingUrl);
             // Sync grade can take a while (download + LLM)
             client.Timeout = TimeSpan.FromSeconds(180);
+        var iamUrl = configuration.GetValue<string>("IamServiceUrl")
+            ?? throw new InvalidOperationException("IamServiceUrl is missing.");
+        services.AddHttpClient<IIamServiceClient, Clients.IamServiceClient>(client =>
+        {
+            client.BaseAddress = new Uri(iamUrl);
+            client.Timeout = TimeSpan.FromSeconds(10);
             client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
         });
     }

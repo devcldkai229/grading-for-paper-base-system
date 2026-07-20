@@ -1,4 +1,5 @@
 using GradingService.Application.DTOs;
+using GradingService.Domain.Enums;
 
 namespace GradingService.Application.Interfaces;
 
@@ -147,4 +148,20 @@ public interface IGradingSessionService
     /// </summary>
     Task<(bool Accepted, string? Error, bool Conflict)> RequestAiSuggestionsAsync(
         Guid assignmentId, Guid teacherId, CancellationToken ct = default);
+    /// A lecturer's own grading queue: their assignments filtered by status and/or flagged state,
+    /// optionally narrowed by an alias search (case-insensitive substring on StudentAlias, or an
+    /// exact match if the search term parses as an int against AliasNumber), sorted by alias
+    /// number, then paginated. Aliases are resolved via one bulk call to SubmissionService — a
+    /// row whose alias couldn't be resolved (service unreachable) still appears, just without one.
+    /// </summary>
+    Task<GradingQueuePageDto> GetGradingQueueAsync(
+        Guid teacherId, GradingProgressStatus? status, bool? flaggedOnly, string? aliasSearch,
+        int page, int pageSize, CancellationToken ct = default);
+
+    /// <summary>
+    /// Sets or clears the lecturer's own "needs review" flag on an assignment. Independent of
+    /// Status — a Submitted assignment can still be flagged. Returns false if the assignment
+    /// doesn't exist or isn't owned by teacherId.
+    /// </summary>
+    Task<bool> SetFlagAsync(Guid assignmentId, Guid teacherId, bool isFlagged, CancellationToken ct = default);
 }

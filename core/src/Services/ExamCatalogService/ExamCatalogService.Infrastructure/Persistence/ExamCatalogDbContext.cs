@@ -15,6 +15,7 @@ public class ExamCatalogDbContext : DbContext
     public DbSet<Exam> Exams => Set<Exam>();
     public DbSet<Subject> Subjects => Set<Subject>();
     public DbSet<Question> Questions => Set<Question>();
+    public DbSet<ScoreGridTemplate> ScoreGridTemplates => Set<ScoreGridTemplate>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

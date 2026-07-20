@@ -33,7 +33,8 @@ public record LecturerProgressClientDto(
     decimal? ThroughputPerHour,
     DateTime? LastActivityAt,
     DateTime? EstimatedFinish,
-    decimal? AvgGradingMinutesPerPaper
+    decimal? AvgGradingMinutesPerPaper,
+    int FlaggedCount = 0
 );
 
 public record SubjectProgressClientDto(
@@ -49,7 +50,8 @@ public record SubjectProgressClientDto(
     decimal? ThroughputPerHour,
     DateTime? EstimatedFinish,
     IReadOnlyList<LecturerProgressClientDto> Lecturers,
-    decimal? AvgGradingMinutesPerPaper
+    decimal? AvgGradingMinutesPerPaper,
+    int FlaggedCount = 0
 );
 
 public record GradingProgressDashboardClientDto(
@@ -66,7 +68,8 @@ public record SubjectFilterResultClientDto(
     Guid SemesterId,
     string SemesterCode,
     decimal MaxScore,
-    decimal? PassScore = null
+    decimal? PassScore = null,
+    DateOnly? GradingDeadline = null
 );
 
 /// <summary>One subject's grading progress dashboard row — subject metadata merged with progress numbers.</summary>
@@ -87,7 +90,9 @@ public record GradingProgressSubjectDto(
     decimal? ThroughputPerHour,
     DateTime? EstimatedFinish,
     IReadOnlyList<LecturerProgressClientDto> Lecturers,
-    decimal? AvgGradingMinutesPerPaper
+    decimal? AvgGradingMinutesPerPaper,
+    DateOnly? GradingDeadline = null,
+    int FlaggedCount = 0
 );
 
 public record GradingProgressDashboardResultDto(
