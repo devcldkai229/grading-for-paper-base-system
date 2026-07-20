@@ -77,6 +77,24 @@ public class SubmissionServiceClient : ISubmissionServiceClient
         }
     }
 
+    public async Task<IReadOnlyList<AiGradeFileRef>?> GetPaperFileUrlsAsync(Guid paperId, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"/api/internal/papers/{paperId}/files", ct);
+            if (response.StatusCode == HttpStatusCode.NotFound) return null;
+            response.EnsureSuccessStatusCode();
+
+            var payload = await response.Content.ReadFromJsonAsync<Envelope<List<PaperFileUrlClientDto>>>(JsonOptions, ct);
+            if (payload?.Data is null) return null;
+
+            return payload.Data
+                .Select(f => new AiGradeFileRef(f.Url, f.ContentType))
+                .ToList();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            _logger.LogError(ex, "SubmissionService unreachable for paper {PaperId} files", paperId);
     public async Task<IReadOnlyList<InternalPaperSummaryClientDto>?> GetPaperSummariesAsync(
         IReadOnlyCollection<Guid> paperIds, CancellationToken ct = default)
     {
@@ -101,5 +119,12 @@ public class SubmissionServiceClient : ISubmissionServiceClient
     {
         [JsonPropertyName("data")]
         public T? Data { get; set; }
+    }
+
+    private sealed class PaperFileUrlClientDto
+    {
+        public string Url { get; set; } = string.Empty;
+        public string ContentType { get; set; } = string.Empty;
+        public string? FileName { get; set; }
     }
 }

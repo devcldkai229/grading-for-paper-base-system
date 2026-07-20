@@ -21,7 +21,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-PORTS=(5016 5055 5056 5057 5058 5059 5060 8080)
+PORTS=(5016 5055 5056 5057 5058 5059 5060 8080 8081)
 
 echo "=== GradePaper — stop all services ==="
 

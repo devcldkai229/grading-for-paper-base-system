@@ -16,6 +16,9 @@ public interface ISubmissionServiceClient
     Task<SubjectPaperStatsClientDto?> GetSubjectPaperStatsAsync(Guid subjectId, CancellationToken ct = default);
 
     /// <summary>
+    /// Pre-signed file URLs for a paper (for AI grading download). Null when unreachable / not found.
+    /// </summary>
+    Task<IReadOnlyList<AiGradeFileRef>?> GetPaperFileUrlsAsync(Guid paperId, CancellationToken ct = default);
     /// Bulk-resolves summaries (alias, batch, subject) for an arbitrary set of paper ids in one
     /// round trip. Null when SubmissionService is unreachable — callers should degrade gracefully
     /// (e.g. show the queue row without an alias) rather than fail the whole request.

@@ -21,6 +21,8 @@ export interface GradingQuestionMark {
   score: number | null;
   questionComment: string;
   orderIndex: number;
+  aiDrafted?: boolean;
+  aiReviewStatus?: string | null;
 }
 
 export interface GradingSession {
@@ -31,6 +33,7 @@ export interface GradingSession {
   subjectMaxScore: number;
   rubricVersion: number;
   status: string;
+  aiStatus?: string;
   rowVersion: number;
   paperComment: string;
   internalComment: string;

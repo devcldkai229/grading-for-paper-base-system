@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Start Docker infrastructure and run all GradePaper microservices + API Gateway + AI grading (local Python).
+  Start Docker infrastructure and run all GradePaper microservices + API Gateway + AI services.
 
 .PARAMETER SkipDocker
   Do not start docker-compose (postgres, mongodb, redis, rabbitmq, qdrant).
@@ -10,7 +10,7 @@
   Skip dotnet build before launching services.
 
 .PARAMETER SkipAi
-  Do not start the local Python AIGradingService.
+  Do not start local Python AI services (AIParseQuestionService + AIGradingService).
 
 .PARAMETER Migrate
   Run EF migrations (ExamCatalog + Grading) before starting services.
@@ -34,7 +34,8 @@ $CoreRoot = Split-Path -Parent $SrcRoot
 $RepoRoot = Split-Path -Parent $CoreRoot
 $SolutionPath = Join-Path $CoreRoot "GradingSystem.slnx"
 $ComposePath = Join-Path $SrcRoot "docker-compose.yml"
-$AiRoot = Join-Path $RepoRoot "ai"
+$AiParseRoot = Join-Path $SrcRoot "Services\AIParseQuestionService"
+$AiGradingRoot = Join-Path $SrcRoot "Services\AIGradingService"
 $PidDir = Join-Path $ScriptRoot ".pids"
 
 $DockerServices = @("postgres", "mongodb", "redis", "rabbitmq", "qdrant", "gotenberg")
@@ -59,6 +60,9 @@ function Sync-InternalApiKeys {
         $env:INTERNAL_API_KEY = "duN6gR1GLWwprRnNH4tWxKLZLqM9zDYWQM2x0S0tYfC"
     }
     $env:InternalAuth__ApiKey = $env:INTERNAL_API_KEY
+    if (-not $env:AiGradingServiceUrl) {
+        $env:AiGradingServiceUrl = "http://localhost:8081"
+    }
 }
 
 function Import-RepoDotEnv {
@@ -77,7 +81,9 @@ function Import-RepoDotEnv {
 }
 
 function Ensure-AiVenv {
-    $venvDir = Join-Path $AiRoot ".venv"
+    param([string]$ServiceRoot)
+
+    $venvDir = Join-Path $ServiceRoot ".venv"
     $venvPython = Join-Path $venvDir "Scripts\python.exe"
 
     if (-not (Test-Path $venvPython)) {
@@ -85,10 +91,10 @@ function Ensure-AiVenv {
         if (-not $python) {
             throw "Python not found. Install Python 3.11+ or use -SkipAi."
         }
-        Write-Host "[AIGradingService] Creating venv at $venvDir ..." -ForegroundColor Yellow
+        Write-Host "[AI] Creating venv at $venvDir ..." -ForegroundColor Yellow
         & python -m venv $venvDir
         & $venvPython -m pip install -q --upgrade pip
-        & $venvPython -m pip install -q -r (Join-Path $AiRoot "requirements.txt")
+        & $venvPython -m pip install -q -r (Join-Path $ServiceRoot "requirements.txt")
     }
 
     return $venvPython
@@ -125,21 +131,25 @@ function Start-ServiceProcess {
     }
 
     $shell = if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh" } else { "powershell" }
-    $command = "Set-Location '$SrcRoot'; `$env:ASPNETCORE_ENVIRONMENT='Development'; `$env:INTERNAL_API_KEY='$($env:INTERNAL_API_KEY)'; `$env:InternalAuth__ApiKey='$($env:INTERNAL_API_KEY)'; dotnet $($runArgs -join ' ')"
+    $command = "Set-Location '$SrcRoot'; `$env:ASPNETCORE_ENVIRONMENT='Development'; `$env:INTERNAL_API_KEY='$($env:INTERNAL_API_KEY)'; `$env:InternalAuth__ApiKey='$($env:INTERNAL_API_KEY)'; `$env:AiGradingServiceUrl='$($env:AiGradingServiceUrl)'; dotnet $($runArgs -join ' ')"
     Write-Host "[$Name] Starting on port $Port..."
     Start-Process -FilePath $shell -ArgumentList @("-NoExit", "-Command", $command) -WindowStyle Normal
 }
 
-function Start-AiGradingProcess {
-    $port = 8080
+function Start-PythonAiService {
+    param(
+        [string]$Name,
+        [string]$ServiceRoot,
+        [int]$Port
+    )
 
-    if (Test-PortInUse -Port $port) {
-        Write-Warning "[AIGradingService] Port $port is already in use - skipping."
+    if (Test-PortInUse -Port $Port) {
+        Write-Warning "[$Name] Port $Port is already in use - skipping."
         return
     }
 
-    if (-not (Test-Path $AiRoot)) {
-        throw "AI project not found: $AiRoot"
+    if (-not (Test-Path $ServiceRoot)) {
+        throw "AI project not found: $ServiceRoot"
     }
 
     Import-RepoDotEnv
@@ -151,32 +161,32 @@ function Start-AiGradingProcess {
         $env:OPENAI_MODEL = "gpt-4o-mini"
     }
 
-    $venvPython = Ensure-AiVenv
-    $uvicorn = Join-Path $AiRoot ".venv\Scripts\uvicorn.exe"
+    $venvPython = Ensure-AiVenv -ServiceRoot $ServiceRoot
+    $uvicorn = Join-Path $ServiceRoot ".venv\Scripts\uvicorn.exe"
 
     New-Item -ItemType Directory -Force -Path $PidDir | Out-Null
-    $logFile = Join-Path $PidDir "AIGradingService.log"
+    $logFile = Join-Path $PidDir "$Name.log"
 
     if ($NoNewWindow) {
-        Write-Host "[AIGradingService] Starting on port $port (background, log: $logFile)..."
-        $errFile = Join-Path $PidDir "AIGradingService.err.log"
+        Write-Host "[$Name] Starting on port $Port (background, log: $logFile)..."
         $proc = Start-Process -FilePath $uvicorn -ArgumentList @(
-            "app.main:app", "--host", "0.0.0.0", "--port", "$port", "--reload"
-        ) -WorkingDirectory $AiRoot -WindowStyle Hidden -PassThru `
-            -RedirectStandardOutput $logFile -RedirectStandardError $errFile
-        $proc.Id | Out-File -FilePath (Join-Path $PidDir "AIGradingService.pid") -Encoding ascii
+            "app.main:app", "--host", "0.0.0.0", "--port", "$Port", "--reload"
+        ) -WorkingDirectory $ServiceRoot -WindowStyle Hidden -PassThru `
+            -RedirectStandardOutput $logFile -RedirectStandardError $logFile
+        $proc.Id | Out-File -FilePath (Join-Path $PidDir "$Name.pid") -Encoding ascii
         return
     }
 
     $shell = if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh" } else { "powershell" }
     $command = @"
-Set-Location '$AiRoot'
+Set-Location '$ServiceRoot'
 `$env:INTERNAL_API_KEY='$($env:INTERNAL_API_KEY)'
 `$env:OPENAI_API_KEY='$($env:OPENAI_API_KEY)'
 `$env:OPENAI_MODEL='$($env:OPENAI_MODEL)'
-& '$uvicorn' app.main:app --host 0.0.0.0 --port $port --reload
+`$env:GRADING_SERVICE_BASE_URL='http://localhost:5058'
+& '$uvicorn' app.main:app --host 0.0.0.0 --port $Port --reload
 "@
-    Write-Host "[AIGradingService] Starting on port $port (local Python, no Docker)..."
+    Write-Host "[$Name] Starting on port $Port (local Python)..."
     Start-Process -FilePath $shell -ArgumentList @("-NoExit", "-Command", $command) -WindowStyle Normal
 }
 
@@ -196,7 +206,7 @@ if (-not $SkipDocker) {
         throw "docker-compose.yml not found: $ComposePath"
     }
 
-    Write-Host "Starting infrastructure (docker compose, no AI container)..." -ForegroundColor Yellow
+    Write-Host "Starting infrastructure (docker compose)..." -ForegroundColor Yellow
     docker compose -f $ComposePath up -d @DockerServices
     if ($LASTEXITCODE -ne 0) {
         throw "docker compose failed with exit code $LASTEXITCODE"
@@ -216,7 +226,9 @@ if (-not $SkipBuild) {
 }
 
 if (-not $SkipAi) {
-    Start-AiGradingProcess
+    Start-PythonAiService -Name "AIParseQuestionService" -ServiceRoot $AiParseRoot -Port 8080
+    Start-Sleep -Milliseconds 400
+    Start-PythonAiService -Name "AIGradingService" -ServiceRoot $AiGradingRoot -Port 8081
     Start-Sleep -Milliseconds 400
 }
 
@@ -235,10 +247,11 @@ Write-Host "=== All services launched ===" -ForegroundColor Green
 Write-Host ""
 Write-Host "Endpoints:" -ForegroundColor Cyan
 if (-not $SkipAi) {
-    Write-Host ("  {0,-22} {1}" -f "AIGradingService", "http://localhost:8080/docs")
+    Write-Host ("  {0,-26} {1}" -f "AIParseQuestionService", "http://localhost:8080/docs")
+    Write-Host ("  {0,-26} {1}" -f "AIGradingService", "http://localhost:8081/docs")
 }
 foreach ($service in $Services) {
-    Write-Host ("  {0,-22} {1}" -f $service.Name, $service.Url)
+    Write-Host ("  {0,-26} {1}" -f $service.Name, $service.Url)
 }
 Write-Host ""
 if ($NoNewWindow) {

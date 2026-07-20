@@ -22,7 +22,9 @@ public record QuestionMarkDto(
     decimal MaxScore,
     decimal? Score,
     string? QuestionComment,
-    int OrderIndex
+    int OrderIndex,
+    bool AiDrafted = false,
+    string? AiReviewStatus = null
 );
 
 public record GradingSessionDto(
@@ -33,6 +35,7 @@ public record GradingSessionDto(
     decimal SubjectMaxScore,
     int RubricVersion,
     string Status,
+    string AiStatus,
     int RowVersion,
     string? PaperComment,
     string? InternalComment,
@@ -282,4 +285,47 @@ public record ReassignMarkerAssignmentRequest(
     Guid TeacherId,
     int AliasStart,
     int AliasEnd
+);
+
+// ---------------------------------------------------------------------------
+// AI Grading — write-back (AIGradingService → GradingService)
+// ---------------------------------------------------------------------------
+
+/// <summary>Payload from AIGradingService to apply AI-generated score suggestions to an assignment.</summary>
+public record ApplyAiSuggestionsRequest(
+    Guid AssignmentId,
+    IReadOnlyList<AiQuestionGrade> QuestionGrades,
+    string ModelUsed,
+    string PromptVersion
+);
+
+public record AiQuestionGrade(
+    string QuestionNumber,
+    decimal Score,
+    string? QuestionComment,
+    double Confidence,
+    bool IsManualOnly
+);
+
+// ---------------------------------------------------------------------------
+// AI Grading — outbound (GradingService → AIGradingService)
+// ---------------------------------------------------------------------------
+
+/// <summary>Request sent to AIGradingService to grade a paper.</summary>
+public record AiGradeSuggestRequest(
+    Guid AssignmentId,
+    Guid SubjectId,
+    string RubricVersion,
+    IReadOnlyList<AiGradeFileRef> Files,
+    IReadOnlyList<AiGradeScoreGridItem> ScoreGrid,
+    string? RubricText
+);
+
+public record AiGradeFileRef(string Url, string ContentType);
+
+public record AiGradeScoreGridItem(
+    string QuestionNumber,
+    string? GroupLabel,
+    string? Label,
+    decimal MaxScore
 );

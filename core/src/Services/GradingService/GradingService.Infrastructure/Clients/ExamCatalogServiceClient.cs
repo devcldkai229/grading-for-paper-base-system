@@ -59,6 +59,29 @@ public class ExamCatalogServiceClient : IExamCatalogServiceClient
         }
     }
 
+    public async Task<string?> GetRubricTextAsync(Guid subjectId, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"/api/internal/subjects/{subjectId}/rubric-text", ct);
+            if (response.StatusCode == HttpStatusCode.NotFound) return null;
+            response.EnsureSuccessStatusCode();
+
+            var payload = await response.Content.ReadFromJsonAsync<Envelope<RubricTextClientDto>>(JsonOptions, ct);
+            return payload?.Data?.Text;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            _logger.LogError(ex, "ExamCatalogService unreachable for subject {SubjectId} rubric-text", subjectId);
+            return null;
+        }
+    }
+
+    private sealed class RubricTextClientDto
+    {
+        public string Text { get; set; } = string.Empty;
+    }
+
     private sealed class Envelope<T>
     {
         [JsonPropertyName("data")]

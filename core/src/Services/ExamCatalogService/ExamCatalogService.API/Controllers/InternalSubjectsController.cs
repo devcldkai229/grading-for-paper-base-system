@@ -45,6 +45,32 @@ public class InternalSubjectsController : ControllerBase
     }
 
     /// <summary>
+    /// Plain-text rubric summary for AI grading (question labels + max scores).
+    /// </summary>
+    [HttpGet("{subjectId:guid}/rubric-text")]
+    public async Task<IActionResult> GetRubricText(Guid subjectId, CancellationToken ct = default)
+    {
+        var subject = await _repository.GetSubjectDetailAsync(subjectId, ct);
+        if (subject is null)
+        {
+            return NotFound(new { statusCode = 404, message = "Subject not found", responsedAt = DateTime.UtcNow });
+        }
+
+        var lines = subject.Questions
+            .OrderBy(q => q.OrderIndex)
+            .ThenBy(q => q.QuestionNumber)
+            .Select(q =>
+            {
+                var group = string.IsNullOrWhiteSpace(q.GroupLabel) ? "" : $" [{q.GroupLabel}]";
+                var label = string.IsNullOrWhiteSpace(q.Label) ? "" : $" — {q.Label}";
+                return $"{q.QuestionNumber}{group}{label} (max {q.MaxScore})";
+            });
+
+        var text = string.Join('\n', lines);
+        return Ok(new { data = new { text }, responsedAt = DateTime.UtcNow });
+    }
+
+    /// <summary>
     /// Minimal exam context for a subject (code, exam name, exam end date).
     /// Consumed by GradingService to surface upcoming grading deadlines on a lecturer's dashboard.
     /// </summary>

@@ -19,21 +19,24 @@ $RepoRoot = Split-Path -Parent $CoreRoot
 $ComposePath = Join-Path $RepoRoot "infra/docker/docker-compose.yml"
 $PidDir = Join-Path $ScriptRoot ".pids"
 
-$Ports = @(5016, 5055, 5056, 5057, 5058, 5059, 5060, 8080)
+$Ports = @(5016, 5055, 5056, 5057, 5058, 5059, 5060, 8080, 8081)
 
 Write-Host "=== GradePaper - stop all services ===" -ForegroundColor Cyan
 
 $stopped = 0
 
-$aiPidFile = Join-Path $PidDir "AIGradingService.pid"
-if (Test-Path $aiPidFile) {
-    $aiPid = Get-Content $aiPidFile -Raw
-    if ($aiPid -and (Get-Process -Id $aiPid.Trim() -ErrorAction SilentlyContinue)) {
-        Write-Host "Stopping AIGradingService (PID $($aiPid.Trim()))..."
-        Stop-Process -Id $aiPid.Trim() -Force
-        $stopped++
+$aiPidFiles = @("AIParseQuestionService.pid", "AIGradingService.pid", "AIGradingService.pid")
+foreach ($pidFileName in $aiPidFiles) {
+    $aiPidFile = Join-Path $PidDir $pidFileName
+    if (Test-Path $aiPidFile) {
+        $aiPid = Get-Content $aiPidFile -Raw
+        if ($aiPid -and (Get-Process -Id $aiPid.Trim() -ErrorAction SilentlyContinue)) {
+            Write-Host "Stopping AI service (PID $($aiPid.Trim()))..."
+            Stop-Process -Id $aiPid.Trim() -Force
+            $stopped++
+        }
+        Remove-Item $aiPidFile -Force -ErrorAction SilentlyContinue
     }
-    Remove-Item $aiPidFile -Force
 }
 
 foreach ($port in $Ports) {
