@@ -129,7 +129,7 @@ export function GradingPage() {
   const urlCacheRef = useRef<Record<string, { data: FileUrlResponse; expiresAt: number }>>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedPayloadRef = useRef<string>("");
-  const lastActivityRef = useRef<number>(Date.now());
+  const lastActivityRef = useRef<number>(0);
   const isReadOnly = session?.status === "Submitted";
   const inputsLocked = isReadOnly && !overrideMode;
 
@@ -619,6 +619,7 @@ export function GradingPage() {
     const markActive = () => {
       lastActivityRef.current = Date.now();
     };
+    markActive();
     window.addEventListener("mousemove", markActive, { passive: true });
     window.addEventListener("mousedown", markActive, { passive: true });
     window.addEventListener("keydown", markActive, { passive: true });

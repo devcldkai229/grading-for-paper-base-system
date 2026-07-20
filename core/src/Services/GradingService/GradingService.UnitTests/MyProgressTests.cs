@@ -119,7 +119,7 @@ namespace GradingService.UnitTests
         }
 
         [Fact]
-        public async Task GetMyProgressAsync_IncludesSubjectsWithoutAnExamDeadlineWithPlaceholder()
+        public async Task GetMyProgressAsync_ExcludesSubjectsWithoutAnExamDeadline()
         {
             using var db = NewInMemoryContext();
             var teacherId = Guid.NewGuid();
@@ -135,8 +135,7 @@ namespace GradingService.UnitTests
 
             var result = await service.GetMyProgressAsync(teacherId, CancellationToken.None);
 
-            var deadline = Assert.Single(result.UpcomingDeadlines);
-            Assert.Equal(new DateOnly(9999, 12, 31), deadline.ExamEndDate);
+            Assert.Empty(result.UpcomingDeadlines);
             // No deadline info anywhere => fall back to this subject's next assignment.
             Assert.NotNull(result.NextAssignmentId);
         }
