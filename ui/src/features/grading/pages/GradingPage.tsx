@@ -123,6 +123,8 @@ export function GradingPage() {
   const [auditLog, setAuditLog] = useState<AuditLogEntry[] | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState<string | null>(null);
+  const [aiSuggesting, setAiSuggesting] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   const urlCacheRef = useRef<Record<string, { data: FileUrlResponse; expiresAt: number }>>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -226,6 +228,62 @@ export function GradingPage() {
     }
     loadAll();
   }, [loadAll, navigate]);
+
+  const refreshSession = useCallback(async () => {
+    if (!assignmentId) return;
+    try {
+      const data = await gradingService.getSession(assignmentId);
+      applySession(data);
+      updateQueueAssignmentStatus(assignmentId, data.status);
+    } catch {
+      /* silent poll failure */
+    }
+  }, [assignmentId, applySession]);
+
+  useEffect(() => {
+    const aiStatus = session?.aiStatus ?? "NotRequested";
+    if (aiStatus !== "Queued" && aiStatus !== "Processing") return;
+
+    const timer = setInterval(() => {
+      void refreshSession();
+    }, 2500);
+
+    return () => clearInterval(timer);
+  }, [session?.aiStatus, refreshSession]);
+
+  const handleAiSuggest = useCallback(async () => {
+    if (!assignmentId || isReadOnly) return;
+    setAiSuggesting(true);
+    setAiError(null);
+    try {
+      await gradingService.requestAiSuggest(assignmentId);
+      await refreshSession();
+    } catch (err) {
+      if (isAxiosStatus(err, 409)) {
+        setAiError("AI đang xử lý bài này — vui lòng đợi.");
+      } else {
+        setAiError("Không gọi được AI gợi ý điểm.");
+      }
+    } finally {
+      setAiSuggesting(false);
+    }
+  }, [assignmentId, isReadOnly, refreshSession]);
+
+  const aiStatusLabel = useMemo(() => {
+    const s = session?.aiStatus ?? "NotRequested";
+    switch (s) {
+      case "Queued":
+        return "AI: đang chờ";
+      case "Processing":
+        return "AI: đang chấm";
+      case "Completed":
+        return "AI: xong";
+      case "Failed":
+        return "AI: lỗi";
+      default:
+        return null;
+    }
+  }, [session?.aiStatus]);
 
   const orderedQuestions = useMemo(
     () => (session ? buildQuestionGroups(session.questions).flatMap((g) => g.items) : []),
@@ -638,6 +696,11 @@ export function GradingPage() {
             </h1>
             <p className="text-sm text-ink-soft mt-1 flex flex-wrap items-center gap-2">
               {queueLabel && <span>{queueLabel}</span>}
+              {aiStatusLabel && (
+                <StatusBadge variant={session?.aiStatus === "Failed" ? "error" : "ai"}>
+                  {aiStatusLabel}
+                </StatusBadge>
+              )}
               {isReadOnly && <StatusBadge variant="done">Đã nộp</StatusBadge>}
             </p>
           </div>
@@ -648,6 +711,7 @@ export function GradingPage() {
               </span>
             )}
             {conflictMsg && <span className="text-brand-orange">{conflictMsg}</span>}
+            {aiError && <span className="text-brand-orange">{aiError}</span>}
             {error && <span className="text-destructive">{error}</span>}
           </div>
         </header>
@@ -816,7 +880,14 @@ export function GradingPage() {
                           }`}
                         >
                           <div className="col-span-3 text-sm font-medium text-ink">
-                            {q.label?.trim() || q.questionNumber}
+                            <span className="inline-flex items-center gap-1.5 flex-wrap">
+                              {q.label?.trim() || q.questionNumber}
+                              {q.aiDrafted && (
+                                <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-brand-red/10 text-brand-red font-semibold">
+                                  AI
+                                </span>
+                              )}
+                            </span>
                             <div className="text-xs text-ink-soft font-score">
                               {q.label?.trim() ? q.questionNumber + " · " : ""}/ {q.maxScore}
                             </div>
@@ -903,6 +974,22 @@ export function GradingPage() {
 
             {!isReadOnly && (
               <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() => void handleAiSuggest()}
+                  disabled={
+                    aiSuggesting ||
+                    session.aiStatus === "Queued" ||
+                    session.aiStatus === "Processing"
+                  }
+                  className="px-4 py-2.5 border border-brand-red/40 text-brand-red hover:bg-brand-red/5 disabled:opacity-50 rounded-lg text-sm font-medium"
+                >
+                  {aiSuggesting ||
+                  session.aiStatus === "Queued" ||
+                  session.aiStatus === "Processing"
+                    ? "AI đang xử lý..."
+                    : "Gợi ý AI"}
+                </button>
                 <button
                   type="button"
                   onClick={() => void persistMarks(false)}

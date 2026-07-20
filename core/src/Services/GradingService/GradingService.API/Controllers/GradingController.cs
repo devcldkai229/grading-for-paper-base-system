@@ -513,6 +513,59 @@ public class GradingController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Request AI grading suggestions for an assignment (fire-and-forget).
+    /// Returns 202 when queued; AI write-back updates scores asynchronously.
+    /// </summary>
+    [HttpPost("sessions/{assignmentId:guid}/ai-suggest")]
+    public async Task<IActionResult> RequestAiSuggest(Guid assignmentId, CancellationToken ct = default)
+    {
+        var teacherId = GetUserId();
+        var (accepted, error, conflict) = await _gradingSessionService.RequestAiSuggestionsAsync(
+            assignmentId, teacherId, ct);
+
+        if (!accepted)
+        {
+            if (string.Equals(error, "Session not found or access denied", StringComparison.OrdinalIgnoreCase))
+            {
+                return NotFound(new ApiResponse<object>
+                {
+                    StatusCode = 404,
+                    Message = error,
+                    Data = null,
+                    ResponsedAt = DateTime.UtcNow
+                });
+            }
+
+            if (conflict)
+            {
+                return Conflict(new ApiResponse<object>
+                {
+                    StatusCode = 409,
+                    Message = error ?? "AI grading already in progress",
+                    Data = null,
+                    ResponsedAt = DateTime.UtcNow
+                });
+            }
+
+            return BadRequest(new ApiResponse<object>
+            {
+                StatusCode = 400,
+                Message = error ?? "Failed to request AI suggestions",
+                Data = null,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        return Accepted(new ApiResponse<object>
+        {
+            StatusCode = 202,
+            Message = "AI suggestion request accepted",
+            Data = new { assignmentId, aiStatus = "Queued" },
+            ResponsedAt = DateTime.UtcNow
+        });
+    }
+
     private Guid GetUserId()
     {
         var raw = User.FindFirst(ClaimTypes.NameIdentifier)?.Value

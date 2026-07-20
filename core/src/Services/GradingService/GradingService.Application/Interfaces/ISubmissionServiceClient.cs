@@ -14,4 +14,9 @@ public interface ISubmissionServiceClient
     /// rather than fail closed (same graceful-degrade convention as the other client methods here).
     /// </summary>
     Task<SubjectPaperStatsClientDto?> GetSubjectPaperStatsAsync(Guid subjectId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Pre-signed file URLs for a paper (for AI grading download). Null when unreachable / not found.
+    /// </summary>
+    Task<IReadOnlyList<AiGradeFileRef>?> GetPaperFileUrlsAsync(Guid paperId, CancellationToken ct = default);
 }

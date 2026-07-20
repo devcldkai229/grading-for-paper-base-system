@@ -53,6 +53,13 @@ export const gradingService = {
     return res.data.data;
   },
 
+  async requestAiSuggest(assignmentId: string): Promise<{ aiStatus: string }> {
+    const res = await api.post<ApiResponse<{ assignmentId: string; aiStatus: string }>>(
+      `/grading/sessions/${assignmentId}/ai-suggest`
+    );
+    return { aiStatus: res.data.data?.aiStatus ?? "Queued" };
+  },
+
   async recordHeartbeat(assignmentId: string, seconds: number): Promise<void> {
     await api.post<ApiResponse<null>>(`/grading/sessions/${assignmentId}/heartbeat`, {
       seconds,

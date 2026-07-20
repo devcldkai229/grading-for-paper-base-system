@@ -131,4 +131,20 @@ public interface IGradingSessionService
     /// published (for logging).
     /// </summary>
     Task<int> RunDeadlineReminderSweepAsync(int reminderWindowDays = 3, CancellationToken ct = default);
+
+    /// <summary>
+    /// Applies AI-generated score suggestions to an assignment's grading form.
+    /// Called by the internal AI write-back endpoint. Idempotent: re-applying the same
+    /// suggestions is a no-op (AiDrafted is already true). Skips assignments that are
+    /// already Submitted.
+    /// </summary>
+    Task<(bool Success, string? Error)> ApplyAiSuggestionsAsync(
+        ApplyAiSuggestionsRequest request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Fire-and-forget: request AI suggestions for an assignment owned by the teacher.
+    /// Sets AiStatus=Queued and returns Accepted. AI write-back updates scores later.
+    /// </summary>
+    Task<(bool Accepted, string? Error, bool Conflict)> RequestAiSuggestionsAsync(
+        Guid assignmentId, Guid teacherId, CancellationToken ct = default);
 }

@@ -3,8 +3,10 @@ using GradingService.Application.Interfaces;
 using GradingService.Domain.Enums;
 using GradingService.Infrastructure.Auth;
 using GradingService.Infrastructure.Clients;
+using GradingService.Infrastructure.Consumers;
 using GradingService.Infrastructure.Files;
 using GradingService.Infrastructure.Persistence.Repositories;
+using GradingService.Infrastructure.Redis;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -48,16 +50,29 @@ public static class DependencyInjection
         services.AddHostedService<Jobs.DeadlineReminderBackgroundService>();
 
         RegisterInternalHttpClients(services, configuration);
+        RegisterRedis(services, configuration);
         RegisterJwtAuthentication(services, configuration);
         RegisterMessaging(services, configuration);
 
         return services;
     }
 
+    private static void RegisterRedis(IServiceCollection services, IConfiguration configuration)
+    {
+        var redisConnString = configuration.GetSection("Redis")["ConnectionString"];
+        if (string.IsNullOrWhiteSpace(redisConnString))
+        {
+            services.AddSingleton<IAiGradeLockService, NoOpAiGradeLockService>();
+            return;
+        }
+
+        services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(_ =>
+            StackExchange.Redis.ConnectionMultiplexer.Connect(redisConnString));
+        services.AddSingleton<IAiGradeLockService, RedisAiGradeLockService>();
+    }
+
     private static void RegisterMessaging(IServiceCollection services, IConfiguration configuration)
     {
-        // Publish-only: GradingService raises business events for NotificationService to consume;
-        // it has no consumers of its own.
         var rabbitMq = configuration.GetSection("RabbitMq");
         var rabbitHost = rabbitMq["Host"] ?? "localhost";
         var rabbitPort = ushort.TryParse(rabbitMq["Port"], out var port) ? port : (ushort)5673;
@@ -66,12 +81,23 @@ public static class DependencyInjection
 
         services.AddMassTransit(x =>
         {
+            x.AddConsumer<AiGradeConsumer>();
+
             x.UsingRabbitMq((ctx, cfg) =>
             {
                 cfg.Host(rabbitHost, rabbitPort, "/", h =>
                 {
                     h.Username(rabbitUser);
                     h.Password(rabbitPass);
+                });
+
+                cfg.ReceiveEndpoint("ai-grade-requested", e =>
+                {
+                    e.ConfigureConsumer<AiGradeConsumer>(ctx);
+                    e.UseMessageRetry(r => r.Intervals(
+                        TimeSpan.FromSeconds(10),
+                        TimeSpan.FromSeconds(30),
+                        TimeSpan.FromSeconds(60)));
                 });
 
                 cfg.ConfigureEndpoints(ctx);
@@ -99,6 +125,16 @@ public static class DependencyInjection
         {
             client.BaseAddress = new Uri(catalogUrl);
             client.Timeout = TimeSpan.FromSeconds(10);
+            client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
+        });
+
+        var aiGradingUrl = configuration.GetValue<string>("AiGradingServiceUrl")
+            ?? "http://localhost:8081";
+        services.AddHttpClient<IAiGradingServiceClient, AiGradingServiceClient>(client =>
+        {
+            client.BaseAddress = new Uri(aiGradingUrl);
+            // Sync grade can take a while (download + LLM)
+            client.Timeout = TimeSpan.FromSeconds(180);
             client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
         });
     }

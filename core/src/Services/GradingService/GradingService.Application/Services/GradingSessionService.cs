@@ -124,7 +124,9 @@ public class GradingSessionService : IGradingSessionService
                 q.MaxScore,
                 q.Score,
                 q.QuestionComment,
-                q.OrderIndex))
+                q.OrderIndex,
+                q.AiDrafted,
+                ToAiReviewStatusLabel(q.AiReviewStatus)))
             .ToList();
 
         return new GradingSessionDto(
@@ -135,6 +137,7 @@ public class GradingSessionService : IGradingSessionService
             grid.MaxScore,
             grid.RubricVersion,
             ToStatusLabel(assignment.Status),
+            ToAiStatusLabel(assignment.AiStatus),
             assignment.GradingForm.RowVersion,
             assignment.GradingForm.PaperComment,
             assignment.GradingForm.InternalComment,
@@ -174,8 +177,19 @@ public class GradingSessionService : IGradingSessionService
                 .FirstOrDefault(q => q.QuestionNumber == input.QuestionNumber);
             if (detail is null) continue;
 
+            var prevScore = detail.Score;
+            var prevComment = detail.QuestionComment;
+
             detail.Score = input.Score;
             detail.QuestionComment = input.QuestionComment;
+
+            if (detail.AiDrafted)
+            {
+                var scoreChanged = prevScore != input.Score;
+                var commentChanged = !string.Equals(prevComment, input.QuestionComment, StringComparison.Ordinal);
+                if (scoreChanged || commentChanged)
+                    detail.AiReviewStatus = AiReviewStatus.Modified;
+            }
         }
 
         form.PaperComment = request.PaperComment;
@@ -331,6 +345,12 @@ public class GradingSessionService : IGradingSessionService
         var now = DateTime.UtcNow;
         assignment.Status = GradingProgressStatus.Submitted;
         assignment.GradingForm.SubmittedAt = now;
+
+        foreach (var detail in assignment.GradingForm.QuestionGradeDetails)
+        {
+            if (detail.AiDrafted && detail.AiReviewStatus == AiReviewStatus.Pending)
+                detail.AiReviewStatus = AiReviewStatus.Accepted;
+        }
 
         _auditLogs.Add(new AuditLog
         {
@@ -530,6 +550,25 @@ public class GradingSessionService : IGradingSessionService
             GradingProgressStatus.Submitted => "Submitted",
             GradingProgressStatus.Drafting => "Drafting",
             _ => "NotStarted"
+        };
+
+    private static string ToAiStatusLabel(AiSyncStatus status) =>
+        status switch
+        {
+            AiSyncStatus.Queued => "Queued",
+            AiSyncStatus.Processing => "Processing",
+            AiSyncStatus.Completed => "Completed",
+            AiSyncStatus.Failed => "Failed",
+            _ => "NotRequested"
+        };
+
+    private static string ToAiReviewStatusLabel(AiReviewStatus status) =>
+        status switch
+        {
+            AiReviewStatus.Accepted => "Accepted",
+            AiReviewStatus.Rejected => "Rejected",
+            AiReviewStatus.Modified => "Modified",
+            _ => "Pending"
         };
 
     private static string SerializeForm(GradingForm form) =>
@@ -1035,6 +1074,145 @@ public class GradingSessionService : IGradingSessionService
         }
 
         return null;
+    }
+
+    public async Task<(bool Success, string? Error)> ApplyAiSuggestionsAsync(
+        ApplyAiSuggestionsRequest request, CancellationToken ct = default)
+    {
+        var assignment = await _assignments.GetWithFormAndDetailsAsync(
+            request.AssignmentId, teacherId: null, asNoTracking: false, ct);
+
+        if (assignment?.GradingForm is null)
+            return (false, "Assignment not found");
+
+        // Already submitted — skip gracefully (do not overwrite lecturer-finalized marks)
+        if (assignment.Status == GradingProgressStatus.Submitted)
+            return (true, null);
+
+        var form = assignment.GradingForm;
+        var detailByNumber = form.QuestionGradeDetails
+            .ToDictionary(q => q.QuestionNumber, StringComparer.OrdinalIgnoreCase);
+
+        var anyApplied = false;
+        foreach (var grade in request.QuestionGrades)
+        {
+            if (!detailByNumber.TryGetValue(grade.QuestionNumber, out var detail))
+                continue;
+
+            // Idempotent: already drafted with same score+comment → skip row
+            if (detail.AiDrafted
+                && detail.Score == grade.Score
+                && string.Equals(detail.QuestionComment, grade.QuestionComment, StringComparison.Ordinal)
+                && !grade.IsManualOnly)
+            {
+                continue;
+            }
+
+            // Skip rows the lecturer manually scored (non-AI draft with existing score)
+            if (!detail.AiDrafted && detail.Score > 0 && !grade.IsManualOnly)
+                continue;
+
+            if (grade.IsManualOnly)
+            {
+                detail.QuestionComment = grade.QuestionComment;
+                detail.AiDrafted = true;
+                detail.AiReviewStatus = AiReviewStatus.Pending;
+                anyApplied = true;
+                continue;
+            }
+
+            // Only overwrite score when AI-drafted or still at zero
+            if (detail.AiDrafted || detail.Score == 0)
+            {
+                var clamped = Math.Clamp(grade.Score, 0m, detail.MaxScore);
+                detail.Score = clamped;
+            }
+
+            detail.QuestionComment = grade.QuestionComment;
+            detail.AiDrafted = true;
+            detail.AiReviewStatus = AiReviewStatus.Pending;
+            anyApplied = true;
+        }
+
+        assignment.AiStatus = AiSyncStatus.Completed;
+
+        if (anyApplied)
+        {
+            form.TotalScore = form.QuestionGradeDetails.Sum(q => q.Score);
+            form.RowVersion++;
+            if (assignment.Status == GradingProgressStatus.NotStarted)
+                assignment.Status = GradingProgressStatus.Drafting;
+        }
+
+        _auditLogs.Add(new AuditLog
+        {
+            UserId = Guid.Empty,
+            Action = "AiSuggestionApplied",
+            EntityType = "GradingAssignment",
+            EntityId = assignment.Id,
+            NewValue = JsonSerializer.Serialize(new
+            {
+                request.ModelUsed,
+                request.PromptVersion,
+                AppliedCount = request.QuestionGrades.Count,
+                anyApplied
+            })
+        });
+
+        await _uow.SaveChangesAsync(ct);
+        return (true, null);
+    }
+
+    public async Task<(bool Accepted, string? Error, bool Conflict)> RequestAiSuggestionsAsync(
+        Guid assignmentId, Guid teacherId, CancellationToken ct = default)
+    {
+        var assignment = await _assignments.GetWithFormAndDetailsAsync(
+            assignmentId, teacherId, asNoTracking: false, ct);
+
+        if (assignment?.GradingForm is null)
+            return (false, "Session not found or access denied", false);
+
+        if (assignment.Status == GradingProgressStatus.Submitted)
+            return (false, "Session is already submitted", false);
+
+        if (assignment.AiStatus is AiSyncStatus.Queued or AiSyncStatus.Processing)
+            return (false, "AI grading is already in progress for this assignment", true);
+
+        var files = await _submissionClient.GetPaperFileUrlsAsync(assignment.StudentPaperId, ct);
+        if (files is null || files.Count == 0)
+            return (false, "Paper files are unavailable for AI grading", false);
+
+        var scoreGrid = assignment.GradingForm.QuestionGradeDetails
+            .OrderBy(q => q.OrderIndex)
+            .ThenBy(q => q.QuestionNumber)
+            .Select(q => new AiGradeScoreGridItem(q.QuestionNumber, q.GroupLabel, q.Label, q.MaxScore))
+            .ToList();
+
+        if (scoreGrid.Count == 0)
+            return (false, "Score grid is empty", false);
+
+        var grid = await _catalogClient.GetGradingGridAsync(assignment.SubjectId, ct);
+        var rubricVersion = grid?.RubricVersion.ToString() ?? "1";
+        var rubricText = await _catalogClient.GetRubricTextAsync(assignment.SubjectId, ct);
+
+        var payload = new AiGradeSuggestPayload(
+            assignment.Id,
+            assignment.SubjectId,
+            rubricVersion,
+            files.Select(f => new AiGradeFileRefPayload(f.Url, f.ContentType)).ToList(),
+            scoreGrid.Select(q => new AiGradeScoreGridItemPayload(
+                q.QuestionNumber, q.GroupLabel, q.Label, q.MaxScore)).ToList(),
+            rubricText);
+
+        assignment.AiStatus = AiSyncStatus.Queued;
+        await _uow.SaveChangesAsync(ct);
+
+        var messageId = Guid.NewGuid();
+        await _messagePublisher.PublishAsync(
+            new AiGradeRequestedEvent(messageId, assignment.Id, teacherId, payload, DateTime.UtcNow),
+            ct);
+
+        return (true, null, false);
     }
 
     private static MarkerAssignmentDto ToDto(MarkerAssignment m) =>

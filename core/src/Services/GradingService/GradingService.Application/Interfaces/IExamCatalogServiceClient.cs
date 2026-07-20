@@ -11,4 +11,7 @@ public interface IExamCatalogServiceClient
     /// Returns null if the subject doesn't exist or ExamCatalogService is unreachable.
     /// </summary>
     Task<SubjectExamInfoClientDto?> GetExamInfoAsync(Guid subjectId, CancellationToken ct = default);
+
+    /// <summary>Plain-text rubric summary for AI grading. Null if unreachable.</summary>
+    Task<string?> GetRubricTextAsync(Guid subjectId, CancellationToken ct = default);
 }
