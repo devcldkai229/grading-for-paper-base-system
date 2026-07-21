@@ -95,6 +95,10 @@ public class SubmissionServiceClient : ISubmissionServiceClient
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             _logger.LogError(ex, "SubmissionService unreachable for paper {PaperId} files", paperId);
+            return null;
+        }
+    }
+
     public async Task<IReadOnlyList<InternalPaperSummaryClientDto>?> GetPaperSummariesAsync(
         IReadOnlyCollection<Guid> paperIds, CancellationToken ct = default)
     {

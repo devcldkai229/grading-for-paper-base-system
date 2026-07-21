@@ -760,6 +760,7 @@ export function GradingPage() {
               )}
               {isReadOnly && <StatusBadge variant="done">Đã nộp</StatusBadge>}
             </p>
+          </div>
           <div className="flex flex-col gap-2">
             <button
               type="button"
@@ -771,15 +772,6 @@ export function GradingPage() {
               </svg>
               Quay lại Dashboard
             </button>
-            <div>
-              <h1 className="font-display text-2xl font-semibold text-ink">
-                Chấm bài — {session.studentAlias ?? `#${session.aliasNumber}`}
-              </h1>
-              <p className="text-sm text-ink-soft mt-1 flex flex-wrap items-center gap-2">
-                {queueLabel && <span>{queueLabel}</span>}
-                {isReadOnly && <StatusBadge variant="done">Đã nộp</StatusBadge>}
-              </p>
-            </div>
           </div>
           <div className="flex items-center gap-3 text-sm text-ink-soft">
             {saveLabel && (

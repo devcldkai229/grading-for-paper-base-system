@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using NSubstitute;
 using SubmissionService.API.Controllers;
+using SubmissionService.Application;
 using SubmissionService.Application.DTOs;
 using SubmissionService.Application.Interfaces;
 using Xunit;
@@ -14,12 +15,15 @@ namespace SubmissionService.UnitTests
     public class InternalPapersControllerTests
     {
         private readonly IStudentPaperRepository _paperRepository;
+        private readonly IS3Service _s3Service;
         private readonly InternalPapersController _controller;
 
         public InternalPapersControllerTests()
         {
             _paperRepository = Substitute.For<IStudentPaperRepository>();
-            _controller = new InternalPapersController(_paperRepository);
+            _s3Service = Substitute.For<IS3Service>();
+            var presignedUrlOptions = new PresignedUrlOptions { Ttl = TimeSpan.FromMinutes(15) };
+            _controller = new InternalPapersController(_paperRepository, _s3Service, presignedUrlOptions);
         }
 
         [Fact]
