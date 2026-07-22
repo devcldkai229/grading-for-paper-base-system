@@ -1782,7 +1782,7 @@ public class GradingSessionService : IGradingSessionService
         if (compiledRubric is null)
         {
             return (false,
-                "Chưa có hợp đồng chấm đã duyệt cho môn thi này. Vui lòng liên hệ quản trị viên.",
+                "Chưa biên soạn được hợp đồng chấm từ barem (dịch vụ AI hoặc barem). Thử lại sau hoặc upload lại barem.",
                 false);
         }
 

@@ -5,6 +5,7 @@ using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Http.Resilience;
 
 namespace ExamCatalogService.Infrastructure;
 
@@ -118,16 +119,32 @@ public static class DependencyInjection
             ?? throw new InvalidOperationException(
                 "AI internal API key missing. Set INTERNAL_API_KEY or InternalAuth:ApiKey.");
 
-        var aiGradingUrl = configuration.GetValue<string>("AiGradingServiceUrl")
+        // Two Python services — do not point both at the same port.
+        // Extract grid → AIParseQuestionService; compile contract → AIGradingService.
+        var parseUrl = configuration.GetValue<string>("AiParseQuestionServiceUrl")
             ?? "http://localhost:8080";
+        var gradingUrl = configuration.GetValue<string>("AiGradingServiceUrl")
+            ?? "http://localhost:8081";
 
-        services.AddHttpClient<Application.Interfaces.IAiGradingClient, Clients.AiGradingClient>(client =>
+        // Named AI clients: no resilience pipeline; HttpClient.Timeout only.
+#pragma warning disable EXTEXP0001
+        services.AddHttpClient("AiParseQuestion", client =>
         {
-            client.BaseAddress = new Uri(aiGradingUrl);
-            // Rubric ingestion (render + 2-pass extract + per-leaf compile) can take several minutes.
-            client.Timeout = TimeSpan.FromMinutes(10);
+            client.BaseAddress = new Uri(parseUrl);
+            client.Timeout = TimeSpan.FromMinutes(5);
             client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
-        });
+        }).RemoveAllResilienceHandlers();
+
+        services.AddHttpClient("AiGrading", client =>
+        {
+            client.BaseAddress = new Uri(gradingUrl);
+            // Rubric ingestion (render + 2-pass extract + per-leaf compile) can take several minutes.
+            client.Timeout = TimeSpan.FromMinutes(15);
+            client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
+        }).RemoveAllResilienceHandlers();
+#pragma warning restore EXTEXP0001
+
+        services.AddScoped<Application.Interfaces.IAiGradingClient, Clients.AiGradingClient>();
     }
 
     private static void RegisterAuthorization(IServiceCollection services)

@@ -2,7 +2,10 @@ using System.Diagnostics;
 using BuildingBlocks.AspNetCore.Health;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
@@ -11,21 +14,21 @@ using OpenTelemetry.Trace;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
-using Serilog.Formatting.Compact;
 
 namespace BuildingBlocks.AspNetCore.Extensions;
 
 /// <summary>
-/// One-call wiring for the platform observability baseline (Phase 0): structured JSON logging with
+/// One-call wiring for the platform observability baseline (Phase 0): structured logging with
 /// trace correlation, OpenTelemetry traces + metrics exported over OTLP, and resilient HttpClients.
-/// Traces flow across process boundaries automatically: AspNetCore/HttpClient instrumentation carry
-/// W3C <c>traceparent</c> over HTTP, and MassTransit propagates it over AMQP — so a single request can
-/// be followed end-to-end, including the hop through RabbitMQ into the Python AI worker.
+/// Console output is human-readable (like Python uvicorn), not compact JSON SQL dumps.
 /// </summary>
 public static class PlatformObservabilityExtensions
 {
     /// <summary>ActivitySources emitted by dependencies we want captured as spans.</summary>
     private static readonly string[] TracedSources = ["MassTransit", "Npgsql"];
+
+    private const string ConsoleTemplate =
+        "[{Timestamp:HH:mm:ss} {Level:u3}] {service} | {Message:lj}{NewLine}{Exception}";
 
     public static WebApplicationBuilder AddPlatformObservability(
         this WebApplicationBuilder builder, string serviceName)
@@ -33,14 +36,24 @@ public static class PlatformObservabilityExtensions
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
 
-        // Structured JSON logs to stdout, correlated with the active trace/span (N4).
         builder.Logging.ClearProviders();
         builder.Services.AddSerilog((_, cfg) => cfg
             .ReadFrom.Configuration(builder.Configuration)
+            .MinimumLevel.Information()
+            // MassTransit outbox/inbox polls EF every few seconds — those SQL dumps drown real errors.
+            .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
+            .MinimumLevel.Override("Microsoft.EntityFrameworkCore.Database.Command", LogEventLevel.Warning)
+            .MinimumLevel.Override("Microsoft.EntityFrameworkCore.Database.Transaction", LogEventLevel.Warning)
+            .MinimumLevel.Override("MassTransit", LogEventLevel.Warning)
+            .MinimumLevel.Override("Microsoft.AspNetCore.Mvc", LogEventLevel.Warning)
+            .MinimumLevel.Override("Microsoft.AspNetCore.Routing", LogEventLevel.Warning)
+            .MinimumLevel.Override("Microsoft.AspNetCore.Hosting.Diagnostics", LogEventLevel.Information)
+            .MinimumLevel.Override("Polly", LogEventLevel.Warning)
+            .MinimumLevel.Override("Microsoft.Extensions.Http.Resilience", LogEventLevel.Warning)
             .Enrich.FromLogContext()
             .Enrich.WithProperty("service", serviceName)
             .Enrich.With(new ActivityTraceEnricher())
-            .WriteTo.Console(new RenderedCompactJsonFormatter()));
+            .WriteTo.Console(outputTemplate: ConsoleTemplate));
 
         var resource = ResourceBuilder.CreateDefault().AddService(serviceName);
 
@@ -73,11 +86,58 @@ public static class PlatformObservabilityExtensions
                 }
             });
 
-        // Timeout + retry + circuit-breaker + bulkhead on every HttpClient in the app (N6),
-        // without touching individual AddHttpClient registrations.
-        builder.Services.ConfigureHttpClientDefaults(http => http.AddStandardResilienceHandler());
+        // No global HttpClient resilience (AttemptTimeout/retry/circuit-breaker). Long AI calls
+        // (rubric ingest, grading) were aborted at 10s; retries also multiplied LLM cost.
+        // Services that need timeouts set HttpClient.Timeout on the named client instead.
 
         return builder;
+    }
+
+    /// <summary>
+    /// Prints a plain-text startup banner (service name + listen addresses) so local consoles
+    /// match Python uvicorn clarity — which port this process actually bound.
+    /// </summary>
+    public static WebApplication LogPlatformStartupBanner(
+        this WebApplication app, string serviceName, int? grpcPort = null)
+    {
+        ArgumentNullException.ThrowIfNull(app);
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+
+        app.Lifetime.ApplicationStarted.Register(() =>
+        {
+            var addresses = app.Services.GetService<IServer>()
+                ?.Features.Get<IServerAddressesFeature>()
+                ?.Addresses
+                ?.ToArray() ?? [];
+
+            var httpLine = addresses.Length > 0
+                ? string.Join(", ", addresses)
+                : "(addresses not yet advertised)";
+
+            var env = app.Services.GetRequiredService<IHostEnvironment>().EnvironmentName;
+            var lines = new List<string>
+            {
+                "",
+                "────────────────────────────────────────────────────────────",
+                $"  {serviceName}",
+                $"  env     : {env}",
+                $"  listening: {httpLine}",
+            };
+            if (grpcPort is int g)
+            {
+                lines.Add($"  gRPC    : http://localhost:{g} (h2c)");
+            }
+
+            lines.Add("────────────────────────────────────────────────────────────");
+            lines.Add("");
+
+            var banner = string.Join(Environment.NewLine, lines);
+            // Plain Console so it is readable even if Serilog sinks change later.
+            Console.WriteLine(banner);
+            Log.Information("{Service} ready — listening on {Addresses}", serviceName, httpLine);
+        });
+
+        return app;
     }
 
     /// <summary>

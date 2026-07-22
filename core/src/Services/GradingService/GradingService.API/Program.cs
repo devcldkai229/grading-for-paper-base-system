@@ -53,4 +53,5 @@ app.MapPlatformHealthChecks();
 
 app.MapControllers();
 
+app.LogPlatformStartupBanner("grading-service");
 app.Run();

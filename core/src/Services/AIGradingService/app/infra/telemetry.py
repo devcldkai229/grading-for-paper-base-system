@@ -36,6 +36,17 @@ def configure_telemetry(app: object | None = None) -> None:
     if _configured:
         return
 
+    # MassTransit conversationId is not valid W3C baggage; keep propagation to tracecontext only
+    # so Python does not spam "Invalid baggage entry: messaging.message.conversation_id=...".
+    os.environ["OTEL_PROPAGATORS"] = "tracecontext"
+    try:
+        from opentelemetry.propagate import set_global_textmap
+        from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+
+        set_global_textmap(TraceContextTextMapPropagator())
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to pin OTEL propagator to tracecontext")
+
     resource = Resource.create({SERVICE_NAME: SERVICE_NAME_VALUE})
     provider = TracerProvider(resource=resource)
 

@@ -60,15 +60,40 @@ class TestTierSelection:
         assert r.score == 0.0
         assert r.tier_label == "none"
 
-    def test_partial_verdict_does_not_satisfy_a_tier(self):
-        """'partial' is not 'yes' — tiers require full satisfaction."""
+    def test_partial_verdict_does_not_satisfy_a_tier_but_sums_points(self):
+        """'partial' is not 'yes' for tier membership — fall back to point sum instead of 0."""
         r = compute_score(_r3_item(), {"c1": "partial", "c2": "yes", "c3": "yes", "c4": "yes"})
-        assert r.score == 0.0
+        assert r.tier_label == "Tổng hợp điểm thành phần"
+        # 0.5*0.9 + 0.6 + 0.3 + 0.2 = 1.55
+        assert r.score == 1.55
 
-    def test_unclear_verdict_treated_conservatively(self):
+    def test_unclear_required_falls_back_to_earned_points(self):
         r = compute_score(_r3_item(), {"c1": "unclear", "c2": "yes", "c3": "yes", "c4": "yes"})
-        assert r.score == 0.0
+        assert r.tier_label == "Tổng hợp điểm thành phần"
+        assert r.score == 1.1  # 0.6+0.3+0.2
 
+    def test_mixed_yes_partial_does_not_collapse_to_no_credit(self):
+        """Regression: Q1-style 3 yes + required partial must not become No Credit 0."""
+        item = ScoreGridItem(
+            questionNumber="1",
+            maxScore=2.0,
+            checkItems=[
+                ContractCheckItem(checkId="1", points=0.5, required=True),
+                ContractCheckItem(checkId="2", points=0.5, required=True),
+                ContractCheckItem(checkId="3", points=0.5, required=True),
+                ContractCheckItem(checkId="4", points=0.5, required=True),
+                ContractCheckItem(checkId="5", points=0.5, required=False),
+            ],
+            partialCredit=[
+                ContractPartialCredit(label="Full", score=2.0, checkIds=["1", "2", "3", "4", "5"]),
+                ContractPartialCredit(label="Partial", score=1.5, checkIds=["1", "2", "3", "4"]),
+                ContractPartialCredit(label="No Credit", score=0.0, checkIds=[]),
+            ],
+        )
+        r = compute_score(item, {"1": "yes", "2": "partial", "3": "yes", "4": "yes", "5": "partial"})
+        assert r.score == 2.0
+        assert r.tier_label == "Tổng hợp điểm thành phần"
+        assert r.score > 0
 
 class TestDeterminism:
     def test_same_verdicts_always_produce_same_score(self):

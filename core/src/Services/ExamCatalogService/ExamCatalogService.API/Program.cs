@@ -81,4 +81,5 @@ app.MapGrpcService<RubricGrpcService>();
 
 app.MapControllers();
 
+app.LogPlatformStartupBanner("exam-catalog-service", grpcPort: 5066);
 app.Run();

@@ -85,4 +85,5 @@ app.MapPlatformHealthChecks();
 app.MapControllers();
 
 
+app.LogPlatformStartupBanner("iam-service");
 app.Run();

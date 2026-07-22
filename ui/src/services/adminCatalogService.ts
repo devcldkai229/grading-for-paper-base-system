@@ -116,6 +116,11 @@ export const adminCatalogService = {
     return res.data.data;
   },
 
+  /** Best-effort compile of barem → grading contract (auto-approved). */
+  async recompileGradingContract(subjectId: string): Promise<void> {
+    await api.post(`/admin/subjects/${subjectId}/grading-contracts/recompile`);
+  },
+
   async extractRubricGrid(subjectId: string): Promise<ExtractGridResult> {
     const res = await api.post<ApiResponse<ExtractGridResult>>(
       `/subjects/${subjectId}/rubric/extract-grid`

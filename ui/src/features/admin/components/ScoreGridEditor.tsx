@@ -32,9 +32,10 @@ function computeGroupBudgets(rows: ScoreGridRow[], subjectMaxScore: number): Gro
   }
 
   const summaries: GroupBudgetSummary[] = [];
-  for (const [label, sum] of sumsByLabel) {
+  for (const [label, rawSum] of sumsByLabel) {
     const percent = parseGroupPercent(label);
     if (percent === null) continue;
+    const sum = Math.round(rawSum * 100) / 100;
     const expected = Math.round(((subjectMaxScore * percent) / 100) * 100) / 100;
     summaries.push({ label, sum, expected, mismatch: Math.abs(sum - expected) > 0.01 });
   }
@@ -56,7 +57,7 @@ export function ScoreGridEditor({
   onChange,
   readOnly = false,
 }: ScoreGridEditorProps) {
-  const total = rows.reduce((s, r) => s + (Number(r.maxScore) || 0), 0);
+  const total = Math.round(rows.reduce((s, r) => s + (Number(r.maxScore) || 0), 0) * 100) / 100;
   const totalMismatch = Math.abs(total - subjectMaxScore) > 0.01;
   const groupBudgets = computeGroupBudgets(rows, subjectMaxScore);
 

@@ -24,9 +24,11 @@ class ScoreResult:
 def compute_score(item: ScoreGridItem, verdict_by_check: dict[str, str]) -> ScoreResult:
     """Map adjudicated verdicts -> score using the compiled partial-credit tiers.
 
-    Tier rule: pick the highest-scoring tier whose check_ids are ALL satisfied ("yes"). If no tier
-    qualifies, award the lowest tier (usually 0). When there are no tiers, sum check-item points
-    (full for "yes", half for "partial"), clamped to max_score.
+    Tier rule: pick the highest-scoring tier whose check_ids are ALL satisfied ("yes").
+    If no tier qualifies but some checks are yes/partial, fall back to summing check-item
+    points (full for "yes", half for "partial") — never collapse to a empty "No Credit"
+    tier while the student clearly earned partial credit.
+    When there are no tiers at all, always use the point sum.
     """
     satisfied = [c.check_id for c in item.check_items if verdict_by_check.get(c.check_id) == "yes"]
     partial = [c.check_id for c in item.check_items if verdict_by_check.get(c.check_id) == "partial"]
@@ -34,6 +36,13 @@ def compute_score(item: ScoreGridItem, verdict_by_check: dict[str, str]) -> Scor
         c.check_id for c in item.check_items
         if c.required and verdict_by_check.get(c.check_id) != "yes"
     ]
+
+    def _sum_points() -> float:
+        points = sum(c.points for c in item.check_items if verdict_by_check.get(c.check_id) == "yes")
+        points += 0.5 * sum(
+            c.points for c in item.check_items if verdict_by_check.get(c.check_id) == "partial"
+        )
+        return points
 
     if item.partial_credit:
         satisfied_set = set(satisfied)
@@ -44,15 +53,18 @@ def compute_score(item: ScoreGridItem, verdict_by_check: dict[str, str]) -> Scor
         if applicable:
             best = max(applicable, key=lambda t: t.score)
             score, tier = best.score, best.label
+        elif satisfied or partial:
+            # Do not pick empty No Credit tier when student earned something.
+            score, tier = _sum_points(), "Tổng hợp điểm thành phần"
         else:
-            lowest = min(item.partial_credit, key=lambda t: t.score)
+            zero_tiers = [t for t in item.partial_credit if not t.check_ids]
+            if zero_tiers:
+                lowest = min(zero_tiers, key=lambda t: t.score)
+            else:
+                lowest = min(item.partial_credit, key=lambda t: t.score)
             score, tier = lowest.score, lowest.label
     else:
-        points = sum(c.points for c in item.check_items if verdict_by_check.get(c.check_id) == "yes")
-        points += 0.5 * sum(
-            c.points for c in item.check_items if verdict_by_check.get(c.check_id) == "partial"
-        )
-        score, tier = points, "Tổng hợp điểm thành phần"
+        score, tier = _sum_points(), "Tổng hợp điểm thành phần"
 
     score = max(0.0, min(round(score, 2), item.max_score))
     return ScoreResult(
