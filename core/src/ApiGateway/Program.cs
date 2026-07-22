@@ -97,4 +97,5 @@ app.MapHealthChecks("/health", new HealthCheckOptions { Predicate = _ => false }
 app.MapPlatformHealthChecks();
 app.MapReverseProxy();
 
+app.LogPlatformStartupBanner("api-gateway");
 app.Run();

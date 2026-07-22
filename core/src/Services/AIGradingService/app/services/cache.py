@@ -19,6 +19,8 @@ from app.schemas.grading import AngleScore, QuestionSuggestion
 logger = logging.getLogger(__name__)
 
 _CACHE_PREFIX = "suggestion"
+# Bump when scoring/comment formatting changes so Redis does not serve stale wrong scores.
+_SCORING_REVISION = "v2-partial-sum"
 
 
 def _cache_key(
@@ -29,7 +31,10 @@ def _cache_key(
 ) -> str:
     """Build the cache key for a suggestion."""
     answer_hash = hashlib.sha256(answer_text.encode("utf-8")).hexdigest()[:16]
-    return f"{_CACHE_PREFIX}:{subject_id}:{rubric_version}:{question_number}:{answer_hash}"
+    return (
+        f"{_CACHE_PREFIX}:{_SCORING_REVISION}:{subject_id}:{rubric_version}"
+        f":{question_number}:{answer_hash}"
+    )
 
 
 async def get_cached_suggestion(

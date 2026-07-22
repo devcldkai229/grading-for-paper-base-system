@@ -85,4 +85,5 @@ app.MapGrpcService<PaperGrpcService>();
 
 app.MapControllers();
 
+app.LogPlatformStartupBanner("submission-service", grpcPort: 5067);
 app.Run();

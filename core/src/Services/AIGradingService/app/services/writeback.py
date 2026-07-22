@@ -61,25 +61,17 @@ def build_failed_message(
 
 
 def _format_comment(suggestion: QuestionSuggestion) -> str:
-    """Format a human-readable comment from the suggestion for QuestionComment."""
+    """Format a teacher-facing comment — plain language, no technical angle metrics."""
     parts: list[str] = []
 
     if suggestion.rationale:
         parts.append(suggestion.rationale)
 
-    angle_parts = []
-    for name, angle in suggestion.angles.items():
-        angle_parts.append(f"{name}: {angle.s:.1f} — {angle.note}")
-    if angle_parts:
-        parts.append("\n📊 " + " | ".join(angle_parts))
-
     if suggestion.evidence:
         evidence_str = "; ".join(f'"{e}"' for e in suggestion.evidence[:3])
-        parts.append(f"\n📝 Evidence: {evidence_str}")
+        parts.append(f"Minh chứng: {evidence_str}")
 
-    parts.append(f"\n🎯 Confidence: {suggestion.confidence:.0%}")
+    if "manual_only" in (suggestion.flags or []):
+        parts.append("AI chưa tự tin — nên chấm tay câu này.")
 
-    if suggestion.flags:
-        parts.append(f"\n⚠️ Flags: {', '.join(suggestion.flags)}")
-
-    return "\n".join(parts)
+    return "\n".join(parts) if parts else "Không có nhận xét."

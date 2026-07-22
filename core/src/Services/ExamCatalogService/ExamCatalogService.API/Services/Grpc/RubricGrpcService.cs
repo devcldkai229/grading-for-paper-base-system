@@ -19,11 +19,16 @@ public sealed class RubricGrpcService : RubricService.RubricServiceBase
 
     private readonly IExamCatalogRepository _repository;
     private readonly IS3Service _s3Service;
+    private readonly IGradingContractService _contractService;
 
-    public RubricGrpcService(IExamCatalogRepository repository, IS3Service s3Service)
+    public RubricGrpcService(
+        IExamCatalogRepository repository,
+        IS3Service s3Service,
+        IGradingContractService contractService)
     {
         _repository = repository;
         _s3Service = s3Service;
+        _contractService = contractService;
     }
 
     public override async Task<GradingGrid> GetGradingGrid(SubjectRef request, ServerCallContext context)
@@ -145,13 +150,25 @@ public sealed class RubricGrpcService : RubricService.RubricServiceBase
     {
         var subjectId = ParseSubjectId(request.SubjectId);
         var ct = context.CancellationToken;
+        var versionFilter = request.HasRubricVersion ? request.RubricVersion : (int?)null;
 
-        var contract = await _repository.GetApprovedGradingContractAsync(
-            subjectId, request.HasRubricVersion ? request.RubricVersion : null, ct);
+        var contract = await _repository.GetApprovedGradingContractAsync(subjectId, versionFilter, ct);
+        if (contract is null)
+        {
+            // Lazy compile: subjects with barem uploaded before the pipeline, or when the async
+            // RabbitMQ consumer never produced a row, still get a contract on first AI request.
+            var ingested = await _contractService.IngestAsync(subjectId, ct);
+            if (ingested)
+            {
+                contract = await _repository.GetApprovedGradingContractAsync(subjectId, versionFilter, ct);
+            }
+        }
+
         if (contract is null)
         {
             throw new RpcException(new Status(
-                StatusCode.NotFound, "No approved compiled rubric for this subject/version"));
+                StatusCode.NotFound,
+                "No compiled grading contract for this subject (barem missing or AI ingest failed)"));
         }
 
         var result = new CompiledRubric

@@ -46,4 +46,5 @@ app.MapPlatformHealthChecks();
 app.MapControllers();
 app.MapHub<NotificationsHub>("/hubs/notifications");
 
+app.LogPlatformStartupBanner("notification-service");
 app.Run();

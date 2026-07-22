@@ -1,3 +1,5 @@
+using GradingService.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -5,6 +7,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace GradingService.Infrastructure.Persistence.Migrations
 {
     /// <inheritdoc />
+    [DbContext(typeof(GradingDbContext))]
+    [Migration("20260722100000_AddBatchIdToMarkerAssignments")]
     public partial class AddBatchIdToMarkerAssignments : Migration
     {
         /// <inheritdoc />

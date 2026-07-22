@@ -757,13 +757,29 @@ public class ExamCatalogRepository : IExamCatalogRepository
     public async Task<GradingContract?> GetApprovedGradingContractAsync(
         Guid subjectId, int? rubricVersion, CancellationToken ct = default)
     {
-        var query = _context.GradingContracts.AsNoTracking()
-            .Where(c => c.SubjectId == subjectId && c.Status == GradingContractStatus.Approved);
+        // Approval UI is gone: any non-rejected compiled contract is usable. Promote leftover
+        // Pending rows so AI grading does not wait on a review that will never happen.
+        var query = _context.GradingContracts
+            .Where(c => c.SubjectId == subjectId && c.Status != GradingContractStatus.Rejected);
         if (rubricVersion is { } v)
         {
             query = query.Where(c => c.RubricVersion == v);
         }
-        return await query.OrderByDescending(c => c.RubricVersion).FirstOrDefaultAsync(ct);
+
+        var contract = await query.OrderByDescending(c => c.RubricVersion).FirstOrDefaultAsync(ct);
+        if (contract is null)
+        {
+            return null;
+        }
+
+        if (contract.Status == GradingContractStatus.Pending)
+        {
+            contract.Status = GradingContractStatus.Approved;
+            contract.ReviewedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync(ct);
+        }
+
+        return contract;
     }
 
     public async Task<IReadOnlyList<GradingContract>> ListGradingContractsAsync(

@@ -40,4 +40,5 @@ app.MapPlatformHealthChecks();
 
 app.MapControllers();
 
+app.LogPlatformStartupBanner("reporting-service");
 app.Run();

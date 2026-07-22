@@ -146,7 +146,10 @@ public interface IExamCatalogRepository
 
     Task<GradingContract?> GetGradingContractByIdAsync(Guid id, CancellationToken ct = default);
 
-    /// <summary>Latest APPROVED contract for a subject (highest rubric version), or null.</summary>
+    /// <summary>
+    /// Latest usable compiled contract for a subject (highest rubric version), or null.
+    /// Pending rows are auto-promoted to Approved (no manual review gate).
+    /// </summary>
     Task<GradingContract?> GetApprovedGradingContractAsync(
         Guid subjectId, int? rubricVersion, CancellationToken ct = default);
 

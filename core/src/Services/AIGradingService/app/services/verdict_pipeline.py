@@ -79,14 +79,18 @@ def _build_angles(result: ScoreResult, item: ScoreGridItem) -> dict[str, AngleSc
 
 
 def _build_rationale(result: ScoreResult, item: ScoreGridItem, agreement: float) -> str:
-    parts = [f"Mức đạt: {result.tier_label} → {result.score:.2f}/{item.max_score:.2f} điểm."]
+    labels = {c.check_id: (c.description or c.check_id) for c in item.check_items}
+
+    def _names(ids: list[str]) -> str:
+        return "; ".join(labels.get(i, i) for i in ids)
+
+    parts = [f"Đề xuất {result.score:.2f}/{item.max_score:.2f} điểm ({result.tier_label})."]
     if result.satisfied:
-        parts.append(f"Đạt: {', '.join(result.satisfied)}.")
+        parts.append(f"Đạt: {_names(result.satisfied)}.")
     if result.partial:
-        parts.append(f"Đạt một phần: {', '.join(result.partial)}.")
+        parts.append(f"Đạt một phần: {_names(result.partial)}.")
     if result.missing_required:
-        parts.append(f"Thiếu tiêu chí bắt buộc: {', '.join(result.missing_required)}.")
-    parts.append(f"Đồng thuận giữa các lần chấm: {agreement:.0%}.")
+        parts.append(f"Chưa đủ (bắt buộc): {_names(result.missing_required)}.")
     return " ".join(parts)
 
 

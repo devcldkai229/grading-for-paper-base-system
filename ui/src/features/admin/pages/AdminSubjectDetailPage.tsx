@@ -196,8 +196,13 @@ export function AdminSubjectDetailPage() {
     try {
       const result = await adminCatalogService.uploadRubric(subjectId, file);
       urlCacheRef.current = {};
+      // Compile can take minutes (LLM). Don't block upload UI — fire-and-forget; MQ + lazy ingest
+      // on Đề xuất AI still cover failures.
+      void adminCatalogService.recompileGradingContract(subjectId).catch(() => {
+        /* best-effort */
+      });
       setActionSuccess(
-        `Đã upload barem (v${result.rubricVersion}). Gợi ý trích lưới AI và lưu lại.`
+        `Đã upload barem (v${result.rubricVersion}). Đang biên soạn hợp đồng chấm nền (có thể vài phút). Gợi ý trích lưới AI và lưu lại.`
       );
       await loadSubject();
     } catch (err) {
