@@ -68,4 +68,7 @@ public interface IStudentPaperRepository
     /// <summary>Total paper count and highest alias number submitted for a subject (across every
     /// batch). Consumed internally by GradingService to validate marker-assignment alias ranges.</summary>
     Task<SubjectPaperStatsDto> GetSubjectPaperStatsAsync(Guid subjectId, CancellationToken ct = default);
+
+    Task<int> SetAssignmentStatusAsync(
+        IReadOnlyCollection<Guid> paperIds, bool assigned, CancellationToken ct = default);
 }

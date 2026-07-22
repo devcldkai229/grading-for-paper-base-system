@@ -27,6 +27,9 @@ public interface IGradingAssignmentRepository
     Task<IReadOnlyList<GradingAssignment>> ListByTeacherAndPaperIdsAsync(
         Guid teacherId, IReadOnlyCollection<Guid> paperIds, CancellationToken ct = default);
 
+    Task<IReadOnlyList<GradingAssignment>> ListTrackedByTeacherAndPaperIdsAsync(
+        Guid teacherId, IReadOnlyCollection<Guid> paperIds, CancellationToken ct = default);
+
     /// <summary>Lists (untracked, with form + details) assignments for a subject, optionally restricted to Submitted ones.</summary>
     Task<IReadOnlyList<GradingAssignment>> ListBySubjectWithFormsAsync(
         Guid subjectId, bool submittedOnly, CancellationToken ct = default);
@@ -51,6 +54,8 @@ public interface IGradingAssignmentRepository
 
     /// <summary>Stages a new grading form for insertion (legacy-data fallback path).</summary>
     void AddForm(GradingForm form);
+
+    void RemoveRange(IEnumerable<GradingAssignment> assignments);
 }
 
 public sealed record AssignmentProgressRow(Guid Id, Guid SubjectId, GradingProgressStatus Status, DateTime CreatedAt);

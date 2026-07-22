@@ -6,6 +6,8 @@ public class MarkerAssignment : Entity
 {
     public Guid SubjectId { get; set; }
 
+    public Guid BatchId { get; set; }
+
     public Guid TeacherId { get; set; }
 
     public int AliasStart { get; set; }

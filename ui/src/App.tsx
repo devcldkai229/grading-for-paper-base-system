@@ -58,6 +58,10 @@ function App() {
               <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
               <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/grading/marker-assignments" element={<AdminMarkerAssignmentsPage />} />
+              <Route
+                path="/admin/submissions/upload"
+                element={<BatchUploadPage showStartGrading={false} />}
+              />
               <Route path="/admin/reports/feedback-export" element={<AdminFeedbackExportPage />} />
               <Route path="/admin/reports/grading-progress" element={<AdminGradingProgressPage />} />
               <Route path="/admin/reports/score-distribution" element={<AdminScoreDistributionPage />} />

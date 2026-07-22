@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { isAxiosError } from "axios";
 import { Users, Search, Trash2, Edit2, Plus } from "lucide-react";
 import { LecturerPageShell } from "@/components/layout/LecturerPageShell";
@@ -23,6 +24,7 @@ import type { MarkerAssignment } from "@/types/grading";
 type FormMode = "range" | "quota";
 
 interface FormState {
+  batchId: string;
   teacherId: string;
   mode: FormMode;
   aliasStart: string;
@@ -30,7 +32,8 @@ interface FormState {
   quota: string;
 }
 
-const emptyForm = (defaultTeacherId: string): FormState => ({
+const emptyForm = (defaultTeacherId: string, defaultBatchId = ""): FormState => ({
+  batchId: defaultBatchId,
   teacherId: defaultTeacherId,
   mode: "range",
   aliasStart: "",
@@ -39,6 +42,8 @@ const emptyForm = (defaultTeacherId: string): FormState => ({
 });
 
 export function AdminMarkerAssignmentsPage() {
+  const [searchParams] = useSearchParams();
+  const queryBatchId = searchParams.get("batchId") ?? "";
   const [subjectQuery, setSubjectQuery] = useState("");
   const [subjectResults, setSubjectResults] = useState<SubjectSearchResult[]>([]);
   const [searchingSubjects, setSearchingSubjects] = useState(false);
@@ -55,6 +60,7 @@ export function AdminMarkerAssignmentsPage() {
   const [form, setForm] = useState<FormState>(emptyForm(""));
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
     userService
@@ -94,6 +100,31 @@ export function AdminMarkerAssignmentsPage() {
     }
   }, []);
 
+  useEffect(() => {
+    const subjectId = searchParams.get("subjectId");
+    if (!subjectId) return;
+
+    catalogService.getSubjectDetail(subjectId).then((subject) => {
+      setSelectedSubject({
+        id: subject.id,
+        examId: subject.examId,
+        examName: "",
+        semesterId: "",
+        semesterCode: "",
+        subjectCode: subject.subjectCode,
+        title: subject.title,
+        maxScore: subject.maxScore,
+        passScore: subject.passScore,
+        status: subject.status,
+        hasExamPaper: subject.hasExamPaper,
+        hasRubric: subject.hasRubric,
+        questionCount: subject.questions.length,
+        createdAt: subject.createdAt,
+      });
+      void loadAssignments(subject.id);
+    }).catch(() => setLoadError("Không tải được môn thi từ liên kết upload."));
+  }, [searchParams, loadAssignments]);
+
   const selectSubject = (s: SubjectSearchResult) => {
     setSelectedSubject(s);
     setSubjectQuery("");
@@ -108,7 +139,7 @@ export function AdminMarkerAssignmentsPage() {
 
   const openCreate = () => {
     setEditingAssignment(null);
-    setForm(emptyForm(lecturers[0]?.id ?? ""));
+    setForm(emptyForm(lecturers[0]?.id ?? "", queryBatchId));
     setFormError(null);
     setModalOpen(true);
   };
@@ -116,6 +147,7 @@ export function AdminMarkerAssignmentsPage() {
   const openEdit = (a: MarkerAssignment) => {
     setEditingAssignment(a);
     setForm({
+      batchId: a.batchId,
       teacherId: a.teacherId,
       mode: "range",
       aliasStart: String(a.aliasStart),
@@ -132,10 +164,15 @@ export function AdminMarkerAssignmentsPage() {
       setFormError("Vui lòng chọn giám khảo.");
       return;
     }
+    if (!form.batchId) {
+      setFormError("Vui lòng nhập Batch ID của file ZIP cần phân công.");
+      return;
+    }
 
     setSaving(true);
     setFormError(null);
     try {
+      let saved: MarkerAssignment;
       if (editingAssignment) {
         const aliasStart = Number(form.aliasStart);
         const aliasEnd = Number(form.aliasEnd);
@@ -143,7 +180,8 @@ export function AdminMarkerAssignmentsPage() {
           setFormError("Khoảng bí danh không hợp lệ.");
           return;
         }
-        await gradingService.reassignMarkerAssignment(editingAssignment.id, {
+        saved = await gradingService.reassignMarkerAssignment(editingAssignment.id, {
+          batchId: form.batchId,
           teacherId: form.teacherId,
           aliasStart,
           aliasEnd,
@@ -155,7 +193,8 @@ export function AdminMarkerAssignmentsPage() {
           setFormError("Khoảng bí danh không hợp lệ.");
           return;
         }
-        await gradingService.createMarkerAssignment(selectedSubject.id, {
+        saved = await gradingService.createMarkerAssignment(selectedSubject.id, {
+          batchId: form.batchId,
           teacherId: form.teacherId,
           aliasStart,
           aliasEnd,
@@ -166,11 +205,15 @@ export function AdminMarkerAssignmentsPage() {
           setFormError("Số lượng bài (quota) không hợp lệ.");
           return;
         }
-        await gradingService.createMarkerAssignment(selectedSubject.id, {
+        saved = await gradingService.createMarkerAssignment(selectedSubject.id, {
+          batchId: form.batchId,
           teacherId: form.teacherId,
           quota,
         });
       }
+      setSuccessMessage(
+        `Đã tạo ${saved.materializedCount} bài trong hàng chờ của giảng viên.`
+      );
       setModalOpen(false);
       await loadAssignments(selectedSubject.id);
     } catch (err) {
@@ -203,6 +246,12 @@ export function AdminMarkerAssignmentsPage() {
           title="Phân phối bài cho giám khảo"
           subtitle="Chọn môn thi, phân bổ khoảng bí danh (alias) hoặc số lượng bài cho từng giám khảo — không được trùng lặp giữa các giám khảo."
         />
+
+        {successMessage && (
+          <div className="rounded-lg border border-done/30 bg-done/10 px-4 py-3 text-sm text-done">
+            {successMessage}
+          </div>
+        )}
 
         <div className="relative">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-ink-soft" />
@@ -270,6 +319,7 @@ export function AdminMarkerAssignmentsPage() {
                   <thead className="bg-secondary/40 border-b border-line text-ink-soft font-medium">
                     <tr>
                       <th className="px-5 py-3">Giám khảo</th>
+                      <th className="px-5 py-3">Batch</th>
                       <th className="px-5 py-3">Khoảng bí danh</th>
                       <th className="px-5 py-3">Số bài</th>
                       <th className="px-5 py-3">Ngày phân công</th>
@@ -285,6 +335,7 @@ export function AdminMarkerAssignmentsPage() {
                             {lecturerLabel(a.teacherId)}
                           </div>
                         </td>
+                        <td className="px-5 py-4 font-mono text-xs">{a.batchId.slice(0, 8)}…</td>
                         <td className="px-5 py-4 font-mono text-xs">
                           Student_{String(a.aliasStart).padStart(4, "0")} – Student_
                           {String(a.aliasEnd).padStart(4, "0")}
@@ -337,6 +388,14 @@ export function AdminMarkerAssignmentsPage() {
         }
       >
         {formError && <p className="text-sm text-destructive font-medium">{formError}</p>}
+
+        <AdminField label="Batch ID">
+          <AdminTextInput
+            value={form.batchId}
+            onChange={(e) => setForm({ ...form, batchId: e.target.value })}
+            placeholder="UUID của batch đã upload"
+          />
+        </AdminField>
 
         <AdminField label="Giám khảo">
           <AdminSelect

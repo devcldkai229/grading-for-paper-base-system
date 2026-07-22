@@ -10,7 +10,7 @@ public interface IMarkerAssignmentRepository
 {
     /// <summary>All alias ranges assigned to a lecturer for a subject (a lecturer may have several).</summary>
     Task<IReadOnlyList<AliasRangeDto>> GetAliasRangesAsync(
-        Guid subjectId, Guid lecturerId, CancellationToken ct = default);
+        Guid subjectId, Guid batchId, Guid lecturerId, CancellationToken ct = default);
 
     /// <summary>Distinct subject ids a lecturer has any marker assignment for.</summary>
     Task<IReadOnlyList<Guid>> GetAssignedSubjectIdsAsync(
@@ -19,6 +19,9 @@ public interface IMarkerAssignmentRepository
     /// <summary>All marker assignments for a subject (every teacher), ordered by alias start. Untracked.</summary>
     Task<IReadOnlyList<MarkerAssignment>> ListForSubjectAsync(
         Guid subjectId, CancellationToken ct = default);
+
+    Task<IReadOnlyList<MarkerAssignment>> ListForBatchAsync(
+        Guid batchId, CancellationToken ct = default);
 
     /// <summary>Loads one marker assignment, tracked, for update/delete.</summary>
     Task<MarkerAssignment?> GetByIdAsync(Guid id, CancellationToken ct = default);

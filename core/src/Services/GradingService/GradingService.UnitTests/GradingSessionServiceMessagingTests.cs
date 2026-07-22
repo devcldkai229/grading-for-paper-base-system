@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Contracts.Messages;
@@ -29,16 +31,40 @@ namespace GradingService.UnitTests
         private static GradingSessionService NewService(
             GradingDbContext db, IMessagePublisher publisher,
             ISubmissionServiceClient? submissionClient = null,
-            IExamCatalogServiceClient? catalogClient = null) => new(
+            IExamCatalogServiceClient? catalogClient = null)
+        {
+            submissionClient ??= Substitute.For<ISubmissionServiceClient>();
+            submissionClient.GetBatchPapersAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                .Returns(call =>
+                {
+                    var batchId = call.ArgAt<Guid>(0);
+                    var papers = Enumerable.Range(1, 100)
+                        .Select(alias => new BatchPaperClientDto(Guid.NewGuid(), batchId, alias))
+                        .ToList();
+                    return new BatchPapersClientDto(batchId, batchId, Guid.NewGuid(), papers);
+                });
+            submissionClient.SetPapersAssignmentStatusAsync(
+                    Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+                .Returns(true);
+
+            catalogClient ??= Substitute.For<IExamCatalogServiceClient>();
+            catalogClient.GetGradingGridAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                .Returns(call => new SubjectGradingGridClientDto(
+                    call.ArgAt<Guid>(0), 10m, 1,
+                    new[] { new SubjectQuestionClientDto("Q1", null, "Question 1", 10m, 0) },
+                    "Open"));
+
+            return new(
             new GradingAssignmentRepository(db),
             new AuditLogRepository(db),
             new GradingResumePointerRepository(db),
             new GradingUnitOfWork(db),
-            submissionClient ?? Substitute.For<ISubmissionServiceClient>(),
-            catalogClient ?? Substitute.For<IExamCatalogServiceClient>(),
+            submissionClient,
+            catalogClient,
             new MiniExcelGradeExportFileBuilder(),
             new MarkerAssignmentRepository(db),
             publisher);
+        }
 
         private static GradingAssignment SeedAssignment(
             GradingDbContext db, Guid teacherId, Guid subjectId, GradingProgressStatus status)
@@ -112,7 +138,7 @@ namespace GradingService.UnitTests
             var teacherId = Guid.NewGuid();
 
             await service.CreateMarkerAssignmentAsync(
-                subjectId, new CreateMarkerAssignmentRequest(teacherId, 1, 20, null),
+                subjectId, new CreateMarkerAssignmentRequest(teacherId, 1, 20, null, subjectId),
                 Guid.NewGuid(), CancellationToken.None);
 
             await publisher.Received(1).PublishAsync(
@@ -148,6 +174,7 @@ namespace GradingService.UnitTests
             var assignment = new MarkerAssignment
             {
                 SubjectId = subjectId,
+                BatchId = subjectId,
                 TeacherId = Guid.NewGuid(),
                 AliasStart = 1,
                 AliasEnd = 20,
@@ -157,7 +184,7 @@ namespace GradingService.UnitTests
             db.SaveChanges();
 
             await service.ReassignMarkerAssignmentAsync(
-                assignment.Id, new ReassignMarkerAssignmentRequest(newTeacherId, 1, 25),
+                assignment.Id, new ReassignMarkerAssignmentRequest(newTeacherId, 1, 25, subjectId),
                 Guid.NewGuid(), CancellationToken.None);
 
             await publisher.Received(1).PublishAsync(

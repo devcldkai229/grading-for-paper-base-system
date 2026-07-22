@@ -340,4 +340,21 @@ public class StudentPaperRepository : IStudentPaperRepository
 
         return new SubjectPaperStatsDto(totalPapers, highestAliasPaper?.AliasNumber);
     }
+
+    public async Task<int> SetAssignmentStatusAsync(
+        IReadOnlyCollection<Guid> paperIds, bool assigned, CancellationToken ct = default)
+    {
+        if (paperIds.Count == 0) return 0;
+
+        var ids = Builders<StudentPaper>.Filter.In(p => p.Id, paperIds);
+        var allowedStatuses = assigned
+            ? Builders<StudentPaper>.Filter.In(p => p.Status, [PaperStatus.ReadyToAssign, PaperStatus.Assigned])
+            : Builders<StudentPaper>.Filter.Eq(p => p.Status, PaperStatus.Assigned);
+        var update = Builders<StudentPaper>.Update
+            .Set(p => p.Status, assigned ? PaperStatus.Assigned : PaperStatus.ReadyToAssign)
+            .Set(p => p.UpdatedAt, DateTime.UtcNow);
+
+        var result = await PapersCollection.UpdateManyAsync(ids & allowedStatuses, update, cancellationToken: ct);
+        return (int)result.ModifiedCount;
+    }
 }

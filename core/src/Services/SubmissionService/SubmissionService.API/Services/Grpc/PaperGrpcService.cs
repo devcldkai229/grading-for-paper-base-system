@@ -129,6 +129,15 @@ public sealed class PaperGrpcService : PaperService.PaperServiceBase
         return result;
     }
 
+    public override async Task<SetPapersAssignmentStatusReply> SetPapersAssignmentStatus(
+        SetPapersAssignmentStatusRequest request, ServerCallContext context)
+    {
+        var paperIds = request.PaperIds.Select(id => ParseGuid(id, "paper_ids")).ToList();
+        var updated = await _paperRepository.SetAssignmentStatusAsync(
+            paperIds, request.Assigned, context.CancellationToken);
+        return new SetPapersAssignmentStatusReply { UpdatedCount = updated };
+    }
+
     private static PaperSummary ToProto(SubmissionService.Application.DTOs.InternalPaperSummaryDto summary)
     {
         var proto = new PaperSummary

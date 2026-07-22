@@ -28,6 +28,16 @@ public class GradingController : ControllerBase
 
         if (error is not null)
         {
+            if (error.StartsWith("Forbidden:", StringComparison.Ordinal))
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new ApiResponse<object>
+                {
+                    StatusCode = 403,
+                    Message = error["Forbidden:".Length..].Trim(),
+                    Data = null,
+                    ResponsedAt = DateTime.UtcNow
+                });
+            }
             return Conflict(new ApiResponse<object>
             {
                 StatusCode = 409,
@@ -568,7 +578,17 @@ public class GradingController : ControllerBase
             return Forbid();
         }
 
-        var deleted = await _gradingSessionService.DeleteMarkerAssignmentAsync(id, ct);
+        var (deleted, error) = await _gradingSessionService.DeleteMarkerAssignmentAsync(id, ct);
+        if (error is not null)
+        {
+            return Conflict(new ApiResponse<object>
+            {
+                StatusCode = 409,
+                Message = error,
+                Data = null,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
         if (!deleted)
         {
             return NotFound(new ApiResponse<object>

@@ -120,7 +120,7 @@ public interface IGradingSessionService
         Guid id, ReassignMarkerAssignmentRequest request, Guid assignedBy, CancellationToken ct = default);
 
     /// <summary>Admin removes a marker assignment (frees the range for reallocation).</summary>
-    Task<bool> DeleteMarkerAssignmentAsync(Guid id, CancellationToken ct = default);
+    Task<(bool Deleted, string? Error)> DeleteMarkerAssignmentAsync(Guid id, CancellationToken ct = default);
 
     /// <summary>
     /// Scans every (subject, teacher) pair with ungraded papers and publishes a

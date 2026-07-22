@@ -10,6 +10,7 @@ public record MarkerAssignmentChanged(
     Guid MessageId,
     Guid AssignmentId,
     Guid SubjectId,
+    Guid BatchId,
     Guid TeacherId,
     int AliasStart,
     int AliasEnd,

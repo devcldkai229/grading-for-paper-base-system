@@ -15,6 +15,7 @@ service PaperService {
   rpc GetPaperSummaries(PaperRefs) returns (PaperSummaries);
   rpc GetSubjectPaperStats(SubjectRef) returns (SubjectPaperStats);
   rpc GetPaperFileUrls(PaperRef) returns (PaperFileUrls);
+  rpc SetPapersAssignmentStatus(SetPapersAssignmentStatusRequest) returns (SetPapersAssignmentStatusReply);
 }
 
 message BatchRef {
@@ -27,6 +28,15 @@ message PaperRef {
 
 message PaperRefs {
   repeated string paper_ids = 1;
+}
+
+message SetPapersAssignmentStatusRequest {
+  repeated string paper_ids = 1;
+  bool assigned = 2;
+}
+
+message SetPapersAssignmentStatusReply {
+  int32 updated_count = 1;
 }
 
 message SubjectRef {

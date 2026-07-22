@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -26,22 +27,46 @@ namespace GradingService.UnitTests
         }
 
         private static GradingSessionService NewService(
-            GradingDbContext db, ISubmissionServiceClient? submissionClient = null) => new(
+            GradingDbContext db, ISubmissionServiceClient? submissionClient = null)
+        {
+            submissionClient ??= StubStats(1000, 1000);
+            var catalogClient = Substitute.For<IExamCatalogServiceClient>();
+            catalogClient.GetGradingGridAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                .Returns(call => new SubjectGradingGridClientDto(
+                    call.ArgAt<Guid>(0), 10m, 1,
+                    new[] { new SubjectQuestionClientDto("Q1", null, "Question 1", 10m, 0) },
+                    "Open"));
+
+            return new(
             new GradingAssignmentRepository(db),
             new AuditLogRepository(db),
             new GradingResumePointerRepository(db),
             new GradingUnitOfWork(db),
-            submissionClient ?? Substitute.For<ISubmissionServiceClient>(),
-            Substitute.For<IExamCatalogServiceClient>(),
+            submissionClient,
+            catalogClient,
             new MiniExcelGradeExportFileBuilder(),
             new MarkerAssignmentRepository(db),
             Substitute.For<IMessagePublisher>());
+        }
 
         private static ISubmissionServiceClient StubStats(int totalPapers, int? maxAliasNumber)
         {
             var client = Substitute.For<ISubmissionServiceClient>();
             client.GetSubjectPaperStatsAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
                 .Returns(new SubjectPaperStatsClientDto(totalPapers, maxAliasNumber));
+            client.GetBatchPapersAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                .Returns(call =>
+                {
+                    var batchId = call.ArgAt<Guid>(0);
+                    var papers = Enumerable.Range(1, maxAliasNumber ?? 0)
+                        .Take(totalPapers)
+                        .Select(alias => new BatchPaperClientDto(Guid.NewGuid(), batchId, alias))
+                        .ToList();
+                    return new BatchPapersClientDto(batchId, batchId, Guid.NewGuid(), papers);
+                });
+            client.SetPapersAssignmentStatusAsync(
+                    Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+                .Returns(true);
             return client;
         }
 
@@ -51,6 +76,7 @@ namespace GradingService.UnitTests
             var assignment = new MarkerAssignment
             {
                 SubjectId = subjectId,
+                BatchId = subjectId,
                 TeacherId = teacherId,
                 AliasStart = aliasStart,
                 AliasEnd = aliasEnd,
@@ -71,7 +97,7 @@ namespace GradingService.UnitTests
             var adminId = Guid.NewGuid();
 
             var (result, error) = await service.CreateMarkerAssignmentAsync(
-                subjectId, new CreateMarkerAssignmentRequest(teacherId, 1, 20, null), adminId, CancellationToken.None);
+                subjectId, new CreateMarkerAssignmentRequest(teacherId, 1, 20, null, subjectId), adminId, CancellationToken.None);
 
             Assert.Null(error);
             Assert.NotNull(result);
@@ -90,7 +116,7 @@ namespace GradingService.UnitTests
             SeedAssignment(db, subjectId, Guid.NewGuid(), 1, 20);
 
             var (result, error) = await service.CreateMarkerAssignmentAsync(
-                subjectId, new CreateMarkerAssignmentRequest(Guid.NewGuid(), null, null, 15),
+                subjectId, new CreateMarkerAssignmentRequest(Guid.NewGuid(), null, null, 15, subjectId),
                 Guid.NewGuid(), CancellationToken.None);
 
             Assert.Null(error);
@@ -107,7 +133,7 @@ namespace GradingService.UnitTests
             var subjectId = Guid.NewGuid();
 
             var (result, error) = await service.CreateMarkerAssignmentAsync(
-                subjectId, new CreateMarkerAssignmentRequest(Guid.NewGuid(), null, null, 10),
+                subjectId, new CreateMarkerAssignmentRequest(Guid.NewGuid(), null, null, 10, subjectId),
                 Guid.NewGuid(), CancellationToken.None);
 
             Assert.Null(error);
@@ -129,7 +155,7 @@ namespace GradingService.UnitTests
             SeedAssignment(db, subjectId, Guid.NewGuid(), 1, 20);
 
             var (result, error) = await service.CreateMarkerAssignmentAsync(
-                subjectId, new CreateMarkerAssignmentRequest(Guid.NewGuid(), aliasStart, aliasEnd, null),
+                subjectId, new CreateMarkerAssignmentRequest(Guid.NewGuid(), aliasStart, aliasEnd, null, subjectId),
                 Guid.NewGuid(), CancellationToken.None);
 
             Assert.Null(result);
@@ -146,7 +172,7 @@ namespace GradingService.UnitTests
             SeedAssignment(db, subjectId, Guid.NewGuid(), 1, 20);
 
             var (result, error) = await service.CreateMarkerAssignmentAsync(
-                subjectId, new CreateMarkerAssignmentRequest(Guid.NewGuid(), 21, 40, null),
+                subjectId, new CreateMarkerAssignmentRequest(Guid.NewGuid(), 21, 40, null, subjectId),
                 Guid.NewGuid(), CancellationToken.None);
 
             Assert.Null(error);
@@ -162,7 +188,7 @@ namespace GradingService.UnitTests
             var otherSubjectId = Guid.NewGuid();
 
             var (result, error) = await service.CreateMarkerAssignmentAsync(
-                otherSubjectId, new CreateMarkerAssignmentRequest(Guid.NewGuid(), 1, 20, null),
+                otherSubjectId, new CreateMarkerAssignmentRequest(Guid.NewGuid(), 1, 20, null, otherSubjectId),
                 Guid.NewGuid(), CancellationToken.None);
 
             Assert.Null(error);
@@ -191,7 +217,7 @@ namespace GradingService.UnitTests
             var subjectId = Guid.NewGuid();
 
             var (result, error) = await service.CreateMarkerAssignmentAsync(
-                subjectId, new CreateMarkerAssignmentRequest(Guid.NewGuid(), 1, 20, null),
+                subjectId, new CreateMarkerAssignmentRequest(Guid.NewGuid(), 1, 20, null, subjectId),
                 Guid.NewGuid(), CancellationToken.None);
 
             Assert.Null(result);
@@ -207,7 +233,7 @@ namespace GradingService.UnitTests
             var subjectId = Guid.NewGuid();
 
             var (result, error) = await service.CreateMarkerAssignmentAsync(
-                subjectId, new CreateMarkerAssignmentRequest(Guid.NewGuid(), 1, 40, null),
+                subjectId, new CreateMarkerAssignmentRequest(Guid.NewGuid(), 1, 40, null, subjectId),
                 Guid.NewGuid(), CancellationToken.None);
 
             Assert.Null(result);
@@ -225,7 +251,7 @@ namespace GradingService.UnitTests
 
             // Only aliases 16-20 remain (5 papers), but quota asks for 10.
             var (result, error) = await service.CreateMarkerAssignmentAsync(
-                subjectId, new CreateMarkerAssignmentRequest(Guid.NewGuid(), null, null, 10),
+                subjectId, new CreateMarkerAssignmentRequest(Guid.NewGuid(), null, null, 10, subjectId),
                 Guid.NewGuid(), CancellationToken.None);
 
             Assert.Null(result);
@@ -240,7 +266,7 @@ namespace GradingService.UnitTests
             var subjectId = Guid.NewGuid();
 
             var (result, error) = await service.CreateMarkerAssignmentAsync(
-                subjectId, new CreateMarkerAssignmentRequest(Guid.NewGuid(), 1, 30, null),
+                subjectId, new CreateMarkerAssignmentRequest(Guid.NewGuid(), 1, 30, null, subjectId),
                 Guid.NewGuid(), CancellationToken.None);
 
             Assert.Null(error);
@@ -248,7 +274,7 @@ namespace GradingService.UnitTests
         }
 
         [Fact]
-        public async Task CreateMarkerAssignmentAsync_WhenSubmissionServiceUnreachable_SkipsValidationAndSucceeds()
+        public async Task CreateMarkerAssignmentAsync_WhenSubmissionServiceUnreachable_FailsClosedForBatchSafety()
         {
             using var db = NewInMemoryContext();
             var unreachableClient = Substitute.For<ISubmissionServiceClient>();
@@ -258,11 +284,12 @@ namespace GradingService.UnitTests
             var subjectId = Guid.NewGuid();
 
             var (result, error) = await service.CreateMarkerAssignmentAsync(
-                subjectId, new CreateMarkerAssignmentRequest(Guid.NewGuid(), 1, 1000, null),
+                subjectId, new CreateMarkerAssignmentRequest(Guid.NewGuid(), 1, 1000, null, subjectId),
                 Guid.NewGuid(), CancellationToken.None);
 
-            Assert.Null(error);
-            Assert.NotNull(result);
+            Assert.NotNull(error);
+            Assert.Null(result);
+            Assert.Empty(db.MarkerAssignments);
         }
 
         [Fact]
@@ -274,7 +301,7 @@ namespace GradingService.UnitTests
             var assignment = SeedAssignment(db, subjectId, Guid.NewGuid(), 1, 20);
 
             var (result, notFound, error) = await service.ReassignMarkerAssignmentAsync(
-                assignment.Id, new ReassignMarkerAssignmentRequest(Guid.NewGuid(), 1, 50),
+                assignment.Id, new ReassignMarkerAssignmentRequest(Guid.NewGuid(), 1, 50, subjectId),
                 Guid.NewGuid(), CancellationToken.None);
 
             Assert.False(notFound);
@@ -295,7 +322,7 @@ namespace GradingService.UnitTests
             var assignment = SeedAssignment(db, subjectId, Guid.NewGuid(), 1, 20);
 
             var (result, notFound, error) = await service.ReassignMarkerAssignmentAsync(
-                assignment.Id, new ReassignMarkerAssignmentRequest(newTeacherId, 1, 25),
+                assignment.Id, new ReassignMarkerAssignmentRequest(newTeacherId, 1, 25, subjectId),
                 Guid.NewGuid(), CancellationToken.None);
 
             Assert.False(notFound);
@@ -315,7 +342,7 @@ namespace GradingService.UnitTests
             SeedAssignment(db, subjectId, Guid.NewGuid(), 21, 40);
 
             var (result, notFound, error) = await service.ReassignMarkerAssignmentAsync(
-                toReassign.Id, new ReassignMarkerAssignmentRequest(Guid.NewGuid(), 1, 25),
+                toReassign.Id, new ReassignMarkerAssignmentRequest(Guid.NewGuid(), 1, 25, subjectId),
                 Guid.NewGuid(), CancellationToken.None);
 
             Assert.False(notFound);
@@ -349,13 +376,14 @@ namespace GradingService.UnitTests
             var subjectId = Guid.NewGuid();
             var assignment = SeedAssignment(db, subjectId, Guid.NewGuid(), 1, 20);
 
-            var deleted = await service.DeleteMarkerAssignmentAsync(assignment.Id, CancellationToken.None);
+            var (deleted, deleteError) = await service.DeleteMarkerAssignmentAsync(assignment.Id, CancellationToken.None);
             Assert.True(deleted);
+            Assert.Null(deleteError);
             Assert.Empty(db.MarkerAssignments);
 
             // The freed range 1-20 must now be allocatable again without an overlap error.
             var (result, error) = await service.CreateMarkerAssignmentAsync(
-                subjectId, new CreateMarkerAssignmentRequest(Guid.NewGuid(), 1, 20, null),
+                subjectId, new CreateMarkerAssignmentRequest(Guid.NewGuid(), 1, 20, null, subjectId),
                 Guid.NewGuid(), CancellationToken.None);
             Assert.Null(error);
             Assert.NotNull(result);
@@ -367,8 +395,9 @@ namespace GradingService.UnitTests
             using var db = NewInMemoryContext();
             var service = NewService(db);
 
-            var deleted = await service.DeleteMarkerAssignmentAsync(Guid.NewGuid(), CancellationToken.None);
+            var (deleted, deleteError) = await service.DeleteMarkerAssignmentAsync(Guid.NewGuid(), CancellationToken.None);
             Assert.False(deleted);
+            Assert.Null(deleteError);
         }
 
         [Fact]

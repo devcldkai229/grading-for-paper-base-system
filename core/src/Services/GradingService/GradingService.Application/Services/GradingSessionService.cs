@@ -96,7 +96,22 @@ public class GradingSessionService : IGradingSessionService
     {
         var batch = await _submissionClient.GetBatchPapersAsync(batchId, ct);
         if (batch is null || batch.Papers.Count == 0) return (null, null);
-        if (batch.UploadedBy != teacherId) return (null, null);
+
+        IReadOnlyList<BatchPaperClientDto> eligiblePapers = batch.Papers;
+        if (batch.UploadedBy != teacherId)
+        {
+            var ranges = await _markerAssignments.GetAliasRangesAsync(
+                batch.SubjectId, batchId, teacherId, ct);
+            if (ranges.Count == 0)
+            {
+                return (null, "Forbidden: you are not assigned to grade papers in this batch.");
+            }
+
+            eligiblePapers = batch.Papers
+                .Where(p => p.AliasNumber.HasValue && ranges.Any(r =>
+                    p.AliasNumber.Value >= r.AliasStart && p.AliasNumber.Value <= r.AliasEnd))
+                .ToList();
+        }
 
         var grid = await _catalogClient.GetGradingGridAsync(batch.SubjectId, ct);
         if (grid is null) return (null, null);
@@ -108,7 +123,7 @@ public class GradingSessionService : IGradingSessionService
 
         var summaries = new List<AssignmentSummaryDto>();
 
-        foreach (var paper in batch.Papers)
+        foreach (var paper in eligiblePapers)
         {
             var assignment = await EnsureAssignmentAsync(
                 paper.PaperId, batch.SubjectId, teacherId, grid, paper.AliasNumber, ct);
@@ -119,6 +134,9 @@ public class GradingSessionService : IGradingSessionService
                 paper.AliasNumber,
                 ToStatusLabel(assignment.Status)));
         }
+
+        await _submissionClient.SetPapersAssignmentStatusAsync(
+            eligiblePapers.Select(p => p.PaperId).ToList(), assigned: true, ct);
 
         var ordered = summaries
             .OrderBy(s => s.AliasNumber ?? int.MaxValue)
@@ -624,6 +642,42 @@ public class GradingSessionService : IGradingSessionService
         return assignment;
     }
 
+    private async Task<(int Count, string? Error)> MaterializeAssignmentsForRangeAsync(
+        Guid subjectId, Guid batchId, Guid teacherId, int aliasStart, int aliasEnd,
+        CancellationToken ct)
+    {
+        var batch = await _submissionClient.GetBatchPapersAsync(batchId, ct);
+        if (batch is null) return (0, "Submission batch was not found or is currently unavailable.");
+        if (batch.SubjectId != subjectId) return (0, "The selected batch does not belong to this subject.");
+
+        var papers = batch.Papers
+            .Where(p => p.AliasNumber.HasValue
+                && p.AliasNumber.Value >= aliasStart
+                && p.AliasNumber.Value <= aliasEnd)
+            .OrderBy(p => p.AliasNumber)
+            .ToList();
+        if (papers.Count == 0) return (0, "No papers exist in the selected alias range for this batch.");
+
+        var grid = await _catalogClient.GetGradingGridAsync(subjectId, ct);
+        if (grid is null) return (0, "The grading grid for this subject is unavailable.");
+        if (string.Equals(grid.Status, "Closed", StringComparison.OrdinalIgnoreCase))
+            return (0, "This subject is closed; new grading sessions can no longer be started.");
+
+        foreach (var paper in papers)
+        {
+            await EnsureAssignmentAsync(
+                paper.PaperId, subjectId, teacherId, grid, paper.AliasNumber, ct);
+        }
+
+        if (!await _submissionClient.SetPapersAssignmentStatusAsync(
+                papers.Select(p => p.PaperId).ToList(), assigned: true, ct))
+        {
+            return (papers.Count, "Assignments were created, but paper statuses could not be synchronized.");
+        }
+
+        return (papers.Count, null);
+    }
+
     private async Task SeedMissingQuestionsAsync(
         GradingAssignment assignment, SubjectGradingGridClientDto grid, CancellationToken ct)
     {
@@ -1104,13 +1158,24 @@ public class GradingSessionService : IGradingSessionService
         Guid subjectId, CancellationToken ct = default)
     {
         var assignments = await _markerAssignments.ListForSubjectAsync(subjectId, ct);
-        return assignments.Select(ToDto).ToList();
+        return assignments.Select(a => ToDto(a)).ToList();
     }
 
     public async Task<(MarkerAssignmentDto? Result, string? Error)> CreateMarkerAssignmentAsync(
         Guid subjectId, CreateMarkerAssignmentRequest request, Guid assignedBy, CancellationToken ct = default)
     {
-        var existing = await _markerAssignments.ListForSubjectAsync(subjectId, ct);
+        if (request.BatchId == Guid.Empty)
+            return (null, "BatchId is required because aliases are scoped to a submission batch.");
+
+        var batch = await _submissionClient.GetBatchPapersAsync(request.BatchId, ct);
+        if (batch is null) return (null, "Submission batch was not found or is currently unavailable.");
+        if (batch.SubjectId != subjectId) return (null, "The selected batch does not belong to this subject.");
+        var gradingGrid = await _catalogClient.GetGradingGridAsync(subjectId, ct);
+        if (gradingGrid is null) return (null, "The grading grid for this subject is unavailable.");
+        if (string.Equals(gradingGrid.Status, "Closed", StringComparison.OrdinalIgnoreCase))
+            return (null, "This subject is closed; new grading sessions can no longer be started.");
+
+        var existing = await _markerAssignments.ListForBatchAsync(request.BatchId, ct);
 
         int aliasStart, aliasEnd;
 
@@ -1144,15 +1209,14 @@ public class GradingSessionService : IGradingSessionService
             return (null, "Either an alias range (AliasStart/AliasEnd) or a Quota must be provided.");
         }
 
-        var paperValidationError = await ValidateAgainstSubmittedPapersAsync(subjectId, aliasEnd, ct);
-        if (paperValidationError is not null)
-        {
-            return (null, paperValidationError);
-        }
+        var maxAlias = batch.Papers.Where(p => p.AliasNumber.HasValue).Select(p => p.AliasNumber!.Value).DefaultIfEmpty(0).Max();
+        if (maxAlias == 0) return (null, "This batch has no submitted papers yet; there is nothing to allocate.");
+        if (aliasEnd > maxAlias) return (null, $"Alias end {aliasEnd} exceeds the highest alias number ({maxAlias}) for this batch.");
 
         var assignment = new MarkerAssignment
         {
             SubjectId = subjectId,
+            BatchId = request.BatchId,
             TeacherId = request.TeacherId,
             AliasStart = aliasStart,
             AliasEnd = aliasEnd,
@@ -1167,7 +1231,13 @@ public class GradingSessionService : IGradingSessionService
 
         await _uow.SaveChangesAsync(ct);
 
-        return (ToDto(assignment), null);
+        var materialized = await MaterializeAssignmentsForRangeAsync(
+            subjectId, request.BatchId, request.TeacherId, aliasStart, aliasEnd, ct);
+        if (materialized.Error is not null && materialized.Count == 0)
+            return (null, materialized.Error);
+
+        var warnings = materialized.Error is null ? Array.Empty<string>() : new[] { materialized.Error };
+        return (ToDto(assignment, materialized.Count, warnings: warnings), null);
     }
 
     public async Task<(MarkerAssignmentDto? Result, bool NotFound, string? Error)> ReassignMarkerAssignmentAsync(
@@ -1181,7 +1251,16 @@ public class GradingSessionService : IGradingSessionService
             return (null, false, "Alias range is invalid: start must be >= 1 and end must be >= start.");
         }
 
-        var existing = await _markerAssignments.ListForSubjectAsync(assignment.SubjectId, ct);
+        var targetBatchId = request.BatchId == Guid.Empty ? assignment.BatchId : request.BatchId;
+        var targetBatch = await _submissionClient.GetBatchPapersAsync(targetBatchId, ct);
+        if (targetBatch is null) return (null, false, "Submission batch was not found or is currently unavailable.");
+        if (targetBatch.SubjectId != assignment.SubjectId) return (null, false, "The selected batch does not belong to this subject.");
+        var gradingGrid = await _catalogClient.GetGradingGridAsync(assignment.SubjectId, ct);
+        if (gradingGrid is null) return (null, false, "The grading grid for this subject is unavailable.");
+        if (string.Equals(gradingGrid.Status, "Closed", StringComparison.OrdinalIgnoreCase))
+            return (null, false, "This subject is closed; marker assignments cannot be changed.");
+
+        var existing = await _markerAssignments.ListForBatchAsync(targetBatchId, ct);
         var overlaps = existing.Any(m =>
             m.Id != id && request.AliasStart <= m.AliasEnd && m.AliasStart <= request.AliasEnd);
         if (overlaps)
@@ -1189,13 +1268,24 @@ public class GradingSessionService : IGradingSessionService
             return (null, false, $"Alias range {request.AliasStart}-{request.AliasEnd} overlaps an existing assignment for this subject.");
         }
 
-        var paperValidationError = await ValidateAgainstSubmittedPapersAsync(assignment.SubjectId, request.AliasEnd, ct);
-        if (paperValidationError is not null)
-        {
-            return (null, false, paperValidationError);
-        }
+        var maxAlias = targetBatch.Papers.Where(p => p.AliasNumber.HasValue).Select(p => p.AliasNumber!.Value).DefaultIfEmpty(0).Max();
+        if (request.AliasEnd > maxAlias)
+            return (null, false, $"Alias end {request.AliasEnd} exceeds the highest alias number ({maxAlias}) for this batch.");
+
+        var oldBatch = await _submissionClient.GetBatchPapersAsync(assignment.BatchId, ct);
+        if (oldBatch is null) return (null, false, "The original submission batch is unavailable.");
+        var oldPaperIds = oldBatch.Papers
+            .Where(p => p.AliasNumber is >= 1 && p.AliasNumber >= assignment.AliasStart && p.AliasNumber <= assignment.AliasEnd)
+            .Select(p => p.PaperId).ToList();
+        var oldAssignments = await _assignments.ListTrackedByTeacherAndPaperIdsAsync(
+            assignment.TeacherId, oldPaperIds, ct);
+        if (oldAssignments.Any(a => a.Status != GradingProgressStatus.NotStarted))
+            return (null, false, "Cannot reassign because one or more papers are already drafting or submitted.");
+
+        _assignments.RemoveRange(oldAssignments);
 
         assignment.TeacherId = request.TeacherId;
+        assignment.BatchId = targetBatchId;
         assignment.AliasStart = request.AliasStart;
         assignment.AliasEnd = request.AliasEnd;
         assignment.AssignedBy = assignedBy;
@@ -1206,7 +1296,14 @@ public class GradingSessionService : IGradingSessionService
 
         await _uow.SaveChangesAsync(ct);
 
-        return (ToDto(assignment), false, null);
+        await _submissionClient.SetPapersAssignmentStatusAsync(oldPaperIds, assigned: false, ct);
+        var materialized = await MaterializeAssignmentsForRangeAsync(
+            assignment.SubjectId, targetBatchId, request.TeacherId,
+            request.AliasStart, request.AliasEnd, ct);
+        if (materialized.Error is not null && materialized.Count == 0)
+            return (null, false, materialized.Error);
+        var warnings = materialized.Error is null ? Array.Empty<string>() : new[] { materialized.Error };
+        return (ToDto(assignment, materialized.Count, warnings: warnings), false, null);
     }
 
     /// <summary>Notifies the (possibly new) teacher that they now own this alias range.</summary>
@@ -1222,21 +1319,33 @@ public class GradingSessionService : IGradingSessionService
     private Task PublishMarkerAssignmentChangedAsync(
         MarkerAssignment assignment, MarkerAssignmentChangeType changeType, CancellationToken ct) =>
         _messagePublisher.PublishAsync(new MarkerAssignmentChanged(
-            Guid.NewGuid(), assignment.Id, assignment.SubjectId, assignment.TeacherId,
+            Guid.NewGuid(), assignment.Id, assignment.SubjectId, assignment.BatchId, assignment.TeacherId,
             assignment.AliasStart, assignment.AliasEnd, changeType, null, DateTime.UtcNow), ct);
 
-    public async Task<bool> DeleteMarkerAssignmentAsync(Guid id, CancellationToken ct = default)
+    public async Task<(bool Deleted, string? Error)> DeleteMarkerAssignmentAsync(Guid id, CancellationToken ct = default)
     {
         var assignment = await _markerAssignments.GetByIdAsync(id, ct);
-        if (assignment is null) return false;
+        if (assignment is null) return (false, null);
 
+        var batch = await _submissionClient.GetBatchPapersAsync(assignment.BatchId, ct);
+        if (batch is null) return (false, "The submission batch is unavailable.");
+        var paperIds = batch.Papers
+            .Where(p => p.AliasNumber.HasValue && p.AliasNumber.Value >= assignment.AliasStart && p.AliasNumber.Value <= assignment.AliasEnd)
+            .Select(p => p.PaperId).ToList();
+        var gradingAssignments = await _assignments.ListTrackedByTeacherAndPaperIdsAsync(
+            assignment.TeacherId, paperIds, ct);
+        if (gradingAssignments.Any(a => a.Status != GradingProgressStatus.NotStarted))
+            return (false, "Cannot delete because one or more papers are already drafting or submitted.");
+
+        _assignments.RemoveRange(gradingAssignments);
         _markerAssignments.Remove(assignment);
 
         await PublishMarkerAssignmentChangedAsync(assignment, MarkerAssignmentChangeType.Deleted, ct);
 
         await _uow.SaveChangesAsync(ct);
+        await _submissionClient.SetPapersAssignmentStatusAsync(paperIds, assigned: false, ct);
 
-        return true;
+        return (true, null);
     }
 
     public async Task<int> RunDeadlineReminderSweepAsync(int reminderWindowDays = 3, CancellationToken ct = default)
@@ -1482,8 +1591,11 @@ public class GradingSessionService : IGradingSessionService
         return true;
     }
 
-    private static MarkerAssignmentDto ToDto(MarkerAssignment m) =>
-        new(m.Id, m.SubjectId, m.TeacherId, m.AliasStart, m.AliasEnd, m.AssignedBy, m.AssignedAt);
+    private static MarkerAssignmentDto ToDto(
+        MarkerAssignment m, int materializedCount = 0, int skippedInProgressCount = 0,
+        IReadOnlyList<string>? warnings = null) =>
+        new(m.Id, m.SubjectId, m.BatchId, m.TeacherId, m.AliasStart, m.AliasEnd,
+            m.AssignedBy, m.AssignedAt, materializedCount, skippedInProgressCount, warnings);
 
     // ── Compiled-contract enrichment of the AI grade payload (Phase 3a) ──
 

@@ -276,11 +276,15 @@ public record AuditLogPageDto(
 public record MarkerAssignmentDto(
     Guid Id,
     Guid SubjectId,
+    Guid BatchId,
     Guid TeacherId,
     int AliasStart,
     int AliasEnd,
     Guid AssignedBy,
-    DateTime AssignedAt
+    DateTime AssignedAt,
+    int MaterializedCount = 0,
+    int SkippedInProgressCount = 0,
+    IReadOnlyList<string>? Warnings = null
 );
 
 /// <summary>Either (AliasStart, AliasEnd) or Quota must be provided; Quota auto-picks the next
@@ -290,13 +294,15 @@ public record CreateMarkerAssignmentRequest(
     Guid TeacherId,
     int? AliasStart,
     int? AliasEnd,
-    int? Quota
+    int? Quota,
+    Guid BatchId = default
 );
 
 public record ReassignMarkerAssignmentRequest(
     Guid TeacherId,
     int AliasStart,
-    int AliasEnd
+    int AliasEnd,
+    Guid BatchId = default
 );
 
 // ---------------------------------------------------------------------------

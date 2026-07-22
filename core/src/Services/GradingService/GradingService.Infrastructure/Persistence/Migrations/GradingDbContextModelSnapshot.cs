@@ -305,6 +305,10 @@ namespace GradingService.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("assigned_by");
 
+                    b.Property<Guid>("BatchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("batch_id");
+
                     b.Property<Guid>("SubjectId")
                         .HasColumnType("uuid")
                         .HasColumnName("subject_id");
@@ -315,13 +319,16 @@ namespace GradingService.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BatchId")
+                        .HasDatabaseName("idx_marker_assign_batch");
+
                     b.HasIndex("SubjectId")
                         .HasDatabaseName("idx_marker_assign_subject");
 
                     b.HasIndex("TeacherId")
                         .HasDatabaseName("idx_marker_assign_teacher");
 
-                    b.HasIndex("SubjectId", "AliasStart", "AliasEnd")
+                    b.HasIndex("BatchId", "AliasStart", "AliasEnd")
                         .IsUnique();
 
                     b.ToTable("marker_assignments", null, t =>

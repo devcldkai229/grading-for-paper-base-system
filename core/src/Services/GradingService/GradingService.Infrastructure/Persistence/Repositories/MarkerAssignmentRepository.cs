@@ -14,10 +14,10 @@ public class MarkerAssignmentRepository : IMarkerAssignmentRepository
     }
 
     public async Task<IReadOnlyList<AliasRangeDto>> GetAliasRangesAsync(
-        Guid subjectId, Guid lecturerId, CancellationToken ct = default) =>
+        Guid subjectId, Guid batchId, Guid lecturerId, CancellationToken ct = default) =>
         await _db.MarkerAssignments
             .AsNoTracking()
-            .Where(m => m.SubjectId == subjectId && m.TeacherId == lecturerId)
+            .Where(m => m.SubjectId == subjectId && m.BatchId == batchId && m.TeacherId == lecturerId)
             .OrderBy(m => m.AliasStart)
             .Select(m => new AliasRangeDto(m.AliasStart, m.AliasEnd))
             .ToListAsync(ct);
@@ -36,6 +36,14 @@ public class MarkerAssignmentRepository : IMarkerAssignmentRepository
         await _db.MarkerAssignments
             .AsNoTracking()
             .Where(m => m.SubjectId == subjectId)
+            .OrderBy(m => m.AliasStart)
+            .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<MarkerAssignment>> ListForBatchAsync(
+        Guid batchId, CancellationToken ct = default) =>
+        await _db.MarkerAssignments
+            .AsNoTracking()
+            .Where(m => m.BatchId == batchId)
             .OrderBy(m => m.AliasStart)
             .ToListAsync(ct);
 

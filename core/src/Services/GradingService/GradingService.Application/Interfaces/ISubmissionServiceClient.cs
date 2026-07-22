@@ -25,4 +25,7 @@ public interface ISubmissionServiceClient
     /// </summary>
     Task<IReadOnlyList<InternalPaperSummaryClientDto>?> GetPaperSummariesAsync(
         IReadOnlyCollection<Guid> paperIds, CancellationToken ct = default);
+
+    Task<bool> SetPapersAssignmentStatusAsync(
+        IReadOnlyCollection<Guid> paperIds, bool assigned, CancellationToken ct = default);
 }

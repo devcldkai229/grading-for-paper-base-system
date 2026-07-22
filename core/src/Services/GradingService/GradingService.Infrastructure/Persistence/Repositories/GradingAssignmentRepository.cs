@@ -72,6 +72,14 @@ public class GradingAssignmentRepository : IGradingAssignmentRepository
             .Where(a => a.TeacherId == teacherId && paperIds.Contains(a.StudentPaperId))
             .ToListAsync(ct);
 
+    public async Task<IReadOnlyList<GradingAssignment>> ListTrackedByTeacherAndPaperIdsAsync(
+        Guid teacherId, IReadOnlyCollection<Guid> paperIds, CancellationToken ct = default) =>
+        await _db.GradingAssignments
+            .Include(a => a.GradingForm!)
+                .ThenInclude(f => f.QuestionGradeDetails)
+            .Where(a => a.TeacherId == teacherId && paperIds.Contains(a.StudentPaperId))
+            .ToListAsync(ct);
+
     public async Task<IReadOnlyList<GradingAssignment>> ListBySubjectWithFormsAsync(
         Guid subjectId, bool submittedOnly, CancellationToken ct = default)
     {
@@ -165,4 +173,7 @@ public class GradingAssignmentRepository : IGradingAssignmentRepository
     public void Add(GradingAssignment assignment) => _db.GradingAssignments.Add(assignment);
 
     public void AddForm(GradingForm form) => _db.GradingForms.Add(form);
+
+    public void RemoveRange(IEnumerable<GradingAssignment> assignments) =>
+        _db.GradingAssignments.RemoveRange(assignments);
 }

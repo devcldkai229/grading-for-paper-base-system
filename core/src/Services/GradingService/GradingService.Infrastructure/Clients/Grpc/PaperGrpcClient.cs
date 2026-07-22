@@ -136,6 +136,23 @@ public sealed class PaperGrpcClient : ISubmissionServiceClient
         }
     }
 
+    public async Task<bool> SetPapersAssignmentStatusAsync(
+        IReadOnlyCollection<Guid> paperIds, bool assigned, CancellationToken ct = default)
+    {
+        try
+        {
+            var request = new SetPapersAssignmentStatusRequest { Assigned = assigned };
+            request.PaperIds.AddRange(paperIds.Select(id => id.ToString("D")));
+            await _client.SetPapersAssignmentStatusAsync(request, cancellationToken: ct);
+            return true;
+        }
+        catch (RpcException ex)
+        {
+            _logger.LogError(ex, "SubmissionService gRPC failed to update assignment status");
+            return false;
+        }
+    }
+
     private static InternalPaperSummaryClientDto ToDto(PaperSummary summary) => new(
         Guid.Parse(summary.Id),
         Guid.Parse(summary.BatchId),

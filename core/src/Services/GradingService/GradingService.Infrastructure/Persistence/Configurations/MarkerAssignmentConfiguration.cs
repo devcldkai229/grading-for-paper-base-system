@@ -27,6 +27,10 @@ public class MarkerAssignmentConfiguration : IEntityTypeConfiguration<MarkerAssi
             .HasColumnName("subject_id")
             .IsRequired();
 
+        builder.Property(x => x.BatchId)
+            .HasColumnName("batch_id")
+            .IsRequired();
+
         builder.Property(x => x.TeacherId)
             .HasColumnName("teacher_id")
             .IsRequired();
@@ -47,11 +51,14 @@ public class MarkerAssignmentConfiguration : IEntityTypeConfiguration<MarkerAssi
             .HasColumnName("assigned_at")
             .IsRequired();
 
-        builder.HasIndex(x => new { x.SubjectId, x.AliasStart, x.AliasEnd })
+        builder.HasIndex(x => new { x.BatchId, x.AliasStart, x.AliasEnd })
             .IsUnique();
 
         builder.HasIndex(x => x.SubjectId)
             .HasDatabaseName("idx_marker_assign_subject");
+
+        builder.HasIndex(x => x.BatchId)
+            .HasDatabaseName("idx_marker_assign_batch");
 
         builder.HasIndex(x => x.TeacherId)
             .HasDatabaseName("idx_marker_assign_teacher");

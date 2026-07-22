@@ -120,14 +120,19 @@ export interface MyProgress {
 export interface MarkerAssignment {
   id: string;
   subjectId: string;
+  batchId: string;
   teacherId: string;
   aliasStart: number;
   aliasEnd: number;
   assignedBy: string;
   assignedAt: string;
+  materializedCount: number;
+  skippedInProgressCount: number;
+  warnings: string[] | null;
 }
 
 export interface CreateMarkerAssignmentPayload {
+  batchId: string;
   teacherId: string;
   aliasStart?: number;
   aliasEnd?: number;
@@ -135,6 +140,7 @@ export interface CreateMarkerAssignmentPayload {
 }
 
 export interface ReassignMarkerAssignmentPayload {
+  batchId: string;
   teacherId: string;
   aliasStart: number;
   aliasEnd: number;
