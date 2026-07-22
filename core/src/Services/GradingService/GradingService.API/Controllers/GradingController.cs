@@ -39,10 +39,14 @@ public class GradingController : ControllerBase
 
         if (result is null)
         {
-            return NotFound(new ApiResponse<object>
+            var statusCode = error == "ACCESS_DENIED" ? 403 : 404;
+            var message = error == "ACCESS_DENIED"
+                ? "Bạn không có quyền bắt đầu chấm batch này."
+                : "Batch not found or access denied";
+            return StatusCode(statusCode, new ApiResponse<object>
             {
-                StatusCode = 404,
-                Message = "Batch not found or access denied",
+                StatusCode = statusCode,
+                Message = message,
                 Data = null,
                 ResponsedAt = DateTime.UtcNow
             });
@@ -363,6 +367,7 @@ public class GradingController : ControllerBase
         [FromQuery] string? status,
         [FromQuery] bool? flagged,
         [FromQuery] string? alias,
+        [FromQuery] Guid? batchId,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         CancellationToken ct = default)
@@ -385,13 +390,28 @@ public class GradingController : ControllerBase
 
         var teacherId = GetUserId();
         var queue = await _gradingSessionService.GetGradingQueueAsync(
-            teacherId, parsedStatus, flagged, alias, page, pageSize, ct);
+            teacherId, parsedStatus, flagged, alias, batchId, page, pageSize, ct);
 
         return Ok(new ApiResponse<GradingQueuePageDto>
         {
             StatusCode = 200,
             Message = "Grading queue retrieved",
             Data = queue,
+            ResponsedAt = DateTime.UtcNow
+        });
+    }
+
+    [HttpGet("queue/folders")]
+    public async Task<IActionResult> GetGradingQueueFolders(CancellationToken ct = default)
+    {
+        var teacherId = GetUserId();
+        var folders = await _gradingSessionService.GetGradingQueueFoldersAsync(teacherId, ct);
+
+        return Ok(new ApiResponse<IReadOnlyList<GradingQueueFolderDto>>
+        {
+            StatusCode = 200,
+            Message = "Grading queue folders retrieved",
+            Data = folders,
             ResponsedAt = DateTime.UtcNow
         });
     }
@@ -499,10 +519,44 @@ public class GradingController : ControllerBase
             });
         }
 
-        return Ok(new ApiResponse<MarkerAssignmentDto>
+        return Ok(new ApiResponse<MarkerAssignmentResultDto>
         {
             StatusCode = 200,
             Message = "Marker assignment created",
+            Data = result!,
+            ResponsedAt = DateTime.UtcNow
+        });
+    }
+
+    [HttpPost("subjects/{subjectId:guid}/folder-assignments")]
+    public async Task<IActionResult> CreateFolderAssignment(
+        Guid subjectId,
+        [FromBody] CreateFolderAssignmentRequest request,
+        CancellationToken ct = default)
+    {
+        if (!IsAdmin())
+        {
+            return Forbid();
+        }
+
+        var (result, error) = await _gradingSessionService.CreateFolderAssignmentAsync(
+            subjectId, request, GetUserId(), ct);
+
+        if (error is not null)
+        {
+            return Conflict(new ApiResponse<object>
+            {
+                StatusCode = 409,
+                Message = error,
+                Data = null,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        return Ok(new ApiResponse<MarkerAssignmentResultDto>
+        {
+            StatusCode = 200,
+            Message = "Folder assignment created",
             Data = result!,
             ResponsedAt = DateTime.UtcNow
         });
@@ -548,7 +602,7 @@ public class GradingController : ControllerBase
             });
         }
 
-        return Ok(new ApiResponse<MarkerAssignmentDto>
+        return Ok(new ApiResponse<MarkerAssignmentResultDto>
         {
             StatusCode = 200,
             Message = "Marker assignment reassigned",
@@ -568,13 +622,25 @@ public class GradingController : ControllerBase
             return Forbid();
         }
 
-        var deleted = await _gradingSessionService.DeleteMarkerAssignmentAsync(id, ct);
-        if (!deleted)
+        var (deleted, error) = await _gradingSessionService.DeleteMarkerAssignmentAsync(id, ct);
+
+        if (!deleted && error is null)
         {
             return NotFound(new ApiResponse<object>
             {
                 StatusCode = 404,
                 Message = "Marker assignment not found",
+                Data = null,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        if (error is not null)
+        {
+            return Conflict(new ApiResponse<object>
+            {
+                StatusCode = 409,
+                Message = error,
                 Data = null,
                 ResponsedAt = DateTime.UtcNow
             });

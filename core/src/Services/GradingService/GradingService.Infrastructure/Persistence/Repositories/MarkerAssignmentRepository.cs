@@ -45,4 +45,16 @@ public class MarkerAssignmentRepository : IMarkerAssignmentRepository
     public void Add(MarkerAssignment assignment) => _db.MarkerAssignments.Add(assignment);
 
     public void Remove(MarkerAssignment assignment) => _db.MarkerAssignments.Remove(assignment);
+
+    public Task<MarkerAssignment?> GetByBatchIdAsync(Guid subjectId, Guid batchId, CancellationToken ct = default) =>
+        _db.MarkerAssignments.AsNoTracking()
+            .FirstOrDefaultAsync(m => m.SubjectId == subjectId && m.BatchId == batchId, ct);
+
+    public async Task<IReadOnlyList<MarkerAssignment>> ListForTeacherWithBatchAsync(
+        Guid teacherId, CancellationToken ct = default) =>
+        await _db.MarkerAssignments
+            .AsNoTracking()
+            .Where(m => m.TeacherId == teacherId && m.BatchId != null)
+            .OrderByDescending(m => m.AssignedAt)
+            .ToListAsync(ct);
 }

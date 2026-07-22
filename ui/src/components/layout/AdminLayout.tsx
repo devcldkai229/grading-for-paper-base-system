@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { Activity, BarChart3, BookOpen, FileSpreadsheet, LayoutDashboard, LogOut, Search, Settings2, Split, Users, User as UserIcon, ScrollText } from "lucide-react";
+import { Activity, BarChart3, BookOpen, LayoutDashboard, LogOut, Search, Settings2, Split, Users, User as UserIcon, ScrollText } from "lucide-react";
 import { authService } from "@/services/authService";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -14,7 +14,6 @@ const navItems = [
   { to: "/admin/grading/marker-assignments", label: "Phân phối bài chấm", icon: Split },
   { to: "/admin/reports/grading-progress", label: "Tiến độ chấm bài", icon: Activity },
   { to: "/admin/reports/score-distribution", label: "Phân phối điểm", icon: BarChart3 },
-  { to: "/admin/reports/feedback-export", label: "Xuất feedback", icon: FileSpreadsheet },
   { to: "/admin/reports/audit-logs", label: "Lịch sử hoạt động", icon: ScrollText },
 ];
 

@@ -136,6 +136,56 @@ public sealed class PaperGrpcClient : ISubmissionServiceClient
         }
     }
 
+    public async Task<IReadOnlyList<InternalPaperSummaryClientDto>?> ListPapersByAliasRangeAsync(
+        Guid subjectId, int aliasStart, int aliasEnd, CancellationToken ct = default)
+    {
+        try
+        {
+            var papers = new List<InternalPaperSummaryClientDto>();
+            using var call = _client.ListPapersByAliasRange(
+                new AliasRangeRef
+                {
+                    SubjectId = subjectId.ToString("D"),
+                    AliasStart = aliasStart,
+                    AliasEnd = aliasEnd,
+                },
+                cancellationToken: ct);
+
+            await foreach (var summary in call.ResponseStream.ReadAllAsync(ct))
+            {
+                papers.Add(ToDto(summary));
+            }
+
+            return papers;
+        }
+        catch (RpcException ex)
+        {
+            _logger.LogError(
+                ex, "SubmissionService gRPC unreachable for alias range {Start}-{End} subject {SubjectId}",
+                aliasStart, aliasEnd, subjectId);
+            return null;
+        }
+    }
+
+    public async Task<int> MarkPapersAssignedAsync(
+        IReadOnlyCollection<Guid> paperIds, CancellationToken ct = default)
+    {
+        if (paperIds.Count == 0) return 0;
+
+        try
+        {
+            var request = new MarkPapersAssignedRequest();
+            request.PaperIds.AddRange(paperIds.Select(id => id.ToString("D")));
+            var response = await _client.MarkPapersAssignedAsync(request, cancellationToken: ct);
+            return response.UpdatedCount;
+        }
+        catch (RpcException ex)
+        {
+            _logger.LogError(ex, "SubmissionService gRPC unreachable for MarkPapersAssigned");
+            return -1;
+        }
+    }
+
     private static InternalPaperSummaryClientDto ToDto(PaperSummary summary) => new(
         Guid.Parse(summary.Id),
         Guid.Parse(summary.BatchId),

@@ -23,7 +23,6 @@ import { ProfilePage } from "@/features/auth/pages/ProfilePage";
 import { ForgotPasswordPage } from "@/features/auth/pages/ForgotPasswordPage";
 import { ResetPasswordPage } from "@/features/auth/pages/ResetPasswordPage";
 import { AdminMarkerAssignmentsPage } from "@/features/admin/pages/AdminMarkerAssignmentsPage";
-import { AdminFeedbackExportPage } from "@/features/admin/pages/AdminFeedbackExportPage";
 import { AdminGradingProgressPage } from "@/features/admin/pages/AdminGradingProgressPage";
 import { AdminScoreDistributionPage } from "@/features/admin/pages/AdminScoreDistributionPage";
 import { AdminGlobalAuditLogPage } from "@/features/admin/pages/AdminGlobalAuditLogPage";
@@ -58,7 +57,6 @@ function App() {
               <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
               <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/grading/marker-assignments" element={<AdminMarkerAssignmentsPage />} />
-              <Route path="/admin/reports/feedback-export" element={<AdminFeedbackExportPage />} />
               <Route path="/admin/reports/grading-progress" element={<AdminGradingProgressPage />} />
               <Route path="/admin/reports/score-distribution" element={<AdminScoreDistributionPage />} />
               <Route path="/admin/reports/audit-logs" element={<AdminGlobalAuditLogPage />} />

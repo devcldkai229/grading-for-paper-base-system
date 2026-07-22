@@ -53,6 +53,25 @@ namespace NotificationService.UnitTests
         }
 
         [Fact]
+        public async Task HandleAssignmentAsync_WithFolderBatch_UsesFolderTitleAndBody()
+        {
+            var (service, repository) = NewService();
+            var teacherId = Guid.NewGuid();
+            var batchId = Guid.NewGuid();
+            var evt = new AssignmentNotificationEvent(
+                Guid.NewGuid(), teacherId, Guid.NewGuid(), 1, 3, DateTime.UtcNow,
+                batchId, "PMG201c.zip", 3);
+
+            await service.HandleAssignmentAsync(evt, CancellationToken.None);
+
+            await repository.Received(1).AddAsync(Arg.Is<Notification>(n =>
+                n.UserId == teacherId &&
+                n.Title == "Bạn vừa được giao folder chấm bài" &&
+                n.Body!.Contains("PMG201c.zip") &&
+                n.Body!.Contains("3 bài")), Arg.Any<CancellationToken>());
+        }
+
+        [Fact]
         public async Task HandleDeadlineReminderAsync_PersistsSentNotificationWithCorrectBody()
         {
             var (service, repository) = NewService();

@@ -2,10 +2,13 @@ import api from "@/lib/api";
 import type { ApiResponse } from "@/types/auth";
 import type {
   AuditLogEntry,
+  CreateFolderAssignmentPayload,
   CreateMarkerAssignmentPayload,
+  GradingQueueFolder,
   GradingQueuePage,
   GradingSession,
   MarkerAssignment,
+  MarkerAssignmentResult,
   MyProgress,
   OverrideMarksPayload,
   OverrideMarksResult,
@@ -109,8 +112,8 @@ export const gradingService = {
   async createMarkerAssignment(
     subjectId: string,
     payload: CreateMarkerAssignmentPayload
-  ): Promise<MarkerAssignment> {
-    const res = await api.post<ApiResponse<MarkerAssignment>>(
+  ): Promise<MarkerAssignmentResult> {
+    const res = await api.post<ApiResponse<MarkerAssignmentResult>>(
       `/grading/subjects/${subjectId}/marker-assignments`,
       payload
     );
@@ -120,8 +123,8 @@ export const gradingService = {
   async reassignMarkerAssignment(
     id: string,
     payload: ReassignMarkerAssignmentPayload
-  ): Promise<MarkerAssignment> {
-    const res = await api.put<ApiResponse<MarkerAssignment>>(
+  ): Promise<MarkerAssignmentResult> {
+    const res = await api.put<ApiResponse<MarkerAssignmentResult>>(
       `/grading/marker-assignments/${id}`,
       payload
     );
@@ -132,10 +135,27 @@ export const gradingService = {
     await api.delete<ApiResponse<null>>(`/grading/marker-assignments/${id}`);
   },
 
+  async createFolderAssignment(
+    subjectId: string,
+    payload: CreateFolderAssignmentPayload
+  ): Promise<MarkerAssignmentResult> {
+    const res = await api.post<ApiResponse<MarkerAssignmentResult>>(
+      `/grading/subjects/${subjectId}/folder-assignments`,
+      payload
+    );
+    return res.data.data;
+  },
+
+  async listQueueFolders(): Promise<GradingQueueFolder[]> {
+    const res = await api.get<ApiResponse<GradingQueueFolder[]>>("/grading/queue/folders");
+    return res.data.data;
+  },
+
   async listQueue(params: {
     status?: string;
     flagged?: boolean;
     alias?: string;
+    batchId?: string;
     page: number;
     pageSize: number;
   }): Promise<GradingQueuePage> {

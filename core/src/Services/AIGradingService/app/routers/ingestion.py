@@ -15,7 +15,7 @@ from fastapi import APIRouter, Header, HTTPException
 from app.config import settings
 from app.schemas.contract import IngestRubricRequest, IngestRubricResponse
 from app.services.ingestion.compiler import compile_contract
-from app.services.normalize.renderer import render_document
+from app.services.normalize.renderer import merge_rendered_documents, render_document
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,13 @@ async def ingest_rubric(
     try:
         data = await _download(primary.url)
         rendered = await render_document(data, primary.content_type, primary.url)
+
+        exam_files = [f for f in body.files if f.kind == "exam"]
+        if exam_files:
+            exam = exam_files[0]
+            exam_data = await _download(exam.url)
+            exam_rendered = await render_document(exam_data, exam.content_type, exam.url)
+            rendered = merge_rendered_documents(rendered, exam_rendered)
     except Exception as exc:
         logger.exception("Rubric render failed subject=%s", body.subject_id)
         raise HTTPException(status_code=502, detail=f"Render failed: {exc}") from exc

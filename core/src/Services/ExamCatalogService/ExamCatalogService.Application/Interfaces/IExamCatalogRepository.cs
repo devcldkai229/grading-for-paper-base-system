@@ -112,6 +112,16 @@ public interface IExamCatalogRepository
         string previewContentType,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Points the subject at a newly uploaded rubric and bumps its version.
+    /// <para>
+    /// <paramref name="onBeforeCommit"/> runs after the entity is mutated but BEFORE SaveChanges,
+    /// receiving the new rubric version. Callers publish <c>RubricVersionChangedEvent</c> there so the
+    /// MassTransit bus outbox row commits in the SAME transaction as the version bump (N7) — otherwise
+    /// a crash between the two loses the ingestion trigger and the subject ends up with a fresh barem
+    /// and no compiled contract.
+    /// </para>
+    /// </summary>
     Task<int?> UpdateRubricAsync(
         Guid subjectId,
         string s3Key,
@@ -119,6 +129,7 @@ public interface IExamCatalogRepository
         string contentType,
         string previewS3Key,
         string previewContentType,
+        Func<int, Task>? onBeforeCommit = null,
         CancellationToken ct = default);
 
     Task<IReadOnlyList<QuestionDto>?> ReplaceQuestionsAsync(

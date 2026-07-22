@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { isAxiosError } from "axios";
+import { FolderOpen } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { LecturerPageShell } from "@/components/layout/LecturerPageShell";
 import {
@@ -11,7 +12,7 @@ import {
 import { FilterBar, ContentBlockButton } from "@/components/ui/content-block";
 import { ListPagination } from "@/components/catalog/ListPagination";
 import { gradingService } from "@/services/gradingService";
-import type { GradingQueueRow } from "@/types/grading";
+import type { GradingQueueFolder, GradingQueueRow } from "@/types/grading";
 
 const PAGE_SIZE = 20;
 const DEBOUNCE_MS = 350;
@@ -40,10 +41,17 @@ const statusColors: Record<string, string> = {
 
 export function GradingQueuePage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [filter, setFilter] = useState<QueueFilter>("all");
   const [aliasInput, setAliasInput] = useState("");
   const [debouncedAlias, setDebouncedAlias] = useState("");
+  const [selectedBatchId, setSelectedBatchId] = useState<string | null>(
+    searchParams.get("batchId")
+  );
+
+  const [folders, setFolders] = useState<GradingQueueFolder[]>([]);
+  const [foldersLoading, setFoldersLoading] = useState(true);
 
   const [rows, setRows] = useState<GradingQueueRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,16 +60,26 @@ export function GradingQueuePage() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
 
-  // Debounce the free-text alias search so we don't fire a request on every keystroke.
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedAlias(aliasInput.trim()), DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [aliasInput]);
 
-  // Reset to page 1 whenever a filter changes.
   useEffect(() => {
     setPage(1);
-  }, [filter, debouncedAlias]);
+  }, [filter, debouncedAlias, selectedBatchId]);
+
+  const loadFolders = useCallback(async () => {
+    setFoldersLoading(true);
+    try {
+      const data = await gradingService.listQueueFolders();
+      setFolders(data);
+    } catch {
+      setFolders([]);
+    } finally {
+      setFoldersLoading(false);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -71,6 +89,7 @@ export function GradingQueuePage() {
         status: filter === "all" || filter === "flagged" ? undefined : filter,
         flagged: filter === "flagged" ? true : undefined,
         alias: debouncedAlias || undefined,
+        batchId: selectedBatchId ?? undefined,
         page,
         pageSize: PAGE_SIZE,
       });
@@ -87,23 +106,86 @@ export function GradingQueuePage() {
     } finally {
       setLoading(false);
     }
-  }, [filter, debouncedAlias, page]);
+  }, [filter, debouncedAlias, selectedBatchId, page]);
+
+  useEffect(() => {
+    void loadFolders();
+  }, [loadFolders]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  const selectFolder = (batchId: string | null) => {
+    setSelectedBatchId(batchId);
+    if (batchId) {
+      setSearchParams({ batchId });
+    } else {
+      setSearchParams({});
+    }
+  };
 
   const filterBtn = (active: boolean) =>
     active
       ? "bg-primary text-primary-foreground border-primary"
       : "bg-card text-ink-soft hover:bg-secondary border-line";
 
+  const folderLabel = (f: GradingQueueFolder) =>
+    f.zipFileName ?? `Folder ${f.batchId.slice(0, 8)}…`;
+
   return (
     <LecturerPageShell>
       <PageHeader
         title="Hàng chờ chấm bài"
-        subtitle="Danh sách bài được giao cho bạn — lọc theo trạng thái hoặc tìm theo alias."
+        subtitle="Folder được admin giao và danh sách bài trong từng folder."
       />
+
+      <section className="mb-8">
+        <h2 className="text-sm font-semibold text-ink mb-3 flex items-center gap-2">
+          <FolderOpen className="h-4 w-4" />
+          Folder được giao
+        </h2>
+        {foldersLoading ? (
+          <CatalogListSkeleton />
+        ) : folders.length === 0 ? (
+          <p className="text-sm text-ink-soft">Chưa có folder nào được giao cho bạn.</p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => selectFolder(null)}
+              className={`text-left rounded-xl border px-4 py-3 transition-colors ${
+                selectedBatchId === null
+                  ? "border-primary bg-primary/5"
+                  : "border-line bg-card hover:bg-secondary"
+              }`}
+            >
+              <p className="font-medium text-ink">Tất cả folder</p>
+              <p className="text-xs text-ink-soft mt-1">Xem mọi bài được giao</p>
+            </button>
+            {folders.map((f) => (
+              <button
+                key={f.batchId}
+                type="button"
+                onClick={() => selectFolder(f.batchId)}
+                className={`text-left rounded-xl border px-4 py-3 transition-colors ${
+                  selectedBatchId === f.batchId
+                    ? "border-primary bg-primary/5"
+                    : "border-line bg-card hover:bg-secondary"
+                }`}
+              >
+                <p className="font-medium text-ink truncate">{folderLabel(f)}</p>
+                <p className="text-xs text-ink-soft mt-1">
+                  {f.totalPapers} bài · Chờ {f.notStarted} · Đang {f.drafting} · Đã {f.submitted}
+                </p>
+                <p className="text-xs text-ink-soft/70 mt-1">
+                  Giao {new Date(f.assignedAt).toLocaleString("vi-VN")}
+                </p>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
 
       <FilterBar>
         {filterTabs.map((tab) => (
@@ -150,6 +232,9 @@ export function GradingQueuePage() {
                   <h3 className="font-medium text-ink">
                     {row.studentAlias ?? `Paper #${row.aliasNumber ?? "?"}`}
                   </h3>
+                  {row.zipFileName && (
+                    <p className="text-xs text-ink-soft">{row.zipFileName}</p>
+                  )}
                   {row.totalScore !== null && (
                     <span className="text-xs text-ink-soft">Điểm: {row.totalScore}</span>
                   )}

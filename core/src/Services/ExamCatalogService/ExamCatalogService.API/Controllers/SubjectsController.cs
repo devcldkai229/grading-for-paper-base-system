@@ -591,8 +591,17 @@ public class SubjectsController : ControllerBase
                 rubricVersion: nextVersion,
                 ct);
 
+            // Rubric changed → the old compiled contract is stale, so ingestion must re-run. The
+            // publish happens inside UpdateRubricAsync, before its SaveChanges, so the bus-outbox row
+            // commits in the same transaction as the version bump: either the subject gets the new
+            // barem AND the ingestion trigger, or neither (N7). A consumer then runs the long compile
+            // off the request thread.
             var rubricVersion = await _repository.UpdateRubricAsync(
-                subjectId, s3Key, safeFileName, contentType, previewKey, previewContentType, ct);
+                subjectId, s3Key, safeFileName, contentType, previewKey, previewContentType,
+                onBeforeCommit: newVersion => publishEndpoint.Publish(
+                    new RubricVersionChangedEvent(
+                        Guid.NewGuid(), subjectId, newVersion, null, DateTime.UtcNow), ct),
+                ct);
             if (rubricVersion is null)
             {
                 return NotFound(new ApiResponse<object>
@@ -603,11 +612,6 @@ public class SubjectsController : ControllerBase
                     ResponsedAt = DateTime.UtcNow
                 });
             }
-
-            // Rubric changed → old compiled contract is stale. Trigger a fresh ingestion in the
-            // background (a consumer runs the long compile off the request thread).
-            await publishEndpoint.Publish(new RubricVersionChangedEvent(
-                Guid.NewGuid(), subjectId, rubricVersion.Value, null, DateTime.UtcNow), ct);
 
             return Ok(new ApiResponse<RubricUploadResponse>
             {

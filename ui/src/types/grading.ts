@@ -125,6 +125,14 @@ export interface MarkerAssignment {
   aliasEnd: number;
   assignedBy: string;
   assignedAt: string;
+  batchId?: string | null;
+  zipFileName?: string | null;
+}
+
+export interface CreateFolderAssignmentPayload {
+  teacherId: string;
+  batchId: string;
+  zipFileName?: string;
 }
 
 export interface CreateMarkerAssignmentPayload {
@@ -140,6 +148,13 @@ export interface ReassignMarkerAssignmentPayload {
   aliasEnd: number;
 }
 
+export interface MarkerAssignmentResult {
+  assignment: MarkerAssignment;
+  materializedCount: number;
+  skippedInProgressCount: number;
+  warnings: string[];
+}
+
 export interface GradingQueueRow {
   assignmentId: string;
   studentAlias: string | null;
@@ -149,6 +164,19 @@ export interface GradingQueueRow {
   isFlagged: boolean;
   totalScore: number | null;
   submittedAt: string | null;
+  batchId?: string | null;
+  zipFileName?: string | null;
+}
+
+export interface GradingQueueFolder {
+  batchId: string;
+  zipFileName: string | null;
+  subjectId: string;
+  totalPapers: number;
+  notStarted: number;
+  drafting: number;
+  submitted: number;
+  assignedAt: string;
 }
 
 export interface GradingQueuePage {

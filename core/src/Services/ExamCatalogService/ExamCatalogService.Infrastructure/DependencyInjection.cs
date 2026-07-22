@@ -65,6 +65,18 @@ public static class DependencyInjection
             // Runs the long-running barem ingestion off the HTTP request thread.
             x.AddConsumer<RubricVersionChangedConsumer>();
 
+            // Transactional outbox (publish) + inbox (idempotent consume) — N7 + N8.
+            // Critical here: uploading a rubric commits the new version to Postgres and then publishes
+            // RubricVersionChanged to trigger ingestion. Without the outbox those are two independent
+            // writes — a broker outage or a crash in between loses the event silently, leaving the
+            // subject with a fresh barem and no compiled contract while the admin sees "upload
+            // successful". The outbox makes the version bump and the trigger commit atomically.
+            x.AddEntityFrameworkOutbox<Persistence.ExamCatalogDbContext>(o =>
+            {
+                o.UsePostgres();
+                o.UseBusOutbox();
+            });
+
             x.UsingRabbitMq((ctx, cfg) =>
             {
                 cfg.Host(rabbitHost, rabbitPort, "/", h =>
@@ -75,6 +87,7 @@ public static class DependencyInjection
 
                 cfg.ReceiveEndpoint("marker-assignment-changed-examcatalog", e =>
                 {
+                    e.UseEntityFrameworkOutbox<Persistence.ExamCatalogDbContext>(ctx);
                     e.ConfigureConsumer<MarkerAssignmentChangedConsumer>(ctx);
                     e.UseMessageRetry(r => r.Intervals(
                         TimeSpan.FromSeconds(5),
@@ -84,6 +97,7 @@ public static class DependencyInjection
 
                 cfg.ReceiveEndpoint("rubric-version-changed-examcatalog", e =>
                 {
+                    e.UseEntityFrameworkOutbox<Persistence.ExamCatalogDbContext>(ctx);
                     e.ConfigureConsumer<RubricVersionChangedConsumer>(ctx);
                     // Ingestion is expensive and can time out on transient LLM issues — retry sparsely.
                     e.UseMessageRetry(r => r.Intervals(

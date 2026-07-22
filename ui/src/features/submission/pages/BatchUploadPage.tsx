@@ -11,7 +11,12 @@ import { LecturerPageShell } from "@/components/layout/LecturerPageShell";
 import { PaperCard } from "@/components/ui/paper-card";
 import { ContentBlock } from "@/components/ui/content-block";
 
-export function BatchUploadPage() {
+type BatchUploadPageProps = {
+  /** When false, hides "Tiến hành chấm bài" (admin upload path). Default true. */
+  showStartGrading?: boolean;
+};
+
+export function BatchUploadPage({ showStartGrading = true }: BatchUploadPageProps) {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const querySubjectId = searchParams.get("subjectId") || "";
@@ -489,14 +494,16 @@ export function BatchUploadPage() {
                 <div className="p-3 bg-done/10 border border-done/25 rounded-lg text-done text-sm">
                   Xử lý thành công. {batchStatus.totalPapers} bài đã được nạp.
                 </div>
-                <button
-                  type="button"
-                  onClick={() => void handleStartGrading()}
-                  disabled={startingGrading}
-                  className="w-full py-3 mt-2 bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 rounded-lg font-medium transition-opacity"
-                >
-                  {startingGrading ? "Đang khởi tạo..." : "Tiến hành chấm bài"}
-                </button>
+                {showStartGrading && (
+                  <button
+                    type="button"
+                    onClick={() => void handleStartGrading()}
+                    disabled={startingGrading}
+                    className="w-full py-3 mt-2 bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 rounded-lg font-medium transition-opacity"
+                  >
+                    {startingGrading ? "Đang khởi tạo..." : "Tiến hành chấm bài"}
+                  </button>
+                )}
               </>
             )}
             {(batchStatus?.status === "Ready" || batchStatus?.status === "Failed") && (

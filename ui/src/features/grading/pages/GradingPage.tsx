@@ -306,6 +306,8 @@ export function GradingPage() {
     } catch (err) {
       if (isAxiosStatus(err, 409)) {
         setAiError("AI đang xử lý bài này — vui lòng đợi.");
+      } else if (isAxiosError(err) && typeof err.response?.data?.message === "string") {
+        setAiError(err.response.data.message);
       } else {
         setAiError("Không gọi được AI gợi ý điểm.");
       }
@@ -369,7 +371,7 @@ export function GradingPage() {
     copyAiToManual(aiSuggestions.map((s) => s.questionNumber));
     if (session?.aiPaperComment) setPaperComment(session.aiPaperComment);
     setRightTab("manual");
-  }, [aiSuggestions, session?.aiPaperComment, inputsLocked, copyAiToManual]);
+  }, [aiSuggestions, session, inputsLocked, copyAiToManual]);
 
   // Default to the first question once a session loads, and re-clamp if the
   // active question no longer exists (e.g. after switching to another paper).

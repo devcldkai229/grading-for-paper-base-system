@@ -9,7 +9,8 @@ public record NotificationDto(
     string Status,
     DateTime? SentAt,
     DateTime CreatedAt,
-    Guid? AssignmentId
+    Guid? AssignmentId,
+    Guid? BatchId = null
 );
 
 public record NotificationPageDto(

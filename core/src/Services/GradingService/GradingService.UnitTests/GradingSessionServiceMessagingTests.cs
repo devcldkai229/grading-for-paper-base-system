@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Contracts.Messages;
@@ -26,6 +27,27 @@ namespace GradingService.UnitTests
             return new GradingDbContext(options);
         }
 
+        private static IExamCatalogServiceClient StubCatalog()
+        {
+            var catalog = Substitute.For<IExamCatalogServiceClient>();
+            catalog.GetGradingGridAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                .Returns(new SubjectGradingGridClientDto(
+                    Guid.NewGuid(), 10m, 1,
+                    new List<SubjectQuestionClientDto> { new("1", null, "Q1", 10m, 0) },
+                    "Open"));
+            return catalog;
+        }
+
+        private static ISubmissionServiceClient StubSubmission()
+        {
+            var client = Substitute.For<ISubmissionServiceClient>();
+            client.ListPapersByAliasRangeAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+                .Returns(Array.Empty<InternalPaperSummaryClientDto>());
+            client.MarkPapersAssignedAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+                .Returns(0);
+            return client;
+        }
+
         private static GradingSessionService NewService(
             GradingDbContext db, IMessagePublisher publisher,
             ISubmissionServiceClient? submissionClient = null,
@@ -34,8 +56,8 @@ namespace GradingService.UnitTests
             new AuditLogRepository(db),
             new GradingResumePointerRepository(db),
             new GradingUnitOfWork(db),
-            submissionClient ?? Substitute.For<ISubmissionServiceClient>(),
-            catalogClient ?? Substitute.For<IExamCatalogServiceClient>(),
+            submissionClient ?? StubSubmission(),
+            catalogClient ?? StubCatalog(),
             new MiniExcelGradeExportFileBuilder(),
             new MarkerAssignmentRepository(db),
             publisher);

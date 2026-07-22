@@ -2,13 +2,15 @@
 RabbitMQ worker.
 
 Pipeline:
-  1. Download file(s) -> Normalise (txt / pdf / docx)
+  1. Download file(s) -> Normalise (txt / pdf / docx) + render page images for multimodal
   2. Segment by **parent** question -> map answers
-  3. Route per **leaf** criterion (empty_check / llm_text) using parent answer
+  3. Route per **leaf** criterion (empty_check / contract verdict path)
   4. Cache check -> return cached suggestions immediately
-  5. Grade cache-miss leaves (single T1 LLM call)
+  5. Grade contract leaves (verdict path — code-computed scores)
   6. Verify -> clamp, confidence gate, evidence grounding, injection scan
   7. Cache write (verified suggestions)
+
+Non-contract leaves return manual_only (legacy LLM scorer removed per spec R2).
 
 Write-back / event publishing is intentionally NOT part of this module — callers decide how
 to deliver the result (HTTP response vs AiGradeCompletedEvent).
@@ -26,20 +28,21 @@ import httpx
 from app.config import settings
 from app.schemas.grading import (
     AngleScore,
+    FileRef,
     GradePaperRequest,
     QuestionSuggestion,
     ScoreGridItem,
 )
 from app.services.cache import get_cached_suggestion, set_cached_suggestion
-from app.services.coverage import enforce_full_coverage, grade_with_coverage
-from app.services.grader import grade_with_llm
+from app.services.coverage import enforce_full_coverage
 from app.services.language import ensure_vietnamese
 from app.services.normalize.docx import normalize_docx
 from app.services.normalize.pdf import normalize_pdf
+from app.services.normalize.renderer import render_document
 from app.services.normalize.txt import normalize_txt_cached
 from app.services.router import Evaluator, EvalTask, resolve_parent, route_questions
 from app.services.segmenter import segment_answers
-from app.services.verdict_pipeline import grade_contract_leaves
+from app.services.verdict_pipeline import grade_contract_leaves, load_images_from_urls
 from app.services.verifier import verify_suggestions
 
 logger = logging.getLogger(__name__)
@@ -57,11 +60,25 @@ class PipelineResult:
     paper_comment: str = ""
 
 
+def _is_renderable(content_type: str, url: str) -> bool:
+    ct = content_type.lower()
+    lower_url = url.lower()
+    return (
+        "pdf" in ct
+        or "word" in ct
+        or "docx" in ct
+        or lower_url.endswith(".pdf")
+        or lower_url.endswith(".docx")
+        or "image/" in ct
+        or lower_url.endswith((".png", ".jpg", ".jpeg", ".webp"))
+    )
+
+
 async def run_grading_pipeline(body: GradePaperRequest) -> PipelineResult:
     """Run the full grading pipeline for a single paper. Raises PipelineError on terminal failure."""
     start = time.monotonic()
     warnings: list[str] = []
-    model_used = settings.openai_model_t1
+    model_used = settings.openai_model_vision
 
     # ===== Step 1: Download & Normalise (parallel) =====
     all_text_parts, student_warnings = await _download_and_normalize_files(body.files)
@@ -72,9 +89,12 @@ async def run_grading_pipeline(body: GradePaperRequest) -> PipelineResult:
 
     full_text = "\n\n".join(all_text_parts)
 
-    # Real barem file(s) -> rubric context. Downloaded/normalized and prepended to the score-grid
-    # summary so the grader sees the actual questions / answer keys / grading guide (Phase 1a).
-    effective_rubric_text = await _build_effective_rubric_text(body, warnings)
+    # Render student submission pages locally (300 DPI) for multimodal verdict grading.
+    student_pages, render_warnings = await _render_student_pages(body.files)
+    warnings.extend(render_warnings)
+    if body.student_page_image_urls:
+        url_pages = await load_images_from_urls(body.student_page_image_urls)
+        student_pages.extend(url_pages)
 
     # ===== Step 2: Segment by parent questions =====
     parent_questions: list[str] = []
@@ -85,7 +105,6 @@ async def run_grading_pipeline(body: GradePaperRequest) -> PipelineResult:
             seen_parents.add(parent)
             parent_questions.append(parent)
 
-    # Feed question text from the compiled contract to help the segmenter recognise boundaries.
     question_texts: dict[str, str] = {}
     for item in body.score_grid:
         parent = resolve_parent(item)
@@ -94,7 +113,6 @@ async def run_grading_pipeline(body: GradePaperRequest) -> PipelineResult:
 
     segmentation = await segment_answers(full_text, parent_questions, question_texts)
 
-    # Leaf -> parent answer (for verifier / cache)
     leaf_answers: dict[str, str] = {}
     for item in body.score_grid:
         parent = resolve_parent(item)
@@ -102,15 +120,12 @@ async def run_grading_pipeline(body: GradePaperRequest) -> PipelineResult:
 
     # ===== Step 3: Route per leaf =====
     tasks = route_questions(segmentation, body.score_grid)
-
-    # Leaves carrying a compiled contract take the verdict path (B3→B6); the rest use the
-    # legacy angle grader. Empty leaves are handled the same way regardless of contract.
     item_by_num = {item.question_number: item for item in body.score_grid}
 
-    # ===== Step 4: Cache check + empty results =====
+    # ===== Step 4: Cache check + empty / manual-only results =====
     all_suggestions: list[QuestionSuggestion] = []
-    cache_miss_tasks: list[EvalTask] = []
     contract_miss_items: list[ScoreGridItem] = []
+    manual_only_count = 0
 
     for task in tasks:
         if task.evaluator == Evaluator.EMPTY_CHECK:
@@ -129,17 +144,16 @@ async def run_grading_pipeline(body: GradePaperRequest) -> PipelineResult:
         if item is not None and item.has_contract:
             contract_miss_items.append(item)
         else:
-            cache_miss_tasks.append(task)
+            all_suggestions.append(_manual_only_suggestion(task, item))
+            manual_only_count += 1
 
-    cache_hits = len(tasks) - len(cache_miss_tasks) - len(contract_miss_items) - sum(
-        1 for t in tasks if t.evaluator == Evaluator.EMPTY_CHECK
-    )
-    if cache_hits > 0:
-        logger.info("Cache hits: %d leaf criteria", cache_hits)
+    if manual_only_count:
+        warnings.append(
+            f"{manual_only_count} tiêu chí không có check-items trong hợp đồng — đánh dấu chấm tay."
+        )
 
-    # ===== Step 5a: Verdict path for contract leaves (code-computed scores) =====
+    # ===== Step 5: Verdict path for contract leaves (code-computed scores) =====
     if contract_miss_items:
-        model_used = settings.openai_model_vision
         seg_conf = {
             item.question_number: segmentation.confidence(resolve_parent(item))
             for item in contract_miss_items
@@ -147,21 +161,10 @@ async def run_grading_pipeline(body: GradePaperRequest) -> PipelineResult:
         verdict_suggestions = await grade_contract_leaves(
             contract_miss_items,
             leaf_answers,
-            body.student_page_image_urls,
+            student_pages,
             seg_confidence=seg_conf,
         )
         all_suggestions.extend(verdict_suggestions)
-
-    # ===== Step 5b: Legacy angle grader for non-contract leaves (coverage gate + retry) =====
-    if cache_miss_tasks:
-        graded, coverage_warnings = await grade_with_coverage(
-            cache_miss_tasks,
-            model_used,
-            effective_rubric_text,
-            grade_with_llm,
-        )
-        all_suggestions.extend(graded)
-        warnings.extend(coverage_warnings)
 
     # ===== Step 6: Verify =====
     all_suggestions, verify_warnings = verify_suggestions(
@@ -169,7 +172,7 @@ async def run_grading_pipeline(body: GradePaperRequest) -> PipelineResult:
     )
     warnings.extend(verify_warnings)
 
-    # ===== Step 6b: Vietnamese feedback — single re-call for flagged rationales (doc 5.8) =====
+    # ===== Step 6b: Vietnamese feedback =====
     all_suggestions, lang_warnings = await ensure_vietnamese(all_suggestions, model_used)
     warnings.extend(lang_warnings)
 
@@ -192,9 +195,6 @@ async def run_grading_pipeline(body: GradePaperRequest) -> PipelineResult:
                     q_num, answer, suggestion,
                 )
 
-    # Overall paper comment ("nhận xét bài"). Synthesised deterministically from the verified
-    # suggestions rather than via a separate LLM call: per-leaf caching/segmentation means no single
-    # call sees the whole paper, so a code-built summary is more reliable (and free).
     paper_comment = _build_paper_comment(all_suggestions, body.score_grid)
 
     elapsed = time.monotonic() - start
@@ -238,6 +238,35 @@ def _build_paper_comment(
     return " ".join(parts)
 
 
+async def _render_student_pages(files: list[FileRef]) -> tuple[list[bytes], list[str]]:
+    """Rasterise student submission files to 300 DPI page PNGs for multimodal grading."""
+    warnings: list[str] = []
+    page_images: list[bytes] = []
+
+    if not files:
+        return page_images, warnings
+
+    downloaded = await asyncio.gather(
+        *[_download_file(f.url) for f in files], return_exceptions=True
+    )
+
+    for file_ref, result in zip(files, downloaded):
+        if isinstance(result, Exception):
+            warnings.append(f"Failed to download file for rendering: {result}")
+            continue
+        if not _is_renderable(file_ref.content_type, file_ref.url):
+            continue
+        try:
+            rendered = await render_document(result, file_ref.content_type, file_ref.url)
+            page_images.extend(p.image_png for p in rendered.pages)
+        except Exception as exc:
+            warnings.append(f"Failed to render '{file_ref.content_type}': {exc}")
+
+    if page_images:
+        logger.info("Rendered %d student page image(s) for multimodal grading", len(page_images))
+    return page_images, warnings
+
+
 async def _download_and_normalize_files(files) -> tuple[list[str], list[str]]:
     """Download + normalize a list of FileRefs to plain text. Returns (text_parts, warnings)."""
     warnings: list[str] = []
@@ -278,33 +307,6 @@ async def _download_and_normalize_files(files) -> tuple[list[str], list[str]]:
     return text_parts, warnings
 
 
-async def _build_effective_rubric_text(body: GradePaperRequest, warnings: list[str]) -> str | None:
-    """Combine the real barem file text (if any) with the score-grid summary text.
-
-    The uploaded barem file is the authoritative source of questions/keys/guide; the score-grid
-    summary from GradingService is kept as a structural hint appended below it.
-    """
-    summary = (body.rubric_text or "").strip()
-    if not body.rubric_files:
-        return summary or None
-
-    barem_parts, barem_warnings = await _download_and_normalize_files(body.rubric_files)
-    warnings.extend(barem_warnings)
-
-    if not barem_parts:
-        warnings.append("Barem file(s) could not be read — grading on score-grid summary only.")
-        return summary or None
-
-    barem_text = "\n\n".join(barem_parts)
-    sections = [
-        "===== BAREM / ĐÁP ÁN (nguồn chính) =====",
-        barem_text,
-    ]
-    if summary:
-        sections += ["", "===== LƯỚI ĐIỂM (tóm tắt cấu trúc) =====", summary]
-    return "\n".join(sections)
-
-
 async def _download_file(url: str) -> bytes:
     """Download a file from a presigned URL."""
     async with httpx.AsyncClient(timeout=60) as client:
@@ -319,14 +321,35 @@ def _empty_suggestion(task: EvalTask) -> QuestionSuggestion:
     return QuestionSuggestion(
         questionNumber=task.question_number,
         angles={
-            "correctness": AngleScore(s=0, note="No answer provided"),
-            "completeness": AngleScore(s=0, note="No answer provided"),
-            "relevance": AngleScore(s=0, note="No answer provided"),
-            "clarity": AngleScore(s=0, note="No answer provided"),
+            "correctness": AngleScore(s=0, note="Không có câu trả lời"),
+            "completeness": AngleScore(s=0, note="Không có câu trả lời"),
+            "relevance": AngleScore(s=0, note="Không có câu trả lời"),
+            "clarity": AngleScore(s=0, note="Không có câu trả lời"),
         },
         score=0.0,
-        rationale=f"Student did not provide an answer for parent question {task.parent_question} ({flag_note}).",
+        rationale=f"Học sinh không trả lời câu {task.parent_question} ({flag_note}).",
         evidence=[],
         confidence=1.0,
         flags=list(dict.fromkeys(task.flags + ["manual_only"])),
+    )
+
+
+def _manual_only_suggestion(task: EvalTask, item: ScoreGridItem | None) -> QuestionSuggestion:
+    """Non-contract leaves cannot be LLM-scored — flag for manual grading (spec R2)."""
+    return QuestionSuggestion(
+        questionNumber=task.question_number,
+        angles={
+            "correctness": AngleScore(s=0, note="Chưa có hợp đồng chấm"),
+            "completeness": AngleScore(s=0, note="Chưa có hợp đồng chấm"),
+            "relevance": AngleScore(s=0, note="Chưa có hợp đồng chấm"),
+            "clarity": AngleScore(s=0, note="Chưa có hợp đồng chấm"),
+        },
+        score=0.0,
+        rationale=(
+            "Tiêu chí này chưa có check-items trong hợp đồng chấm đã duyệt — "
+            "vui lòng chấm thủ công."
+        ),
+        evidence=[],
+        confidence=0.0,
+        flags=["manual_only", "no_contract"],
     )

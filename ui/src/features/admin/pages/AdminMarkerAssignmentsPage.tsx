@@ -1,18 +1,18 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { isAxiosError } from "axios";
-import { Users, Search, Trash2, Edit2, Plus } from "lucide-react";
+import { Users, Search, Trash2, Plus, Upload, FolderOpen } from "lucide-react";
 import { LecturerPageShell } from "@/components/layout/LecturerPageShell";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { CatalogEmptyState, CatalogErrorState, CatalogListSkeleton } from "@/components/catalog/CatalogPageShell";
 import {
   AdminModal,
   AdminField,
-  AdminTextInput,
   AdminSelect,
   AdminPrimaryButton,
   AdminSecondaryButton,
 } from "@/features/admin/components/AdminModal";
 import { gradingService } from "@/services/gradingService";
+import { submissionService } from "@/services/submissionService";
 import { catalogService } from "@/services/catalogService";
 import { userService } from "@/services/userService";
 import { UserRole } from "@/types/user";
@@ -20,23 +20,13 @@ import type { User } from "@/types/user";
 import type { SubjectSearchResult } from "@/types/catalog";
 import type { MarkerAssignment } from "@/types/grading";
 
-type FormMode = "range" | "quota";
+const POLL_MS = 2000;
 
-interface FormState {
-  teacherId: string;
-  mode: FormMode;
-  aliasStart: string;
-  aliasEnd: string;
-  quota: string;
+function assignmentLabel(a: MarkerAssignment): string {
+  if (a.zipFileName) return a.zipFileName;
+  if (a.batchId) return `Batch ${a.batchId.slice(0, 8)}…`;
+  return `Student_${String(a.aliasStart).padStart(4, "0")} – Student_${String(a.aliasEnd).padStart(4, "0")}`;
 }
-
-const emptyForm = (defaultTeacherId: string): FormState => ({
-  teacherId: defaultTeacherId,
-  mode: "range",
-  aliasStart: "",
-  aliasEnd: "",
-  quota: "",
-});
 
 export function AdminMarkerAssignmentsPage() {
   const [subjectQuery, setSubjectQuery] = useState("");
@@ -48,13 +38,16 @@ export function AdminMarkerAssignmentsPage() {
 
   const [assignments, setAssignments] = useState<MarkerAssignment[]>([]);
   const [loadingAssignments, setLoadingAssignments] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [editingAssignment, setEditingAssignment] = useState<MarkerAssignment | null>(null);
-  const [form, setForm] = useState<FormState>(emptyForm(""));
+  const [teacherId, setTeacherId] = useState("");
+  const [zipFile, setZipFile] = useState<File | null>(null);
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     userService
@@ -101,93 +94,89 @@ export function AdminMarkerAssignmentsPage() {
     void loadAssignments(s.id);
   };
 
-  const lecturerLabel = (teacherId: string) => {
-    const l = lecturers.find((u) => u.id === teacherId);
-    return l ? l.fullName || l.email : teacherId;
+  const lecturerLabel = (id: string) => {
+    const l = lecturers.find((u) => u.id === id);
+    return l ? l.fullName || l.email : id;
   };
 
   const openCreate = () => {
-    setEditingAssignment(null);
-    setForm(emptyForm(lecturers[0]?.id ?? ""));
+    setTeacherId(lecturers[0]?.id ?? "");
+    setZipFile(null);
+    setUploadStatus(null);
     setFormError(null);
     setModalOpen(true);
   };
 
-  const openEdit = (a: MarkerAssignment) => {
-    setEditingAssignment(a);
-    setForm({
-      teacherId: a.teacherId,
-      mode: "range",
-      aliasStart: String(a.aliasStart),
-      aliasEnd: String(a.aliasEnd),
-      quota: "",
-    });
-    setFormError(null);
-    setModalOpen(true);
+  const pollBatchReady = async (batchId: string): Promise<void> => {
+    for (;;) {
+      const status = await submissionService.getBatchStatus(batchId);
+      if (status.status === "Ready") return;
+      if (status.status === "Failed") {
+        throw new Error(status.errorMessage ?? "Xử lý ZIP thất bại.");
+      }
+      await new Promise((r) => setTimeout(r, POLL_MS));
+    }
   };
 
   const handleSave = async () => {
     if (!selectedSubject) return;
-    if (!form.teacherId) {
+    if (!teacherId) {
       setFormError("Vui lòng chọn giám khảo.");
+      return;
+    }
+    if (!zipFile) {
+      setFormError("Vui lòng chọn file ZIP chứa bài làm học sinh.");
       return;
     }
 
     setSaving(true);
     setFormError(null);
+    setSuccessMessage(null);
+    setUploadStatus("Đang upload ZIP…");
+
     try {
-      if (editingAssignment) {
-        const aliasStart = Number(form.aliasStart);
-        const aliasEnd = Number(form.aliasEnd);
-        if (!aliasStart || !aliasEnd || aliasEnd < aliasStart) {
-          setFormError("Khoảng bí danh không hợp lệ.");
-          return;
-        }
-        await gradingService.reassignMarkerAssignment(editingAssignment.id, {
-          teacherId: form.teacherId,
-          aliasStart,
-          aliasEnd,
-        });
-      } else if (form.mode === "range") {
-        const aliasStart = Number(form.aliasStart);
-        const aliasEnd = Number(form.aliasEnd);
-        if (!aliasStart || !aliasEnd || aliasEnd < aliasStart) {
-          setFormError("Khoảng bí danh không hợp lệ.");
-          return;
-        }
-        await gradingService.createMarkerAssignment(selectedSubject.id, {
-          teacherId: form.teacherId,
-          aliasStart,
-          aliasEnd,
-        });
-      } else {
-        const quota = Number(form.quota);
-        if (!quota || quota < 1) {
-          setFormError("Số lượng bài (quota) không hợp lệ.");
-          return;
-        }
-        await gradingService.createMarkerAssignment(selectedSubject.id, {
-          teacherId: form.teacherId,
-          quota,
-        });
+      const { batchId } = await submissionService.uploadBatch(selectedSubject.id, zipFile);
+      setUploadStatus("Đang xử lý ZIP…");
+      await pollBatchReady(batchId);
+
+      setUploadStatus("Đang phân công cho giảng viên…");
+      const result = await gradingService.createFolderAssignment(selectedSubject.id, {
+        teacherId,
+        batchId,
+        zipFileName: zipFile.name,
+      });
+
+      const label = zipFile.name;
+      const parts = [
+        `Đã giao folder "${label}" cho ${lecturerLabel(teacherId)} — ${result.materializedCount} bài.`,
+      ];
+      if (result.skippedInProgressCount > 0) {
+        parts.push(`${result.skippedInProgressCount} bài bỏ qua (đang chấm).`);
       }
+      if (result.warnings?.length) {
+        parts.push(...result.warnings);
+      }
+      setSuccessMessage(parts.join(" "));
       setModalOpen(false);
       await loadAssignments(selectedSubject.id);
     } catch (err) {
       setFormError(
         isAxiosError(err)
-          ? err.response?.data?.message ?? "Lưu phân công thất bại."
-          : "Lưu phân công thất bại."
+          ? err.response?.data?.message ?? "Phân công folder thất bại."
+          : err instanceof Error
+            ? err.message
+            : "Phân công folder thất bại."
       );
     } finally {
       setSaving(false);
+      setUploadStatus(null);
     }
   };
 
   const handleDelete = async (a: MarkerAssignment) => {
     if (!selectedSubject) return;
-    const range = `Student_${String(a.aliasStart).padStart(4, "0")}–Student_${String(a.aliasEnd).padStart(4, "0")}`;
-    if (!confirm(`Xóa phân công ${range} của ${lecturerLabel(a.teacherId)}?`)) return;
+    const label = assignmentLabel(a);
+    if (!confirm(`Xóa phân công "${label}" của ${lecturerLabel(a.teacherId)}?`)) return;
     try {
       await gradingService.deleteMarkerAssignment(a.id);
       await loadAssignments(selectedSubject.id);
@@ -201,8 +190,14 @@ export function AdminMarkerAssignmentsPage() {
       <div className="flex flex-col gap-6">
         <PageHeader
           title="Phân phối bài cho giám khảo"
-          subtitle="Chọn môn thi, phân bổ khoảng bí danh (alias) hoặc số lượng bài cho từng giám khảo — không được trùng lặp giữa các giám khảo."
+          subtitle="Chọn môn thi, chọn giảng viên và upload folder ZIP bài làm — giảng viên sẽ nhận thông báo ngay khi được giao."
         />
+
+        {successMessage && (
+          <div className="p-3 bg-done/10 border border-done/25 rounded-lg text-done text-sm">
+            {successMessage}
+          </div>
+        )}
 
         <div className="relative">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-ink-soft" />
@@ -270,7 +265,7 @@ export function AdminMarkerAssignmentsPage() {
                   <thead className="bg-secondary/40 border-b border-line text-ink-soft font-medium">
                     <tr>
                       <th className="px-5 py-3">Giám khảo</th>
-                      <th className="px-5 py-3">Khoảng bí danh</th>
+                      <th className="px-5 py-3">Folder / khoảng</th>
                       <th className="px-5 py-3">Số bài</th>
                       <th className="px-5 py-3">Ngày phân công</th>
                       <th className="px-5 py-3 text-right">Hành động</th>
@@ -285,33 +280,27 @@ export function AdminMarkerAssignmentsPage() {
                             {lecturerLabel(a.teacherId)}
                           </div>
                         </td>
-                        <td className="px-5 py-4 font-mono text-xs">
-                          Student_{String(a.aliasStart).padStart(4, "0")} – Student_
-                          {String(a.aliasEnd).padStart(4, "0")}
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-2">
+                            {a.batchId && <FolderOpen className="h-4 w-4 text-ink-soft shrink-0" />}
+                            <span className={a.batchId ? "font-medium" : "font-mono text-xs"}>
+                              {assignmentLabel(a)}
+                            </span>
+                          </div>
                         </td>
                         <td className="px-5 py-4 font-score">{a.aliasEnd - a.aliasStart + 1}</td>
                         <td className="px-5 py-4 text-xs text-ink-soft">
                           {new Date(a.assignedAt).toLocaleString("vi-VN")}
                         </td>
                         <td className="px-5 py-4 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => openEdit(a)}
-                              className="p-1 text-ink-soft hover:text-brand-red rounded hover:bg-secondary transition-all cursor-pointer"
-                              title="Đổi giám khảo / khoảng bí danh"
-                            >
-                              <Edit2 className="h-4 w-4" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void handleDelete(a)}
-                              className="p-1 text-ink-soft hover:text-destructive rounded hover:bg-secondary transition-all cursor-pointer"
-                              title="Xóa phân công"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void handleDelete(a)}
+                            className="p-1 text-ink-soft hover:text-destructive rounded hover:bg-secondary transition-all cursor-pointer"
+                            title="Xóa phân công"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -325,23 +314,27 @@ export function AdminMarkerAssignmentsPage() {
 
       <AdminModal
         open={modalOpen}
-        title={editingAssignment ? "Đổi giám khảo / khoảng bí danh" : "Phân công mới"}
-        onClose={() => setModalOpen(false)}
+        title="Phân công mới"
+        onClose={() => !saving && setModalOpen(false)}
         footer={
           <>
-            <AdminSecondaryButton onClick={() => setModalOpen(false)}>Hủy</AdminSecondaryButton>
+            <AdminSecondaryButton disabled={saving} onClick={() => setModalOpen(false)}>
+              Hủy
+            </AdminSecondaryButton>
             <AdminPrimaryButton disabled={saving} onClick={() => void handleSave()}>
-              {saving ? "Đang lưu..." : "Lưu"}
+              {saving ? "Đang xử lý…" : "Giao folder"}
             </AdminPrimaryButton>
           </>
         }
       >
         {formError && <p className="text-sm text-destructive font-medium">{formError}</p>}
+        {uploadStatus && <p className="text-sm text-ink-soft">{uploadStatus}</p>}
 
         <AdminField label="Giám khảo">
           <AdminSelect
-            value={form.teacherId}
-            onChange={(e) => setForm({ ...form, teacherId: e.target.value })}
+            value={teacherId}
+            onChange={(e) => setTeacherId(e.target.value)}
+            disabled={saving}
           >
             <option value="">— Chọn giám khảo —</option>
             {lecturers.map((l) => (
@@ -352,70 +345,31 @@ export function AdminMarkerAssignmentsPage() {
           </AdminSelect>
         </AdminField>
 
-        {!editingAssignment && (
-          <div className="flex rounded-lg border border-line bg-secondary/40 p-1 gap-1">
-            <button
-              type="button"
-              onClick={() => setForm({ ...form, mode: "range" })}
-              className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                form.mode === "range"
-                  ? "bg-card text-ink shadow-sm border border-line"
-                  : "text-ink-soft hover:text-ink"
-              }`}
-            >
-              Theo khoảng
-            </button>
-            <button
-              type="button"
-              onClick={() => setForm({ ...form, mode: "quota" })}
-              className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                form.mode === "quota"
-                  ? "bg-card text-ink shadow-sm border border-line"
-                  : "text-ink-soft hover:text-ink"
-              }`}
-            >
-              Theo số lượng
-            </button>
-          </div>
-        )}
-
-        {editingAssignment || form.mode === "range" ? (
-          <div className="grid grid-cols-2 gap-3">
-            <AdminField label="Bí danh bắt đầu">
-              <AdminTextInput
-                type="number"
-                min={1}
-                value={form.aliasStart}
-                onChange={(e) => setForm({ ...form, aliasStart: e.target.value })}
-                placeholder="1"
-              />
-            </AdminField>
-            <AdminField label="Bí danh kết thúc">
-              <AdminTextInput
-                type="number"
-                min={1}
-                value={form.aliasEnd}
-                onChange={(e) => setForm({ ...form, aliasEnd: e.target.value })}
-                placeholder="20"
-              />
-            </AdminField>
-          </div>
-        ) : (
-          <>
-            <AdminField label="Số lượng bài (quota)">
-              <AdminTextInput
-                type="number"
-                min={1}
-                value={form.quota}
-                onChange={(e) => setForm({ ...form, quota: e.target.value })}
-                placeholder="20"
-              />
-            </AdminField>
-            <p className="text-xs text-ink-soft">
-              Hệ thống sẽ tự động chọn khoảng bí danh tiếp theo còn trống cho môn này.
-            </p>
-          </>
-        )}
+        <AdminField label="Folder ZIP bài làm">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".zip,application/zip"
+            className="hidden"
+            onChange={(e) => setZipFile(e.target.files?.[0] ?? null)}
+          />
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-line bg-secondary/30 px-4 py-8 text-sm text-ink-soft hover:border-primary hover:bg-secondary/50 transition-colors"
+          >
+            <Upload className="h-8 w-8 text-ink-soft" />
+            {zipFile ? (
+              <span className="font-medium text-ink">{zipFile.name}</span>
+            ) : (
+              <>
+                <span>Nhấn để chọn file ZIP</span>
+                <span className="text-xs">Mỗi thư mục con hoặc file = một bài làm</span>
+              </>
+            )}
+          </button>
+        </AdminField>
       </AdminModal>
     </LecturerPageShell>
   );

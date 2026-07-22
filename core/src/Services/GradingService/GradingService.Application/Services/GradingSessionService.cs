@@ -96,7 +96,6 @@ public class GradingSessionService : IGradingSessionService
     {
         var batch = await _submissionClient.GetBatchPapersAsync(batchId, ct);
         if (batch is null || batch.Papers.Count == 0) return (null, null);
-        if (batch.UploadedBy != teacherId) return (null, null);
 
         var grid = await _catalogClient.GetGradingGridAsync(batch.SubjectId, ct);
         if (grid is null) return (null, null);
@@ -106,9 +105,35 @@ public class GradingSessionService : IGradingSessionService
             return (null, "This subject is closed; new grading sessions can no longer be started.");
         }
 
+        IReadOnlyList<BatchPaperClientDto> papersToGrade;
+        if (batch.UploadedBy == teacherId)
+        {
+            papersToGrade = batch.Papers;
+        }
+        else
+        {
+            var markerRanges = (await _markerAssignments.ListForSubjectAsync(batch.SubjectId, ct))
+                .Where(m => m.TeacherId == teacherId)
+                .ToList();
+            if (markerRanges.Count == 0)
+            {
+                return (null, "ACCESS_DENIED");
+            }
+
+            papersToGrade = batch.Papers
+                .Where(p => p.AliasNumber is { } alias
+                    && markerRanges.Any(m => alias >= m.AliasStart && alias <= m.AliasEnd))
+                .ToList();
+
+            if (papersToGrade.Count == 0)
+            {
+                return (null, "ACCESS_DENIED");
+            }
+        }
+
         var summaries = new List<AssignmentSummaryDto>();
 
-        foreach (var paper in batch.Papers)
+        foreach (var paper in papersToGrade)
         {
             var assignment = await EnsureAssignmentAsync(
                 paper.PaperId, batch.SubjectId, teacherId, grid, paper.AliasNumber, ct);
@@ -119,6 +144,9 @@ public class GradingSessionService : IGradingSessionService
                 paper.AliasNumber,
                 ToStatusLabel(assignment.Status)));
         }
+
+        var paperIds = papersToGrade.Select(p => p.PaperId).ToList();
+        await _submissionClient.MarkPapersAssignedAsync(paperIds, ct);
 
         var ordered = summaries
             .OrderBy(s => s.AliasNumber ?? int.MaxValue)
@@ -353,13 +381,18 @@ public class GradingSessionService : IGradingSessionService
 
     public async Task<GradingQueuePageDto> GetGradingQueueAsync(
         Guid teacherId, GradingProgressStatus? status, bool? flaggedOnly, string? aliasSearch,
-        int page, int pageSize, CancellationToken ct = default)
+        Guid? batchId, int page, int pageSize, CancellationToken ct = default)
     {
         var rows = await _assignments.ListQueueRowsAsync(teacherId, status, flaggedOnly, ct);
         if (rows.Count == 0)
         {
             return new GradingQueuePageDto(Array.Empty<GradingQueueRowDto>(), page, pageSize, 0, 0);
         }
+
+        var folderAssignments = await _markerAssignments.ListForTeacherWithBatchAsync(teacherId, ct);
+        var zipByBatchId = folderAssignments
+            .Where(m => m.BatchId.HasValue)
+            .ToDictionary(m => m.BatchId!.Value, m => m.ZipFileName);
 
         var paperIds = rows.Select(r => r.StudentPaperId).Distinct().ToList();
         var papers = await _submissionClient.GetPaperSummariesAsync(paperIds, ct);
@@ -369,7 +402,18 @@ public class GradingSessionService : IGradingSessionService
         var joined = rows.Select(r =>
         {
             paperById.TryGetValue(r.StudentPaperId, out var paper);
-            return (Row: r, StudentAlias: paper?.StudentAlias, AliasNumber: paper?.AliasNumber);
+            string? zipFileName = null;
+            if (paper?.BatchId is { } batchId && zipByBatchId.TryGetValue(batchId, out var name))
+            {
+                zipFileName = name;
+            }
+
+            return (
+                Row: r,
+                StudentAlias: paper?.StudentAlias,
+                AliasNumber: paper?.AliasNumber,
+                BatchId: paper?.BatchId,
+                ZipFileName: zipFileName);
         });
 
         if (!string.IsNullOrWhiteSpace(aliasSearch))
@@ -379,6 +423,11 @@ public class GradingSessionService : IGradingSessionService
             joined = joined.Where(j =>
                 (j.StudentAlias?.Contains(keyword, StringComparison.OrdinalIgnoreCase) ?? false)
                 || (isNumeric && j.AliasNumber == aliasNumberMatch));
+        }
+
+        if (batchId.HasValue)
+        {
+            joined = joined.Where(j => j.BatchId == batchId.Value);
         }
 
         var ordered = joined
@@ -400,10 +449,50 @@ public class GradingSessionService : IGradingSessionService
                 ToStatusLabel(j.Row.Status),
                 j.Row.IsFlagged,
                 j.Row.TotalScore,
-                j.Row.SubmittedAt))
+                j.Row.SubmittedAt,
+                j.BatchId,
+                j.ZipFileName))
             .ToList();
 
         return new GradingQueuePageDto(items, page, pageSize, totalCount, totalPages);
+    }
+
+    public async Task<IReadOnlyList<GradingQueueFolderDto>> GetGradingQueueFoldersAsync(
+        Guid teacherId, CancellationToken ct = default)
+    {
+        var folderAssignments = await _markerAssignments.ListForTeacherWithBatchAsync(teacherId, ct);
+        if (folderAssignments.Count == 0)
+        {
+            return Array.Empty<GradingQueueFolderDto>();
+        }
+
+        var results = new List<GradingQueueFolderDto>();
+        foreach (var marker in folderAssignments)
+        {
+            if (marker.BatchId is not { } batchId) continue;
+
+            var batch = await _submissionClient.GetBatchPapersAsync(batchId, ct);
+            if (batch is null || batch.Papers.Count == 0) continue;
+
+            var paperIds = batch.Papers.Select(p => p.PaperId).ToList();
+            var gradingRows = await _assignments.ListByTeacherAndPaperIdsAsync(teacherId, paperIds, ct);
+
+            var notStarted = gradingRows.Count(a => a.Status == GradingProgressStatus.NotStarted);
+            var drafting = gradingRows.Count(a => a.Status == GradingProgressStatus.Drafting);
+            var submitted = gradingRows.Count(a => a.Status == GradingProgressStatus.Submitted);
+
+            results.Add(new GradingQueueFolderDto(
+                batchId,
+                marker.ZipFileName,
+                marker.SubjectId,
+                gradingRows.Count > 0 ? gradingRows.Count : batch.Papers.Count,
+                notStarted,
+                drafting,
+                submitted,
+                marker.AssignedAt));
+        }
+
+        return results;
     }
 
     public async Task<(OverrideMarksResultDto? Result, bool NotFound, string? Error)> OverrideMarksAsync(
@@ -1107,7 +1196,7 @@ public class GradingSessionService : IGradingSessionService
         return assignments.Select(ToDto).ToList();
     }
 
-    public async Task<(MarkerAssignmentDto? Result, string? Error)> CreateMarkerAssignmentAsync(
+    public async Task<(MarkerAssignmentResultDto? Result, string? Error)> CreateMarkerAssignmentAsync(
         Guid subjectId, CreateMarkerAssignmentRequest request, Guid assignedBy, CancellationToken ct = default)
     {
         var existing = await _markerAssignments.ListForSubjectAsync(subjectId, ct);
@@ -1161,16 +1250,103 @@ public class GradingSessionService : IGradingSessionService
 
         _markerAssignments.Add(assignment);
 
-        // Publish before SaveChanges so both events land in the outbox within the same transaction.
         await PublishMarkerAssignmentChangedAsync(assignment, MarkerAssignmentChangeType.Created, ct);
-        await PublishAssignmentNotificationAsync(assignment, ct);
+
+        var materialize = await MaterializeAssignmentsForRangeAsync(
+            subjectId, request.TeacherId, aliasStart, aliasEnd, ct);
+        if (materialize.Error is not null)
+        {
+            return (null, materialize.Error);
+        }
+
+        var rangePaperCount = materialize.Result?.MaterializedCount ?? (aliasEnd - aliasStart + 1);
+        await PublishAssignmentNotificationAsync(assignment, rangePaperCount, ct);
 
         await _uow.SaveChangesAsync(ct);
 
-        return (ToDto(assignment), null);
+        return (new MarkerAssignmentResultDto(
+            ToDto(assignment),
+            materialize.Result!.MaterializedCount,
+            materialize.Result.SkippedInProgressCount,
+            materialize.Result.Warnings), null);
     }
 
-    public async Task<(MarkerAssignmentDto? Result, bool NotFound, string? Error)> ReassignMarkerAssignmentAsync(
+    public async Task<(MarkerAssignmentResultDto? Result, string? Error)> CreateFolderAssignmentAsync(
+        Guid subjectId, CreateFolderAssignmentRequest request, Guid assignedBy, CancellationToken ct = default)
+    {
+        if (request.TeacherId == Guid.Empty)
+        {
+            return (null, "Giám khảo không hợp lệ.");
+        }
+
+        if (request.BatchId == Guid.Empty)
+        {
+            return (null, "Batch không hợp lệ.");
+        }
+
+        var existingBatch = await _markerAssignments.GetByBatchIdAsync(subjectId, request.BatchId, ct);
+        if (existingBatch is not null)
+        {
+            return (null, "Folder ZIP này đã được phân công cho giảng viên khác.");
+        }
+
+        var batch = await _submissionClient.GetBatchPapersAsync(request.BatchId, ct);
+        if (batch is null)
+        {
+            return (null, "Không tìm thấy batch hoặc SubmissionService không phản hồi.");
+        }
+
+        if (batch.SubjectId != subjectId)
+        {
+            return (null, "Batch không thuộc môn thi đã chọn.");
+        }
+
+        if (batch.Papers.Count == 0)
+        {
+            return (null, "Batch chưa sẵn sàng hoặc không có bài nào. Vui lòng đợi xử lý ZIP xong.");
+        }
+
+        var aliasNumbers = batch.Papers
+            .Where(p => p.AliasNumber.HasValue)
+            .Select(p => p.AliasNumber!.Value)
+            .ToList();
+        var aliasStart = aliasNumbers.Count > 0 ? aliasNumbers.Min() : 1;
+        var aliasEnd = aliasNumbers.Count > 0 ? aliasNumbers.Max() : batch.Papers.Count;
+
+        var assignment = new MarkerAssignment
+        {
+            SubjectId = subjectId,
+            TeacherId = request.TeacherId,
+            AliasStart = aliasStart,
+            AliasEnd = aliasEnd,
+            BatchId = request.BatchId,
+            ZipFileName = request.ZipFileName,
+            AssignedBy = assignedBy
+        };
+
+        _markerAssignments.Add(assignment);
+
+        await PublishMarkerAssignmentChangedAsync(assignment, MarkerAssignmentChangeType.Created, ct);
+
+        var materialize = await MaterializeAssignmentsForBatchAsync(
+            subjectId, request.TeacherId, batch, ct);
+        if (materialize.Error is not null)
+        {
+            return (null, materialize.Error);
+        }
+
+        await PublishAssignmentNotificationAsync(assignment, batch.Papers.Count, ct);
+
+        await _uow.SaveChangesAsync(ct);
+
+        return (new MarkerAssignmentResultDto(
+            ToDto(assignment),
+            materialize.Result!.MaterializedCount,
+            materialize.Result.SkippedInProgressCount,
+            materialize.Result.Warnings), null);
+    }
+
+    public async Task<(MarkerAssignmentResultDto? Result, bool NotFound, string? Error)> ReassignMarkerAssignmentAsync(
         Guid id, ReassignMarkerAssignmentRequest request, Guid assignedBy, CancellationToken ct = default)
     {
         var assignment = await _markerAssignments.GetByIdAsync(id, ct);
@@ -1195,6 +1371,13 @@ public class GradingSessionService : IGradingSessionService
             return (null, false, paperValidationError);
         }
 
+        var cleanupError = await CleanupGradingAssignmentsForRangeAsync(
+            assignment.SubjectId, assignment.TeacherId, assignment.AliasStart, assignment.AliasEnd, ct);
+        if (cleanupError is not null)
+        {
+            return (null, false, cleanupError);
+        }
+
         assignment.TeacherId = request.TeacherId;
         assignment.AliasStart = request.AliasStart;
         assignment.AliasEnd = request.AliasEnd;
@@ -1202,18 +1385,32 @@ public class GradingSessionService : IGradingSessionService
         assignment.AssignedAt = DateTime.UtcNow;
 
         await PublishMarkerAssignmentChangedAsync(assignment, MarkerAssignmentChangeType.Updated, ct);
-        await PublishAssignmentNotificationAsync(assignment, ct);
+
+        var materialize = await MaterializeAssignmentsForRangeAsync(
+            assignment.SubjectId, request.TeacherId, request.AliasStart, request.AliasEnd, ct);
+        if (materialize.Error is not null)
+        {
+            return (null, false, materialize.Error);
+        }
+
+        var rangePaperCount = materialize.Result?.MaterializedCount ?? (request.AliasEnd - request.AliasStart + 1);
+        await PublishAssignmentNotificationAsync(assignment, rangePaperCount, ct);
 
         await _uow.SaveChangesAsync(ct);
 
-        return (ToDto(assignment), false, null);
+        return (new MarkerAssignmentResultDto(
+            ToDto(assignment),
+            materialize.Result!.MaterializedCount,
+            materialize.Result.SkippedInProgressCount,
+            materialize.Result.Warnings), false, null);
     }
 
-    /// <summary>Notifies the (possibly new) teacher that they now own this alias range.</summary>
-    private Task PublishAssignmentNotificationAsync(MarkerAssignment assignment, CancellationToken ct) =>
+    /// <summary>Notifies the (possibly new) teacher that they now own this alias range or folder.</summary>
+    private Task PublishAssignmentNotificationAsync(MarkerAssignment assignment, int paperCount, CancellationToken ct) =>
         _messagePublisher.PublishAsync(new AssignmentNotificationEvent(
             Guid.NewGuid(), assignment.TeacherId, assignment.SubjectId,
-            assignment.AliasStart, assignment.AliasEnd, DateTime.UtcNow), ct);
+            assignment.AliasStart, assignment.AliasEnd, DateTime.UtcNow,
+            assignment.BatchId, assignment.ZipFileName, paperCount), ct);
 
     /// <summary>
     /// Replicates the allocation change to any service that keeps a local authz projection
@@ -1225,10 +1422,26 @@ public class GradingSessionService : IGradingSessionService
             Guid.NewGuid(), assignment.Id, assignment.SubjectId, assignment.TeacherId,
             assignment.AliasStart, assignment.AliasEnd, changeType, null, DateTime.UtcNow), ct);
 
-    public async Task<bool> DeleteMarkerAssignmentAsync(Guid id, CancellationToken ct = default)
+    public async Task<(bool Deleted, string? Error)> DeleteMarkerAssignmentAsync(Guid id, CancellationToken ct = default)
     {
         var assignment = await _markerAssignments.GetByIdAsync(id, ct);
-        if (assignment is null) return false;
+        if (assignment is null) return (false, null);
+
+        string? cleanupError;
+        if (assignment.BatchId is { } batchId)
+        {
+            cleanupError = await CleanupGradingAssignmentsForBatchAsync(
+                assignment.SubjectId, assignment.TeacherId, batchId, ct);
+        }
+        else
+        {
+            cleanupError = await CleanupGradingAssignmentsForRangeAsync(
+                assignment.SubjectId, assignment.TeacherId, assignment.AliasStart, assignment.AliasEnd, ct);
+        }
+        if (cleanupError is not null)
+        {
+            return (false, cleanupError);
+        }
 
         _markerAssignments.Remove(assignment);
 
@@ -1236,7 +1449,146 @@ public class GradingSessionService : IGradingSessionService
 
         await _uow.SaveChangesAsync(ct);
 
-        return true;
+        return (true, null);
+    }
+
+    /// <summary>Creates GradingAssignment rows for every paper in the alias range and marks papers Assigned.</summary>
+    private async Task<(MaterializeResultDto? Result, string? Error)> MaterializeAssignmentsForRangeAsync(
+        Guid subjectId, Guid teacherId, int aliasStart, int aliasEnd, CancellationToken ct)
+    {
+        var warnings = new List<string>();
+
+        var grid = await _catalogClient.GetGradingGridAsync(subjectId, ct);
+        if (grid is null)
+        {
+            return (null, "Không tìm thấy lưới điểm cho môn thi này.");
+        }
+
+        if (string.Equals(grid.Status, "Closed", StringComparison.OrdinalIgnoreCase))
+        {
+            return (null, "Môn thi đã đóng; không thể phân công chấm mới.");
+        }
+
+        var papers = await _submissionClient.ListPapersByAliasRangeAsync(
+            subjectId, aliasStart, aliasEnd, ct);
+        if (papers is null)
+        {
+            warnings.Add("SubmissionService không phản hồi — không thể tạo hàng chờ chấm.");
+            return (new MaterializeResultDto(0, 0, warnings), null);
+        }
+
+        if (papers.Count == 0)
+        {
+            warnings.Add($"Không có bài nào trong khoảng alias {aliasStart}-{aliasEnd}.");
+            return (new MaterializeResultDto(0, 0, warnings), null);
+        }
+
+        var materializedIds = new List<Guid>();
+        foreach (var paper in papers)
+        {
+            await EnsureAssignmentAsync(
+                paper.Id, subjectId, teacherId, grid, paper.AliasNumber, ct);
+            materializedIds.Add(paper.Id);
+        }
+
+        var marked = await _submissionClient.MarkPapersAssignedAsync(materializedIds, ct);
+        if (marked < 0)
+        {
+            warnings.Add("Không thể cập nhật trạng thái bài (Assigned) trên SubmissionService.");
+        }
+
+        return (new MaterializeResultDto(materializedIds.Count, 0, warnings), null);
+    }
+
+    private async Task<(MaterializeResultDto? Result, string? Error)> MaterializeAssignmentsForBatchAsync(
+        Guid subjectId, Guid teacherId, BatchPapersClientDto batch, CancellationToken ct)
+    {
+        var warnings = new List<string>();
+
+        var grid = await _catalogClient.GetGradingGridAsync(subjectId, ct);
+        if (grid is null)
+        {
+            return (null, "Không tìm thấy lưới điểm cho môn thi này.");
+        }
+
+        if (string.Equals(grid.Status, "Closed", StringComparison.OrdinalIgnoreCase))
+        {
+            return (null, "Môn thi đã đóng; không thể phân công chấm mới.");
+        }
+
+        if (batch.Papers.Count == 0)
+        {
+            warnings.Add("Batch không có bài nào.");
+            return (new MaterializeResultDto(0, 0, warnings), null);
+        }
+
+        var materializedIds = new List<Guid>();
+        foreach (var paper in batch.Papers)
+        {
+            await EnsureAssignmentAsync(
+                paper.PaperId, subjectId, teacherId, grid, paper.AliasNumber, ct);
+            materializedIds.Add(paper.PaperId);
+        }
+
+        var marked = await _submissionClient.MarkPapersAssignedAsync(materializedIds, ct);
+        if (marked < 0)
+        {
+            warnings.Add("Không thể cập nhật trạng thái bài (Assigned) trên SubmissionService.");
+        }
+
+        return (new MaterializeResultDto(materializedIds.Count, 0, warnings), null);
+    }
+
+    /// <summary>Removes NotStarted grading assignments for a teacher+alias range. Blocks if any are in progress.</summary>
+    private async Task<string?> CleanupGradingAssignmentsForRangeAsync(
+        Guid subjectId, Guid teacherId, int aliasStart, int aliasEnd, CancellationToken ct)
+    {
+        var papers = await _submissionClient.ListPapersByAliasRangeAsync(
+            subjectId, aliasStart, aliasEnd, ct);
+        if (papers is null || papers.Count == 0) return null;
+
+        var paperIds = papers.Select(p => p.Id).ToList();
+        var gradingAssignments = await _assignments.ListByTeacherAndPaperIdsAsync(teacherId, paperIds, ct);
+
+        var inProgress = gradingAssignments
+            .Where(a => a.Status != GradingProgressStatus.NotStarted)
+            .ToList();
+        if (inProgress.Count > 0)
+        {
+            return "Không thể thay đổi phân công: một số bài đã được giảng viên bắt đầu chấm hoặc đã nộp điểm.";
+        }
+
+        foreach (var ga in gradingAssignments.Where(a => a.Status == GradingProgressStatus.NotStarted))
+        {
+            _assignments.Remove(ga);
+        }
+
+        return null;
+    }
+
+    private async Task<string?> CleanupGradingAssignmentsForBatchAsync(
+        Guid subjectId, Guid teacherId, Guid batchId, CancellationToken ct)
+    {
+        var batch = await _submissionClient.GetBatchPapersAsync(batchId, ct);
+        if (batch is null || batch.Papers.Count == 0) return null;
+
+        var paperIds = batch.Papers.Select(p => p.PaperId).ToList();
+        var gradingAssignments = await _assignments.ListByTeacherAndPaperIdsAsync(teacherId, paperIds, ct);
+
+        var inProgress = gradingAssignments
+            .Where(a => a.Status != GradingProgressStatus.NotStarted)
+            .ToList();
+        if (inProgress.Count > 0)
+        {
+            return "Không thể thay đổi phân công: một số bài đã được giảng viên bắt đầu chấm hoặc đã nộp điểm.";
+        }
+
+        foreach (var ga in gradingAssignments.Where(a => a.Status == GradingProgressStatus.NotStarted))
+        {
+            _assignments.Remove(ga);
+        }
+
+        return null;
     }
 
     public async Task<int> RunDeadlineReminderSweepAsync(int reminderWindowDays = 3, CancellationToken ct = default)
@@ -1425,9 +1777,15 @@ public class GradingSessionService : IGradingSessionService
             .Select(f => new AiGradeFileRefPayload(f.Url, f.ContentType))
             .ToList();
 
-        // Prefer the APPROVED compiled contract (check-items + partial-credit) when available — this
-        // supersedes the raw-file text for grading (Phase 3). Null → fall back to raw-file path.
+        // Hard gate (spec A8.1 / R5): only subjects with an admin-approved compiled contract may use AI grading.
         var compiledRubric = await _catalogClient.GetCompiledRubricAsync(assignment.SubjectId, null, ct);
+        if (compiledRubric is null)
+        {
+            return (false,
+                "Chưa có hợp đồng chấm đã duyệt cho môn thi này. Vui lòng liên hệ quản trị viên.",
+                false);
+        }
+
         var enrichment = BuildContractEnrichment(compiledRubric);
 
         var payload = new AiGradeSuggestPayload(
@@ -1483,7 +1841,8 @@ public class GradingSessionService : IGradingSessionService
     }
 
     private static MarkerAssignmentDto ToDto(MarkerAssignment m) =>
-        new(m.Id, m.SubjectId, m.TeacherId, m.AliasStart, m.AliasEnd, m.AssignedBy, m.AssignedAt);
+        new(m.Id, m.SubjectId, m.TeacherId, m.AliasStart, m.AliasEnd, m.AssignedBy, m.AssignedAt,
+            m.BatchId, m.ZipFileName);
 
     // ── Compiled-contract enrichment of the AI grade payload (Phase 3a) ──
 

@@ -1,5 +1,6 @@
 using ExamCatalogService.Domain.Entities;
 using ExamCatalogService.Domain.Enums;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 
 namespace ExamCatalogService.Infrastructure.Persistence;
@@ -33,6 +34,12 @@ public class ExamCatalogDbContext : DbContext
         modelBuilder.HasPostgresEnum<SubjectStatus>(name: "subject_status");
 
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ExamCatalogDbContext).Assembly);
+
+        // MassTransit transactional outbox/inbox tables (N7 outbox, N8 idempotency).
+        modelBuilder.AddInboxStateEntity();
+        modelBuilder.AddOutboxStateEntity();
+        modelBuilder.AddOutboxMessageEntity();
+
         base.OnModelCreating(modelBuilder);
     }
 }

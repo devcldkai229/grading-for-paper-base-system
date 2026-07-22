@@ -109,18 +109,21 @@ public interface IGradingSessionService
     /// AliasEnd already assigned for the subject). Rejects a range that overlaps any existing
     /// assignment for the same subject, regardless of lecturer.
     /// </summary>
-    Task<(MarkerAssignmentDto? Result, string? Error)> CreateMarkerAssignmentAsync(
+    Task<(MarkerAssignmentResultDto? Result, string? Error)> CreateMarkerAssignmentAsync(
         Guid subjectId, CreateMarkerAssignmentRequest request, Guid assignedBy, CancellationToken ct = default);
+
+    Task<(MarkerAssignmentResultDto? Result, string? Error)> CreateFolderAssignmentAsync(
+        Guid subjectId, CreateFolderAssignmentRequest request, Guid assignedBy, CancellationToken ct = default);
 
     /// <summary>
     /// Admin reassigns an existing marker assignment: changes its lecturer and/or alias range.
     /// Rejects a range that overlaps any other assignment for the same subject.
     /// </summary>
-    Task<(MarkerAssignmentDto? Result, bool NotFound, string? Error)> ReassignMarkerAssignmentAsync(
+    Task<(MarkerAssignmentResultDto? Result, bool NotFound, string? Error)> ReassignMarkerAssignmentAsync(
         Guid id, ReassignMarkerAssignmentRequest request, Guid assignedBy, CancellationToken ct = default);
 
     /// <summary>Admin removes a marker assignment (frees the range for reallocation).</summary>
-    Task<bool> DeleteMarkerAssignmentAsync(Guid id, CancellationToken ct = default);
+    Task<(bool Deleted, string? Error)> DeleteMarkerAssignmentAsync(Guid id, CancellationToken ct = default);
 
     /// <summary>
     /// Scans every (subject, teacher) pair with ungraded papers and publishes a
@@ -165,7 +168,10 @@ public interface IGradingSessionService
     /// </summary>
     Task<GradingQueuePageDto> GetGradingQueueAsync(
         Guid teacherId, GradingProgressStatus? status, bool? flaggedOnly, string? aliasSearch,
-        int page, int pageSize, CancellationToken ct = default);
+        Guid? batchId, int page, int pageSize, CancellationToken ct = default);
+
+    Task<IReadOnlyList<GradingQueueFolderDto>> GetGradingQueueFoldersAsync(
+        Guid teacherId, CancellationToken ct = default);
 
     /// <summary>
     /// Sets or clears the lecturer's own "needs review" flag on an assignment. Independent of

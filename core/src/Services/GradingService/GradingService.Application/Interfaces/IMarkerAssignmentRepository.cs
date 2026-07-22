@@ -28,6 +28,11 @@ public interface IMarkerAssignmentRepository
 
     /// <summary>Stages a marker assignment for deletion (caller must call IUnitOfWork.SaveChangesAsync).</summary>
     void Remove(MarkerAssignment assignment);
+
+    Task<MarkerAssignment?> GetByBatchIdAsync(Guid subjectId, Guid batchId, CancellationToken ct = default);
+
+    Task<IReadOnlyList<MarkerAssignment>> ListForTeacherWithBatchAsync(
+        Guid teacherId, CancellationToken ct = default);
 }
 
 public sealed record AliasRangeDto(int AliasStart, int AliasEnd);

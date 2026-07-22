@@ -36,15 +36,25 @@ public class NotificationQueryService : INotificationQueryService
     private static NotificationDto ToDto(Notification n)
     {
         Guid? assignmentId = null;
-        if (n.Type == NotificationType.RegradeRequest && !string.IsNullOrEmpty(n.Metadata))
+        Guid? batchId = null;
+        if (!string.IsNullOrEmpty(n.Metadata))
         {
             try
             {
                 using var doc = JsonDocument.Parse(n.Metadata);
-                if (doc.RootElement.TryGetProperty("AssignmentId", out var prop) &&
-                    prop.TryGetGuid(out var parsed))
+                if (n.Type == NotificationType.RegradeRequest
+                    && doc.RootElement.TryGetProperty("AssignmentId", out var assignmentProp)
+                    && assignmentProp.TryGetGuid(out var parsedAssignment))
                 {
-                    assignmentId = parsed;
+                    assignmentId = parsedAssignment;
+                }
+
+                if (n.Type == NotificationType.Assignment
+                    && doc.RootElement.TryGetProperty("BatchId", out var batchProp)
+                    && batchProp.ValueKind == JsonValueKind.String
+                    && batchProp.TryGetGuid(out var parsedBatch))
+                {
+                    batchId = parsedBatch;
                 }
             }
             catch (JsonException)
@@ -55,6 +65,6 @@ public class NotificationQueryService : INotificationQueryService
 
         return new NotificationDto(
             n.Id, n.Type.ToString(), n.Title, n.Body, n.IsRead, n.Status.ToString(),
-            n.SentAt, n.CreatedAt, assignmentId);
+            n.SentAt, n.CreatedAt, assignmentId, batchId);
     }
 }

@@ -129,6 +129,35 @@ public sealed class PaperGrpcService : PaperService.PaperServiceBase
         return result;
     }
 
+    public override async Task ListPapersByAliasRange(
+        AliasRangeRef request,
+        IServerStreamWriter<PaperSummary> responseStream,
+        ServerCallContext context)
+    {
+        var subjectId = ParseGuid(request.SubjectId, "subject_id");
+        var ct = context.CancellationToken;
+
+        string? statusFilter = request.HasStatusFilter ? request.StatusFilter : null;
+        var papers = await _paperRepository.GetPapersByAliasRangeAsync(
+            subjectId, request.AliasStart, request.AliasEnd, statusFilter, ct);
+
+        foreach (var paper in papers)
+        {
+            await responseStream.WriteAsync(ToProto(paper), ct);
+        }
+    }
+
+    public override async Task<MarkPapersAssignedResponse> MarkPapersAssigned(
+        MarkPapersAssignedRequest request, ServerCallContext context)
+    {
+        var paperIds = request.PaperIds
+            .Select(id => ParseGuid(id, "paper_ids"))
+            .ToList();
+
+        var updated = await _paperRepository.MarkPapersAssignedAsync(paperIds, context.CancellationToken);
+        return new MarkPapersAssignedResponse { UpdatedCount = updated };
+    }
+
     private static PaperSummary ToProto(SubmissionService.Application.DTOs.InternalPaperSummaryDto summary)
     {
         var proto = new PaperSummary

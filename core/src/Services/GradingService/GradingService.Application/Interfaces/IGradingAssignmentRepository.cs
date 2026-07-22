@@ -51,6 +51,9 @@ public interface IGradingAssignmentRepository
 
     /// <summary>Stages a new grading form for insertion (legacy-data fallback path).</summary>
     void AddForm(GradingForm form);
+
+    /// <summary>Removes a grading assignment (cascades to form + details).</summary>
+    void Remove(GradingAssignment assignment);
 }
 
 public sealed record AssignmentProgressRow(Guid Id, Guid SubjectId, GradingProgressStatus Status, DateTime CreatedAt);

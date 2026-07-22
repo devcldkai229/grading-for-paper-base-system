@@ -1,10 +1,9 @@
 namespace ExamCatalogService.Application.Interfaces;
 
 /// <summary>
-/// Orchestrates compilation of a subject's barem into a reviewable grading contract: presign the
-/// rubric file, call the AI ingestion pipeline, persist illustration crops to S3, store the contract
-/// (status = Pending), and publish <c>RubricCompiledEvent</c>. The contract is only usable for AI
-/// grading once an admin approves it.
+/// Orchestrates compilation of a subject's barem into a grading contract: presign the rubric file,
+/// call the AI ingestion pipeline, persist illustration crops to S3, store the contract as
+/// <c>Approved</c>, and publish <c>RubricCompiledEvent</c>.
 /// </summary>
 public interface IGradingContractService
 {
