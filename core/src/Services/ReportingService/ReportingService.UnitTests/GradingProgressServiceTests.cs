@@ -7,6 +7,7 @@ using NSubstitute;
 using ReportingService.Application.DTOs;
 using ReportingService.Application.Interfaces;
 using ReportingService.Application.Services;
+using ReportingService.Domain.Entities;
 using Xunit;
 
 namespace ReportingService.UnitTests
@@ -17,12 +18,25 @@ namespace ReportingService.UnitTests
             Guid id, string code = "PRN232", DateOnly? gradingDeadline = null) =>
             new(id, code, "Title", Guid.NewGuid(), "FE Exam", Guid.NewGuid(), "SP26", 10m, GradingDeadline: gradingDeadline);
 
-        private static SubjectProgressClientDto MakeProgress(
-            Guid subjectId, int total, int completed, int flaggedCount = 0) =>
-            new(subjectId, total, completed, 0, total - completed,
-                total == 0 ? 0 : Math.Round(100m * completed / total, 1),
-                null, null, null, null, null,
-                new List<LecturerProgressClientDto>(), null, FlaggedCount: flaggedCount);
+        private static SubjectProgress MakeProgress(Guid subjectId, int total, int completed) =>
+            new()
+            {
+                SubjectId = subjectId,
+                TotalPapers = total,
+                CompletedPapers = completed,
+                InProgress = 0,
+                NotStarted = total - completed
+            };
+
+        private static IProgressReadRepository EmptyProgressRepo()
+        {
+            var repo = Substitute.For<IProgressReadRepository>();
+            repo.GetSubjectProgressAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+                .Returns(new List<SubjectProgress>());
+            repo.GetMarkerProgressAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+                .Returns(new List<MarkerProgress>());
+            return repo;
+        }
 
         [Fact]
         public async Task GetDashboardAsync_WhenCatalogUnreachable_ReturnsError()
@@ -30,68 +44,47 @@ namespace ReportingService.UnitTests
             var catalogClient = Substitute.For<IExamCatalogServiceClient>();
             catalogClient.SearchSubjectsAsync(null, null, Arg.Any<CancellationToken>())
                 .Returns((IReadOnlyList<SubjectFilterResultClientDto>?)null);
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            var service = new GradingProgressService(catalogClient, gradingClient);
+            var progressRepo = EmptyProgressRepo();
+            var service = new GradingProgressService(catalogClient, progressRepo);
 
             var (result, error) = await service.GetDashboardAsync(null, null, CancellationToken.None);
 
             Assert.Null(result);
             Assert.NotNull(error);
-            await gradingClient.DidNotReceive().GetProgressDashboardAsync(
+            await progressRepo.DidNotReceive().GetSubjectProgressAsync(
                 Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>());
         }
 
         [Fact]
-        public async Task GetDashboardAsync_WhenGradingServiceUnreachable_ReturnsError()
-        {
-            var subjectId = Guid.NewGuid();
-            var catalogClient = Substitute.For<IExamCatalogServiceClient>();
-            catalogClient.SearchSubjectsAsync(null, null, Arg.Any<CancellationToken>())
-                .Returns(new List<SubjectFilterResultClientDto> { MakeSubject(subjectId) });
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            gradingClient.GetProgressDashboardAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
-                .Returns((GradingProgressDashboardClientDto?)null);
-            var service = new GradingProgressService(catalogClient, gradingClient);
-
-            var (result, error) = await service.GetDashboardAsync(null, null, CancellationToken.None);
-
-            Assert.Null(result);
-            Assert.NotNull(error);
-        }
-
-        [Fact]
-        public async Task GetDashboardAsync_WhenNoSubjectsMatchFilter_ReturnsEmptyResultWithoutCallingGradingService()
+        public async Task GetDashboardAsync_WhenNoSubjectsMatchFilter_ReturnsEmptyResultWithoutReadingProjections()
         {
             var catalogClient = Substitute.For<IExamCatalogServiceClient>();
             catalogClient.SearchSubjectsAsync(Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
                 .Returns(new List<SubjectFilterResultClientDto>());
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            var service = new GradingProgressService(catalogClient, gradingClient);
+            var progressRepo = EmptyProgressRepo();
+            var service = new GradingProgressService(catalogClient, progressRepo);
 
             var (result, error) = await service.GetDashboardAsync(Guid.NewGuid(), null, CancellationToken.None);
 
             Assert.Null(error);
             Assert.NotNull(result);
             Assert.Empty(result!.Subjects);
-            await gradingClient.DidNotReceive().GetProgressDashboardAsync(
+            await progressRepo.DidNotReceive().GetSubjectProgressAsync(
                 Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>());
         }
 
         [Fact]
-        public async Task GetDashboardAsync_MergesSubjectMetadataWithProgressNumbers()
+        public async Task GetDashboardAsync_MergesSubjectMetadataWithProjectionNumbers()
         {
             var subjectId = Guid.NewGuid();
             var catalogClient = Substitute.For<IExamCatalogServiceClient>();
             catalogClient.SearchSubjectsAsync(null, null, Arg.Any<CancellationToken>())
                 .Returns(new List<SubjectFilterResultClientDto> { MakeSubject(subjectId, "PRN232") });
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            gradingClient.GetProgressDashboardAsync(
+            var progressRepo = EmptyProgressRepo();
+            progressRepo.GetSubjectProgressAsync(
                     Arg.Is<IReadOnlyCollection<Guid>>(ids => ids.Single() == subjectId), Arg.Any<CancellationToken>())
-                .Returns(new GradingProgressDashboardClientDto(new List<SubjectProgressClientDto>
-                {
-                    MakeProgress(subjectId, total: 10, completed: 4)
-                }));
-            var service = new GradingProgressService(catalogClient, gradingClient);
+                .Returns(new List<SubjectProgress> { MakeProgress(subjectId, total: 10, completed: 4) });
+            var service = new GradingProgressService(catalogClient, progressRepo);
 
             var (result, error) = await service.GetDashboardAsync(null, null, CancellationToken.None);
 
@@ -104,18 +97,50 @@ namespace ReportingService.UnitTests
         }
 
         [Fact]
+        public async Task GetDashboardAsync_MapsMarkerProjectionsIntoLecturerRows()
+        {
+            var subjectId = Guid.NewGuid();
+            var teacherId = Guid.NewGuid();
+            var catalogClient = Substitute.For<IExamCatalogServiceClient>();
+            catalogClient.SearchSubjectsAsync(null, null, Arg.Any<CancellationToken>())
+                .Returns(new List<SubjectFilterResultClientDto> { MakeSubject(subjectId) });
+            var progressRepo = EmptyProgressRepo();
+            progressRepo.GetSubjectProgressAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+                .Returns(new List<SubjectProgress> { MakeProgress(subjectId, total: 5, completed: 2) });
+            progressRepo.GetMarkerProgressAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+                .Returns(new List<MarkerProgress>
+                {
+                    new()
+                    {
+                        SubjectId = subjectId, TeacherId = teacherId,
+                        AssignedCount = 5, CompletedCount = 2, DraftingCount = 1, AvgScore = 7.5m
+                    }
+                });
+            var service = new GradingProgressService(catalogClient, progressRepo);
+
+            var (result, error) = await service.GetDashboardAsync(null, null, CancellationToken.None);
+
+            Assert.Null(error);
+            var lecturer = Assert.Single(Assert.Single(result!.Subjects).Lecturers);
+            Assert.Equal(teacherId, lecturer.TeacherId);
+            Assert.Equal(5, lecturer.AssignedCount);
+            Assert.Equal(2, lecturer.CompletedCount);
+            Assert.Equal(1, lecturer.DraftingCount);
+            Assert.Equal(2, lecturer.NotStartedCount);
+            Assert.Equal(7.5m, lecturer.AvgScore);
+        }
+
+        [Fact]
         public async Task GetDashboardAsync_WhenSubjectHasNoAssignmentsYet_IncludesItWithZeroProgress()
         {
-            // A subject the filter matched but that GradingService has no rows for yet
-            // (grading hasn't started) must still appear — not be silently dropped.
+            // A subject the filter matched but with no projection rows yet (grading hasn't started)
+            // must still appear — not be silently dropped.
             var subjectId = Guid.NewGuid();
             var catalogClient = Substitute.For<IExamCatalogServiceClient>();
             catalogClient.SearchSubjectsAsync(null, null, Arg.Any<CancellationToken>())
                 .Returns(new List<SubjectFilterResultClientDto> { MakeSubject(subjectId) });
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            gradingClient.GetProgressDashboardAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
-                .Returns(new GradingProgressDashboardClientDto(new List<SubjectProgressClientDto>()));
-            var service = new GradingProgressService(catalogClient, gradingClient);
+            var progressRepo = EmptyProgressRepo();
+            var service = new GradingProgressService(catalogClient, progressRepo);
 
             var (result, error) = await service.GetDashboardAsync(null, null, CancellationToken.None);
 
@@ -134,36 +159,13 @@ namespace ReportingService.UnitTests
             var catalogClient = Substitute.For<IExamCatalogServiceClient>();
             catalogClient.SearchSubjectsAsync(null, null, Arg.Any<CancellationToken>())
                 .Returns(new List<SubjectFilterResultClientDto> { MakeSubject(subjectId, gradingDeadline: deadline) });
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            gradingClient.GetProgressDashboardAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
-                .Returns(new GradingProgressDashboardClientDto(new List<SubjectProgressClientDto>()));
-            var service = new GradingProgressService(catalogClient, gradingClient);
+            var progressRepo = EmptyProgressRepo();
+            var service = new GradingProgressService(catalogClient, progressRepo);
 
             var (result, error) = await service.GetDashboardAsync(null, null, CancellationToken.None);
 
             Assert.Null(error);
             Assert.Equal(deadline, Assert.Single(result!.Subjects).GradingDeadline);
-        }
-
-        [Fact]
-        public async Task GetDashboardAsync_PassesThroughFlaggedCountFromProgress()
-        {
-            var subjectId = Guid.NewGuid();
-            var catalogClient = Substitute.For<IExamCatalogServiceClient>();
-            catalogClient.SearchSubjectsAsync(null, null, Arg.Any<CancellationToken>())
-                .Returns(new List<SubjectFilterResultClientDto> { MakeSubject(subjectId) });
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            gradingClient.GetProgressDashboardAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
-                .Returns(new GradingProgressDashboardClientDto(new List<SubjectProgressClientDto>
-                {
-                    MakeProgress(subjectId, total: 5, completed: 2, flaggedCount: 3)
-                }));
-            var service = new GradingProgressService(catalogClient, gradingClient);
-
-            var (result, error) = await service.GetDashboardAsync(null, null, CancellationToken.None);
-
-            Assert.Null(error);
-            Assert.Equal(3, Assert.Single(result!.Subjects).FlaggedCount);
         }
     }
 }

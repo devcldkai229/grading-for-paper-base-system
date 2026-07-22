@@ -9,8 +9,39 @@ import {
 } from "@/components/catalog/CatalogPageShell";
 import { ListPagination } from "@/components/catalog/ListPagination";
 import { AdminField, AdminTextInput } from "@/features/admin/components/AdminModal";
+import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
 import { reportingService } from "@/services/reportingService";
 import type { AuditLogEntry } from "@/types/reporting";
+
+// Parse a JSON `details` payload into a compact, human-readable summary (ported from the former
+// account-only audit page). Falls back to the raw string when it isn't JSON.
+function formatDetails(value?: string | null): string {
+  if (!value) return "—";
+  try {
+    const parsed = JSON.parse(value);
+    if (typeof parsed === "object" && parsed !== null) {
+      const parts: string[] = [];
+      if (parsed.Email) parts.push(`Email: ${parsed.Email}`);
+      if (parsed.IP) parts.push(`IP: ${parsed.IP}`);
+      if (parsed.Device) {
+        const ua: string = parsed.Device;
+        let simpleUa = ua;
+        if (ua.includes("Chrome")) simpleUa = "Chrome Browser";
+        else if (ua.includes("Firefox")) simpleUa = "Firefox Browser";
+        else if (ua.includes("Safari")) simpleUa = "Safari Browser";
+        parts.push(`Device: ${simpleUa}`);
+      }
+      if (parsed.Reason) parts.push(`Lý do: ${parsed.Reason}`);
+      if (parsed.ExpiresAt)
+        parts.push(`Hết hạn: ${new Date(parsed.ExpiresAt).toLocaleTimeString("vi-VN")}`);
+      return parts.length > 0 ? parts.join(" | ") : value;
+    }
+  } catch {
+    /* not JSON — return raw */
+  }
+  return value;
+}
 
 const sourceLabels: Record<string, string> = {
   Iam: "Tài khoản",
@@ -74,12 +105,58 @@ export function AdminGlobalAuditLogPage() {
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
+  const exportToCSV = () => {
+    if (items.length === 0) return;
+    const headers = [
+      "Thời gian",
+      "Nguồn",
+      "Hành động",
+      "Loại đối tượng",
+      "Entity ID",
+      "User ID",
+      "Chi tiết",
+    ];
+    const rows = items.map((entry) => [
+      new Date(entry.performedAt).toLocaleString("vi-VN"),
+      sourceLabels[entry.source] ?? entry.source,
+      entry.action,
+      entry.entityType,
+      entry.entityId ?? "",
+      entry.userId ?? "",
+      (entry.details ?? "").replace(/"/g, '""'),
+    ]);
+    const csvContent =
+      "\uFEFF" +
+      [headers.join(","), ...rows.map((row) => row.map((v) => `"${v}"`).join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Lich_su_hoat_dong_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <LecturerPageShell maxWidth="6xl">
-      <PageHeader
-        title="Nhật ký toàn hệ thống"
-        subtitle="Gộp nhật ký hoạt động từ tài khoản, chấm bài và nộp bài — lọc theo người dùng, đối tượng, hành động."
-      />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <PageHeader
+          title="Lịch sử hoạt động"
+          subtitle="Toàn bộ hoạt động trên hệ thống từ mọi tài khoản (tài khoản, chấm bài, nộp bài) — lọc theo người dùng, đối tượng, hành động."
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={exportToCSV}
+          disabled={loading || items.length === 0}
+          className="gap-1.5 border-done/30 text-done hover:bg-done/5"
+        >
+          <Download className="h-4 w-4" />
+          Xuất CSV
+        </Button>
+      </div>
 
       <div className="grid gap-3 sm:grid-cols-3 mb-6">
         <AdminField label="ID người dùng">
@@ -163,7 +240,7 @@ export function AdminGlobalAuditLogPage() {
                     {entry.userId ? `${entry.userId.slice(0, 8)}…` : "—"}
                   </td>
                   <td className="px-4 py-3 text-ink-soft max-w-xs truncate" title={entry.details ?? ""}>
-                    {entry.details ?? "—"}
+                    {formatDetails(entry.details)}
                   </td>
                 </tr>
               ))}

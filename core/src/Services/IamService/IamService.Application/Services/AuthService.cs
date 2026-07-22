@@ -1,3 +1,4 @@
+using Contracts.Messages;
 using IamService.Application.Features.Auth;
 using IamService.Application.Features.Users;
 using IamService.Application.Interfaces;
@@ -15,17 +16,31 @@ namespace IamService.Application.Services
         private readonly IUserRepository _userRepository;
         private readonly IGoogleAuthService _googleAuthService;
         private readonly IRefreshTokenRepository _refreshTokenRepository;
+        private readonly IMessagePublisher _messagePublisher;
 
         public AuthService(
             ITokenService tokenService,
             IUserRepository userRepository,
             IGoogleAuthService googleAuthService,
-            IRefreshTokenRepository refreshTokenRepository)
+            IRefreshTokenRepository refreshTokenRepository,
+            IMessagePublisher messagePublisher)
         {
             _tokenService = tokenService;
             _userRepository = userRepository;
             _googleAuthService = googleAuthService;
             _refreshTokenRepository = refreshTokenRepository;
+            _messagePublisher = messagePublisher;
+        }
+
+        /// <summary>Persists an audit-trail row AND mirrors it onto the bus as an <see cref="AuditLogRecorded"/>
+        /// so Reporting can serve the global audit-log viewer from its own DB. Publish-before-save: the
+        /// outbox row is flushed inside AddAuditLogAsync's SaveChanges (N7).</summary>
+        private async Task RecordAuditAsync(AuditLog log)
+        {
+            await _messagePublisher.PublishAsync(new AuditLogRecorded(
+                Guid.NewGuid(), "iam", log.UserId, log.Action, log.EntityType,
+                log.EntityId, log.OldValue, log.NewValue, null, DateTime.UtcNow));
+            await _userRepository.AddAuditLogAsync(log);
         }
 
         private async Task AuditLoginAsync(Guid? userId, string email, bool success, string ipAddress, string userAgent, string? reason = null)
@@ -44,7 +59,7 @@ namespace IamService.Application.Services
                     Reason = reason
                 })
             };
-            await _userRepository.AddAuditLogAsync(auditLog);
+            await RecordAuditAsync(auditLog);
         }
 
         public async Task<AuthResult> LoginAsync(string email, string password, string ipAddress, string userAgent)
@@ -201,7 +216,7 @@ namespace IamService.Application.Services
                 EntityId = userId,
                 NewValue = "Password changed successfully"
             };
-            await _userRepository.AddAuditLogAsync(auditLog);
+            await RecordAuditAsync(auditLog);
 
             result.Success = true;
             return result;
@@ -247,7 +262,7 @@ namespace IamService.Application.Services
                     user.AvatarUrl
                 })
             };
-            await _userRepository.AddAuditLogAsync(auditLog);
+            await RecordAuditAsync(auditLog);
 
             return MapToDto(user);
         }
@@ -271,7 +286,7 @@ namespace IamService.Application.Services
                 EntityId = user.Id,
                 NewValue = System.Text.Json.JsonSerializer.Serialize(new { Email = email, ExpiresAt = user.ResetTokenExpiresAt })
             };
-            await _userRepository.AddAuditLogAsync(auditLog);
+            await RecordAuditAsync(auditLog);
 
             return token;
         }
@@ -329,7 +344,7 @@ namespace IamService.Application.Services
                 EntityId = user.Id,
                 NewValue = "Password reset successfully"
             };
-            await _userRepository.AddAuditLogAsync(auditLog);
+            await RecordAuditAsync(auditLog);
 
             result.Success = true;
             return result;

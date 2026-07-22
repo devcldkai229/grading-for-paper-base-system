@@ -19,7 +19,7 @@ public class GradingSessionService : IGradingSessionService
     private readonly IGradeExportFileBuilder _exportBuilder;
     private readonly IMarkerAssignmentRepository _markerAssignments;
     private readonly IMessagePublisher _messagePublisher;
-    private readonly IIamServiceClient? _iamClient;
+    private readonly ILecturerMarkerCodeRepository? _markerCodes;
 
     public GradingSessionService(
         IGradingAssignmentRepository assignments,
@@ -31,7 +31,7 @@ public class GradingSessionService : IGradingSessionService
         IGradeExportFileBuilder exportBuilder,
         IMarkerAssignmentRepository markerAssignments,
         IMessagePublisher messagePublisher,
-        IIamServiceClient? iamClient = null)
+        ILecturerMarkerCodeRepository? markerCodes = null)
     {
         _assignments = assignments;
         _auditLogs = auditLogs;
@@ -42,7 +42,53 @@ public class GradingSessionService : IGradingSessionService
         _exportBuilder = exportBuilder;
         _markerAssignments = markerAssignments;
         _messagePublisher = messagePublisher;
-        _iamClient = iamClient;
+        _markerCodes = markerCodes;
+    }
+
+    // ---------------------------------------------------------------------------
+    // Phase 5 — event publishing that drives ReportingService's local projections.
+    // Every publish is staged on the MassTransit bus outbox and flushed atomically by the next
+    // SaveChangesAsync, so these MUST be called BEFORE the save (N7 — no dual-write).
+    // ---------------------------------------------------------------------------
+
+    /// <summary>Adds an audit-trail row AND mirrors it onto the bus as an <see cref="AuditLogRecorded"/>
+    /// so Reporting can serve the admin global audit-log viewer from its own database.</summary>
+    private Task RecordAuditAsync(AuditLog log, CancellationToken ct)
+    {
+        _auditLogs.Add(log);
+        return _messagePublisher.PublishAsync(new AuditLogRecorded(
+            Guid.NewGuid(), "grading", log.UserId, log.Action, log.EntityType,
+            log.EntityId, log.OldValue, log.NewValue, log.Reason, DateTime.UtcNow), ct);
+    }
+
+    private Task PublishStatusChangedAsync(
+        GradingAssignment assignment, int? aliasNumber, DateTime occurredAt, CancellationToken ct) =>
+        _messagePublisher.PublishAsync(new GradingAssignmentStatusChanged(
+            Guid.NewGuid(), assignment.Id, assignment.SubjectId, assignment.TeacherId,
+            assignment.StudentPaperId, aliasNumber, assignment.Status.ToString(), occurredAt), ct);
+
+    /// <summary>Publishes the "fat" score event (submit or override) carrying both the aggregate score
+    /// and full per-question feedback so Reporting builds its score AND feedback projections from one message.</summary>
+    private Task PublishScoreAsync(
+        bool isOverride, GradingAssignment assignment, int? aliasNumber, string? studentAlias,
+        DateTime occurredAt, CancellationToken ct)
+    {
+        var form = assignment.GradingForm!;
+        var questions = form.QuestionGradeDetails
+            .OrderBy(q => q.OrderIndex)
+            .Select(q => new ScoreQuestionPayload(q.QuestionNumber, q.Label, q.Score, q.MaxScore, q.QuestionComment))
+            .ToList();
+        var maxScore = questions.Sum(q => q.MaxScore);
+
+        return isOverride
+            ? _messagePublisher.PublishAsync(new ScoreOverridden(
+                Guid.NewGuid(), assignment.Id, assignment.SubjectId, assignment.TeacherId,
+                assignment.StudentPaperId, aliasNumber, studentAlias, form.TotalScore, maxScore,
+                form.PaperComment, questions, occurredAt), ct)
+            : _messagePublisher.PublishAsync(new ScoreSubmitted(
+                Guid.NewGuid(), assignment.Id, assignment.SubjectId, assignment.TeacherId,
+                assignment.StudentPaperId, aliasNumber, studentAlias, form.TotalScore, maxScore,
+                form.PaperComment, questions, occurredAt), ct);
     }
 
     public async Task<(StartBatchResultDto? Result, string? Error)> StartBatchAsync(
@@ -65,7 +111,7 @@ public class GradingSessionService : IGradingSessionService
         foreach (var paper in batch.Papers)
         {
             var assignment = await EnsureAssignmentAsync(
-                paper.PaperId, batch.SubjectId, teacherId, grid, ct);
+                paper.PaperId, batch.SubjectId, teacherId, grid, paper.AliasNumber, ct);
 
             summaries.Add(new AssignmentSummaryDto(
                 assignment.Id,
@@ -140,6 +186,8 @@ public class GradingSessionService : IGradingSessionService
                 ToAiReviewStatusLabel(q.AiReviewStatus)))
             .ToList();
 
+        var aiSuggestions = DeserializeAiSuggestions(assignment.GradingForm.AiSuggestionsJson);
+
         return new GradingSessionDto(
             assignment.Id,
             assignment.StudentPaperId,
@@ -155,7 +203,22 @@ public class GradingSessionService : IGradingSessionService
             paper?.StudentAlias,
             paper?.AliasNumber,
             questions,
-            assignment.IsFlagged);
+            assignment.IsFlagged,
+            aiSuggestions,
+            assignment.GradingForm.AiPaperComment);
+    }
+
+    private static IReadOnlyList<AiSuggestionDto> DeserializeAiSuggestions(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return Array.Empty<AiSuggestionDto>();
+        try
+        {
+            return JsonSerializer.Deserialize<List<AiSuggestionDto>>(json) ?? new List<AiSuggestionDto>();
+        }
+        catch (JsonException)
+        {
+            return Array.Empty<AiSuggestionDto>();
+        }
     }
 
     public async Task<(SaveMarksResultDto? Result, bool Conflict, string? Error)> SaveMarksAsync(
@@ -224,9 +287,10 @@ public class GradingSessionService : IGradingSessionService
         form.InternalComment = request.InternalComment;
         form.TotalScore = form.QuestionGradeDetails.Sum(q => q.Score);
         form.RowVersion++;
+        var prevStatus = assignment.Status;
         assignment.Status = GradingProgressStatus.Drafting;
 
-        _auditLogs.Add(new AuditLog
+        await RecordAuditAsync(new AuditLog
         {
             UserId = teacherId,
             Action = "ScoreUpdated",
@@ -234,7 +298,10 @@ public class GradingSessionService : IGradingSessionService
             EntityId = form.Id,
             OldValue = oldSnapshot,
             NewValue = SerializeForm(form)
-        });
+        }, ct);
+
+        if (prevStatus != GradingProgressStatus.Drafting)
+            await PublishStatusChangedAsync(assignment, null, DateTime.UtcNow, ct);
 
         try
         {
@@ -383,7 +450,7 @@ public class GradingSessionService : IGradingSessionService
         form.TotalScore = form.QuestionGradeDetails.Sum(q => q.Score);
         form.RowVersion++;
 
-        _auditLogs.Add(new AuditLog
+        await RecordAuditAsync(new AuditLog
         {
             UserId = actingUserId,
             Action = "ScoreOverridden",
@@ -392,18 +459,26 @@ public class GradingSessionService : IGradingSessionService
             OldValue = oldSnapshot,
             NewValue = SerializeForm(form),
             Reason = request.Reason
-        });
+        }, ct);
 
-        await _uow.SaveChangesAsync(ct);
+        // Refresh Reporting's score + feedback projections with the overridden marks (latest-wins by
+        // OccurredAt). Alias/student-alias are best-effort display data pulled from Submission.
+        var overridePaper = await _submissionClient.GetPaperSummaryAsync(assignment.StudentPaperId, ct);
+        await PublishScoreAsync(
+            isOverride: true, assignment, overridePaper?.AliasNumber, overridePaper?.StudentAlias,
+            DateTime.UtcNow, ct);
 
         // Only notify when someone other than the original marker made the change — the marker
-        // doesn't need to be told about their own edit.
+        // doesn't need to be told about their own edit. Publish before SaveChanges so the outbox
+        // row commits atomically with the score change (N7).
         if (actingUserId != assignment.TeacherId)
         {
             await _messagePublisher.PublishAsync(new RegradeNotificationEvent(
                 Guid.NewGuid(), assignment.TeacherId, assignment.Id, assignment.SubjectId,
                 request.Reason, DateTime.UtcNow), ct);
         }
+
+        await _uow.SaveChangesAsync(ct);
 
         return (new OverrideMarksResultDto(form.RowVersion, form.TotalScore), false, null);
     }
@@ -427,7 +502,7 @@ public class GradingSessionService : IGradingSessionService
     public async Task<(SubmitResultDto? Result, bool Forbidden, bool NotFound)> SubmitAsync(
         Guid assignmentId, Guid teacherId, CancellationToken ct = default)
     {
-        var assignment = await _assignments.GetWithFormAsync(assignmentId, teacherId, asNoTracking: false, ct);
+        var assignment = await _assignments.GetWithFormAndDetailsAsync(assignmentId, teacherId, asNoTracking: false, ct);
 
         if (assignment is null) return (null, false, true);
         if (assignment.Status == GradingProgressStatus.Submitted) return (null, true, false);
@@ -446,14 +521,19 @@ public class GradingSessionService : IGradingSessionService
                 detail.AiReviewStatus = AiReviewStatus.Accepted;
         }
 
-        _auditLogs.Add(new AuditLog
+        await RecordAuditAsync(new AuditLog
         {
             UserId = teacherId,
             Action = "FormSubmitted",
             EntityType = "GradingForm",
             EntityId = assignment.GradingForm.Id,
             NewValue = JsonSerializer.Serialize(new { assignment.GradingForm.TotalScore })
-        });
+        }, ct);
+
+        // Drive Reporting's score/feedback projection + progress projection from this finalization.
+        await PublishScoreAsync(
+            isOverride: false, assignment, paper.AliasNumber, paper.StudentAlias, now, ct);
+        await PublishStatusChangedAsync(assignment, paper.AliasNumber, now, ct);
 
         await _uow.SaveChangesAsync(ct);
 
@@ -494,7 +574,7 @@ public class GradingSessionService : IGradingSessionService
 
     private async Task<GradingAssignment> EnsureAssignmentAsync(
         Guid paperId, Guid subjectId, Guid teacherId,
-        SubjectGradingGridClientDto grid, CancellationToken ct)
+        SubjectGradingGridClientDto grid, int? aliasNumber, CancellationToken ct)
     {
         var existing = await _assignments.FindFirstGradeForPaperAsync(paperId, teacherId, ct);
 
@@ -537,6 +617,8 @@ public class GradingSessionService : IGradingSessionService
 
         assignment.GradingForm = form;
         _assignments.Add(assignment);
+        // Seed Reporting's progress projection with the new (NotStarted) paper before the save flushes the outbox.
+        await PublishStatusChangedAsync(assignment, aliasNumber, DateTime.UtcNow, ct);
         await _uow.SaveChangesAsync(ct);
 
         return assignment;
@@ -685,11 +767,11 @@ public class GradingSessionService : IGradingSessionService
         var assignments = await _assignments.ListBySubjectWithFormsAsync(subjectId, submittedOnly: false, ct);
         if (assignments.Count == 0) return null;
 
-        // Fetch lecturer marker codes
+        // Fetch lecturer marker codes from the local projection (replicated from IamService — N5).
         Dictionary<Guid, string> teacherMarkerCodes = new();
-        if (_iamClient != null)
+        if (_markerCodes != null)
         {
-            teacherMarkerCodes = await _iamClient.GetAllLecturerMarkerCodesAsync(ct);
+            teacherMarkerCodes = await _markerCodes.GetAllMarkerCodesAsync(ct);
         }
 
         // Fetch paper summaries in parallel to get student alias & alias numbers
@@ -781,6 +863,9 @@ public class GradingSessionService : IGradingSessionService
 
         await _messagePublisher.PublishAsync(new ExportReadyEvent(
             Guid.NewGuid(), requestedBy, subjectId, DateTime.UtcNow), ct);
+
+        // Flush the bus outbox (this method otherwise only reads) so the event is actually delivered.
+        await _uow.SaveChangesAsync(ct);
 
         return bytes;
     }
@@ -1075,9 +1160,12 @@ public class GradingSessionService : IGradingSessionService
         };
 
         _markerAssignments.Add(assignment);
-        await _uow.SaveChangesAsync(ct);
 
+        // Publish before SaveChanges so both events land in the outbox within the same transaction.
+        await PublishMarkerAssignmentChangedAsync(assignment, MarkerAssignmentChangeType.Created, ct);
         await PublishAssignmentNotificationAsync(assignment, ct);
+
+        await _uow.SaveChangesAsync(ct);
 
         return (ToDto(assignment), null);
     }
@@ -1113,9 +1201,10 @@ public class GradingSessionService : IGradingSessionService
         assignment.AssignedBy = assignedBy;
         assignment.AssignedAt = DateTime.UtcNow;
 
-        await _uow.SaveChangesAsync(ct);
-
+        await PublishMarkerAssignmentChangedAsync(assignment, MarkerAssignmentChangeType.Updated, ct);
         await PublishAssignmentNotificationAsync(assignment, ct);
+
+        await _uow.SaveChangesAsync(ct);
 
         return (ToDto(assignment), false, null);
     }
@@ -1126,12 +1215,25 @@ public class GradingSessionService : IGradingSessionService
             Guid.NewGuid(), assignment.TeacherId, assignment.SubjectId,
             assignment.AliasStart, assignment.AliasEnd, DateTime.UtcNow), ct);
 
+    /// <summary>
+    /// Replicates the allocation change to any service that keeps a local authz projection
+    /// (ExamCatalog, Submission, Insights) — cuts the synchronous fail-closed cross-calls (N5).
+    /// </summary>
+    private Task PublishMarkerAssignmentChangedAsync(
+        MarkerAssignment assignment, MarkerAssignmentChangeType changeType, CancellationToken ct) =>
+        _messagePublisher.PublishAsync(new MarkerAssignmentChanged(
+            Guid.NewGuid(), assignment.Id, assignment.SubjectId, assignment.TeacherId,
+            assignment.AliasStart, assignment.AliasEnd, changeType, null, DateTime.UtcNow), ct);
+
     public async Task<bool> DeleteMarkerAssignmentAsync(Guid id, CancellationToken ct = default)
     {
         var assignment = await _markerAssignments.GetByIdAsync(id, ct);
         if (assignment is null) return false;
 
         _markerAssignments.Remove(assignment);
+
+        await PublishMarkerAssignmentChangedAsync(assignment, MarkerAssignmentChangeType.Deleted, ct);
+
         await _uow.SaveChangesAsync(ct);
 
         return true;
@@ -1180,6 +1282,12 @@ public class GradingSessionService : IGradingSessionService
                 entry.Deadline, remaining, DateTime.UtcNow), ct);
 
             publishedCount++;
+        }
+
+        // Flush the bus outbox (this sweep otherwise only reads) so reminders are actually delivered.
+        if (publishedCount > 0)
+        {
+            await _uow.SaveChangesAsync(ct);
         }
 
         return publishedCount;
@@ -1235,61 +1343,32 @@ public class GradingSessionService : IGradingSessionService
             return (true, null);
 
         var form = assignment.GradingForm;
-        var detailByNumber = form.QuestionGradeDetails
-            .ToDictionary(q => q.QuestionNumber, StringComparer.OrdinalIgnoreCase);
+        var validNumbers = form.QuestionGradeDetails
+            .Select(q => q.QuestionNumber)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        var anyApplied = false;
-        foreach (var grade in request.QuestionGrades)
-        {
-            if (!detailByNumber.TryGetValue(grade.QuestionNumber, out var detail))
-                continue;
+        // Store AI results SEPARATELY from the manual marks. AI never mutates QuestionGradeDetails or
+        // PaperComment — the lecturer copies suggestions into the manual marks explicitly from the AI
+        // tab. We keep only suggestions that map to a real leaf on this form, clamped to its max.
+        var maxByNumber = form.QuestionGradeDetails
+            .ToDictionary(q => q.QuestionNumber, q => q.MaxScore, StringComparer.OrdinalIgnoreCase);
 
-            // Idempotent: already drafted with same score+comment → skip row
-            if (detail.AiDrafted
-                && detail.Score == grade.Score
-                && string.Equals(detail.QuestionComment, grade.QuestionComment, StringComparison.Ordinal)
-                && !grade.IsManualOnly)
-            {
-                continue;
-            }
+        var suggestions = request.QuestionGrades
+            .Where(g => validNumbers.Contains(g.QuestionNumber))
+            .Select(g => new AiSuggestionDto(
+                g.QuestionNumber,
+                Math.Clamp(g.Score, 0m, maxByNumber[g.QuestionNumber]),
+                g.QuestionComment,
+                g.Confidence,
+                g.IsManualOnly))
+            .ToList();
 
-            // Skip rows the lecturer manually scored (non-AI draft with existing score)
-            if (!detail.AiDrafted && detail.Score > 0 && !grade.IsManualOnly)
-                continue;
-
-            if (grade.IsManualOnly)
-            {
-                detail.QuestionComment = grade.QuestionComment;
-                detail.AiDrafted = true;
-                detail.AiReviewStatus = AiReviewStatus.Pending;
-                anyApplied = true;
-                continue;
-            }
-
-            // Only overwrite score when AI-drafted or still at zero
-            if (detail.AiDrafted || detail.Score == 0)
-            {
-                var clamped = Math.Clamp(grade.Score, 0m, detail.MaxScore);
-                detail.Score = clamped;
-            }
-
-            detail.QuestionComment = grade.QuestionComment;
-            detail.AiDrafted = true;
-            detail.AiReviewStatus = AiReviewStatus.Pending;
-            anyApplied = true;
-        }
+        form.AiSuggestionsJson = JsonSerializer.Serialize(suggestions);
+        form.AiPaperComment = request.PaperComment;
 
         assignment.AiStatus = AiSyncStatus.Completed;
 
-        if (anyApplied)
-        {
-            form.TotalScore = form.QuestionGradeDetails.Sum(q => q.Score);
-            form.RowVersion++;
-            if (assignment.Status == GradingProgressStatus.NotStarted)
-                assignment.Status = GradingProgressStatus.Drafting;
-        }
-
-        _auditLogs.Add(new AuditLog
+        await RecordAuditAsync(new AuditLog
         {
             UserId = Guid.Empty,
             Action = "AiSuggestionApplied",
@@ -1299,10 +1378,9 @@ public class GradingSessionService : IGradingSessionService
             {
                 request.ModelUsed,
                 request.PromptVersion,
-                AppliedCount = request.QuestionGrades.Count,
-                anyApplied
+                SuggestionCount = suggestions.Count
             })
-        });
+        }, ct);
 
         await _uow.SaveChangesAsync(ct);
         return (true, null);
@@ -1340,26 +1418,186 @@ public class GradingSessionService : IGradingSessionService
         var rubricVersion = grid?.RubricVersion.ToString() ?? "1";
         var rubricText = await _catalogClient.GetRubricTextAsync(assignment.SubjectId, ct);
 
+        // Send the real barem file(s) so the AI grades against the actual questions/keys/guide,
+        // not just the one-line-per-question score-grid summary. Best-effort: null when unreachable.
+        var rubricSourceFiles = await _catalogClient.GetRubricSourceFilesAsync(assignment.SubjectId, ct);
+        var rubricFiles = rubricSourceFiles?
+            .Select(f => new AiGradeFileRefPayload(f.Url, f.ContentType))
+            .ToList();
+
+        // Prefer the APPROVED compiled contract (check-items + partial-credit) when available — this
+        // supersedes the raw-file text for grading (Phase 3). Null → fall back to raw-file path.
+        var compiledRubric = await _catalogClient.GetCompiledRubricAsync(assignment.SubjectId, null, ct);
+        var enrichment = BuildContractEnrichment(compiledRubric);
+
         var payload = new AiGradeSuggestPayload(
             assignment.Id,
             assignment.SubjectId,
             rubricVersion,
             files.Select(f => new AiGradeFileRefPayload(f.Url, f.ContentType)).ToList(),
-            scoreGrid.Select(q => new AiGradeScoreGridItemPayload(
-                q.QuestionNumber, q.GroupLabel, q.Label, q.MaxScore)).ToList(),
-            rubricText);
+            scoreGrid.Select(q => EnrichScoreGridItem(q, enrichment)).ToList(),
+            rubricText,
+            rubricFiles,
+            compiledRubric?.RubricVersion.ToString(),
+            "vi",
+            null);
 
         assignment.AiStatus = AiSyncStatus.Queued;
-        await _uow.SaveChangesAsync(ct);
 
+        // Publish first (collected by the MassTransit bus outbox), then SaveChanges flushes the
+        // outbox row in the SAME transaction as the status change (N7 — no dual-write).
         var messageId = Guid.NewGuid();
         await _messagePublisher.PublishAsync(
             new AiGradeRequestedEvent(messageId, assignment.Id, teacherId, payload, DateTime.UtcNow),
             ct);
 
+        await _uow.SaveChangesAsync(ct);
+
         return (true, null, false);
+    }
+
+    public async Task<bool> MarkAiGradeFailedAsync(Guid assignmentId, string reason, CancellationToken ct = default)
+    {
+        var assignment = await _assignments.GetWithFormAsync(
+            assignmentId, teacherId: null, asNoTracking: false, ct);
+
+        if (assignment is null) return false;
+
+        // Never override a lecturer-finalized paper, and stay idempotent on repeated delivery.
+        if (assignment.Status == GradingProgressStatus.Submitted) return true;
+        if (assignment.AiStatus == AiSyncStatus.Failed) return true;
+
+        assignment.AiStatus = AiSyncStatus.Failed;
+
+        await RecordAuditAsync(new AuditLog
+        {
+            UserId = Guid.Empty,
+            Action = "AiSuggestionFailed",
+            EntityType = "GradingAssignment",
+            EntityId = assignment.Id,
+            NewValue = reason
+        }, ct);
+
+        await _uow.SaveChangesAsync(ct);
+        return true;
     }
 
     private static MarkerAssignmentDto ToDto(MarkerAssignment m) =>
         new(m.Id, m.SubjectId, m.TeacherId, m.AliasStart, m.AliasEnd, m.AssignedBy, m.AssignedAt);
+
+    // ── Compiled-contract enrichment of the AI grade payload (Phase 3a) ──
+
+    private sealed record ContractEnrichment(
+        IReadOnlyDictionary<string, JsonElement> CriteriaByNumber,
+        IReadOnlyDictionary<string, string> AssetUrlById);
+
+    /// <summary>Index the approved contract JSON by question number + assets by id (empty when none).</summary>
+    private static ContractEnrichment? BuildContractEnrichment(CompiledRubricClientDto? contract)
+    {
+        if (contract is null || string.IsNullOrWhiteSpace(contract.ContractJson))
+        {
+            return null;
+        }
+
+        var byNumber = new Dictionary<string, JsonElement>();
+        try
+        {
+            using var doc = JsonDocument.Parse(contract.ContractJson);
+            if (doc.RootElement.TryGetProperty("criteria", out var criteria)
+                && criteria.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var c in criteria.EnumerateArray())
+                {
+                    if (c.TryGetProperty("questionNumber", out var qn) && qn.GetString() is { } key)
+                    {
+                        // Clone so the element stays valid after the JsonDocument is disposed.
+                        byNumber[key] = c.Clone();
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        var assetUrls = contract.Assets.ToDictionary(a => a.AssetId, a => a.Url);
+        return new ContractEnrichment(byNumber, assetUrls);
+    }
+
+    private static AiGradeScoreGridItemPayload EnrichScoreGridItem(
+        AiGradeScoreGridItem q, ContractEnrichment? enrichment)
+    {
+        if (enrichment is null || !enrichment.CriteriaByNumber.TryGetValue(q.QuestionNumber, out var c))
+        {
+            return new AiGradeScoreGridItemPayload(q.QuestionNumber, q.GroupLabel, q.Label, q.MaxScore);
+        }
+
+        var checkItems = ReadArray(c, "checkItems", el => new AiGradeCheckItemPayload(
+            GetString(el, "checkId") ?? "",
+            GetString(el, "description") ?? "",
+            GetDecimal(el, "points"),
+            GetBool(el, "required"),
+            GetString(el, "evidenceHint")));
+
+        var partialCredit = ReadArray(c, "partialCredit", el => new AiGradePartialCreditPayload(
+            GetString(el, "label") ?? "",
+            GetDecimal(el, "score"),
+            GetString(el, "condition") ?? "",
+            ReadStringArray(el, "checkIds")));
+
+        var visualAssetUrls = ReadStringArray(c, "visualAssetIds")
+            .Select(id => enrichment.AssetUrlById.TryGetValue(id, out var url) ? url : null)
+            .Where(url => url is not null)
+            .Select(url => url!)
+            .ToList();
+
+        return new AiGradeScoreGridItemPayload(
+            q.QuestionNumber,
+            q.GroupLabel,
+            q.Label,
+            q.MaxScore,
+            GetString(c, "parentQuestion"),
+            GetString(c, "questionText"),
+            GetString(c, "answerKey"),
+            checkItems,
+            partialCredit,
+            ReadStringArray(c, "commonMistakes"),
+            ReadStringArray(c, "notPenalize"),
+            GetBool(c, "requiresVisual"),
+            visualAssetUrls,
+            GetString(c, "specificity"),
+            GetString(c, "extractionConfidence"));
+    }
+
+    private static IReadOnlyList<T> ReadArray<T>(JsonElement parent, string prop, Func<JsonElement, T> map)
+    {
+        if (!parent.TryGetProperty(prop, out var arr) || arr.ValueKind != JsonValueKind.Array)
+        {
+            return Array.Empty<T>();
+        }
+        return arr.EnumerateArray().Select(map).ToList();
+    }
+
+    private static IReadOnlyList<string> ReadStringArray(JsonElement parent, string prop)
+    {
+        if (!parent.TryGetProperty(prop, out var arr) || arr.ValueKind != JsonValueKind.Array)
+        {
+            return Array.Empty<string>();
+        }
+        return arr.EnumerateArray()
+            .Where(e => e.ValueKind == JsonValueKind.String)
+            .Select(e => e.GetString()!)
+            .ToList();
+    }
+
+    private static string? GetString(JsonElement el, string prop) =>
+        el.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    private static decimal GetDecimal(JsonElement el, string prop) =>
+        el.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDecimal() : 0m;
+
+    private static bool GetBool(JsonElement el, string prop) =>
+        el.TryGetProperty(prop, out var v)
+        && v.ValueKind is JsonValueKind.True or JsonValueKind.False && v.GetBoolean();
 }

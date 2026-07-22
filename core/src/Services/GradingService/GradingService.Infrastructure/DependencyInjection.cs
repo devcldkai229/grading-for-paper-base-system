@@ -1,12 +1,16 @@
+using BuildingBlocks.AspNetCore.Observability;
 using BuildingBlocks.EfCore;
+using Gradepaper.ExamCatalog.V1;
+using Gradepaper.Submission.V1;
 using GradingService.Application.Interfaces;
 using GradingService.Domain.Enums;
 using GradingService.Infrastructure.Auth;
-using GradingService.Infrastructure.Clients;
+using GradingService.Infrastructure.Clients.Grpc;
 using GradingService.Infrastructure.Consumers;
 using GradingService.Infrastructure.Files;
 using GradingService.Infrastructure.Persistence.Repositories;
-using GradingService.Infrastructure.Redis;
+using Grpc.Core;
+using Grpc.Net.Client.Configuration;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -35,12 +39,16 @@ public static class DependencyInjection
 
         services.AddSingleton(new GradingDatabaseSettings(connectionString));
 
+        // outbox_pending_messages gauge (§9.1b) — surfaces outbox backlog for this service.
+        services.AddOutboxPendingMetric<Persistence.GradingDbContext>();
+
         services.Configure<InternalAuthSettings>(configuration.GetSection(InternalAuthSettings.SectionName));
 
         services.AddScoped<IGradingAssignmentRepository, GradingAssignmentRepository>();
         services.AddScoped<IAuditLogRepository, AuditLogRepository>();
         services.AddScoped<IGradingResumePointerRepository, GradingResumePointerRepository>();
         services.AddScoped<IMarkerAssignmentRepository, MarkerAssignmentRepository>();
+        services.AddScoped<ILecturerMarkerCodeRepository, LecturerMarkerCodeRepository>();
         services.AddScoped<IUnitOfWork, GradingUnitOfWork>();
         services.AddScoped<IGradeExportFileBuilder, MiniExcelGradeExportFileBuilder>();
         services.AddScoped<IGradingSessionService, Application.Services.GradingSessionService>();
@@ -49,26 +57,11 @@ public static class DependencyInjection
         services.Configure<Jobs.DeadlineReminderOptions>(configuration.GetSection(Jobs.DeadlineReminderOptions.SectionName));
         services.AddHostedService<Jobs.DeadlineReminderBackgroundService>();
 
-        RegisterInternalHttpClients(services, configuration);
-        RegisterRedis(services, configuration);
+        RegisterGrpcClients(services, configuration);
         RegisterJwtAuthentication(services, configuration);
         RegisterMessaging(services, configuration);
 
         return services;
-    }
-
-    private static void RegisterRedis(IServiceCollection services, IConfiguration configuration)
-    {
-        var redisConnString = configuration.GetSection("Redis")["ConnectionString"];
-        if (string.IsNullOrWhiteSpace(redisConnString))
-        {
-            services.AddSingleton<IAiGradeLockService, NoOpAiGradeLockService>();
-            return;
-        }
-
-        services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(_ =>
-            StackExchange.Redis.ConnectionMultiplexer.Connect(redisConnString));
-        services.AddSingleton<IAiGradeLockService, RedisAiGradeLockService>();
     }
 
     private static void RegisterMessaging(IServiceCollection services, IConfiguration configuration)
@@ -81,7 +74,19 @@ public static class DependencyInjection
 
         services.AddMassTransit(x =>
         {
-            x.AddConsumer<AiGradeConsumer>();
+            // Results from the Python AI worker (AiGradeCompleted/Failed) — single writer for AiStatus.
+            x.AddConsumer<AiGradeCompletedConsumer>();
+            x.AddConsumer<AiGradeFailedConsumer>();
+
+            // Replicates IamService lecturer profiles into the local marker-code projection.
+            x.AddConsumer<LecturerProfileChangedConsumer>();
+
+            // Transactional outbox (publish) + inbox (idempotent consume) — N7 + N8.
+            x.AddEntityFrameworkOutbox<Persistence.GradingDbContext>(o =>
+            {
+                o.UsePostgres();
+                o.UseBusOutbox();
+            });
 
             x.UsingRabbitMq((ctx, cfg) =>
             {
@@ -91,13 +96,33 @@ public static class DependencyInjection
                     h.Password(rabbitPass);
                 });
 
-                cfg.ReceiveEndpoint("ai-grade-requested", e =>
+                cfg.ReceiveEndpoint("ai-grade-completed", e =>
                 {
-                    e.ConfigureConsumer<AiGradeConsumer>(ctx);
+                    e.UseEntityFrameworkOutbox<Persistence.GradingDbContext>(ctx);
+                    e.ConfigureConsumer<AiGradeCompletedConsumer>(ctx);
                     e.UseMessageRetry(r => r.Intervals(
                         TimeSpan.FromSeconds(10),
                         TimeSpan.FromSeconds(30),
                         TimeSpan.FromSeconds(60)));
+                });
+
+                cfg.ReceiveEndpoint("ai-grade-failed", e =>
+                {
+                    e.UseEntityFrameworkOutbox<Persistence.GradingDbContext>(ctx);
+                    e.ConfigureConsumer<AiGradeFailedConsumer>(ctx);
+                    e.UseMessageRetry(r => r.Intervals(
+                        TimeSpan.FromSeconds(10),
+                        TimeSpan.FromSeconds(30)));
+                });
+
+                cfg.ReceiveEndpoint("lecturer-profile-changed-grading", e =>
+                {
+                    e.UseEntityFrameworkOutbox<Persistence.GradingDbContext>(ctx);
+                    e.ConfigureConsumer<LecturerProfileChangedConsumer>(ctx);
+                    e.UseMessageRetry(r => r.Intervals(
+                        TimeSpan.FromSeconds(5),
+                        TimeSpan.FromSeconds(15),
+                        TimeSpan.FromSeconds(30)));
                 });
 
                 cfg.ConfigureEndpoints(ctx);
@@ -105,46 +130,57 @@ public static class DependencyInjection
         });
     }
 
-    private static void RegisterInternalHttpClients(IServiceCollection services, IConfiguration configuration)
+    /// <summary>
+    /// Registers the ExamCatalog/Submission east-west clients over gRPC (Phase 2), sitting behind the
+    /// unchanged Application interfaces. IamService marker codes are replicated locally via
+    /// LecturerProfileChanged (N5) — no synchronous IAM client is needed.
+    /// </summary>
+    private static void RegisterGrpcClients(IServiceCollection services, IConfiguration configuration)
     {
-        var internalApiKey = configuration.GetSection(InternalAuthSettings.SectionName)["ApiKey"]
-            ?? throw new InvalidOperationException($"{InternalAuthSettings.SectionName}:ApiKey is missing.");
+        var examCatalogGrpcUrl = configuration.GetValue<string>("ExamCatalogGrpcUrl")
+            ?? throw new InvalidOperationException("ExamCatalogGrpcUrl is missing.");
+        var submissionGrpcUrl = configuration.GetValue<string>("SubmissionGrpcUrl")
+            ?? throw new InvalidOperationException("SubmissionGrpcUrl is missing.");
 
-        var submissionUrl = configuration.GetValue<string>("SubmissionServiceUrl")
-            ?? throw new InvalidOperationException("SubmissionServiceUrl is missing.");
-        services.AddHttpClient<ISubmissionServiceClient, SubmissionServiceClient>(client =>
-        {
-            client.BaseAddress = new Uri(submissionUrl);
-            client.Timeout = TimeSpan.FromSeconds(10);
-            client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
-        });
+        services.AddSingleton<GrpcClientAuthInterceptor>();
 
-        var catalogUrl = configuration.GetValue<string>("ExamCatalogServiceUrl")
-            ?? throw new InvalidOperationException("ExamCatalogServiceUrl is missing.");
-        services.AddHttpClient<IExamCatalogServiceClient, ExamCatalogServiceClient>(client =>
+        // gRPC-native retry for idempotent reads (transient Unavailable only). Applied per-channel.
+        var retryServiceConfig = new ServiceConfig
         {
-            client.BaseAddress = new Uri(catalogUrl);
-            client.Timeout = TimeSpan.FromSeconds(10);
-            client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
-        });
+            MethodConfigs =
+            {
+                new MethodConfig
+                {
+                    Names = { MethodName.Default },
+                    RetryPolicy = new RetryPolicy
+                    {
+                        MaxAttempts = 3,
+                        InitialBackoff = TimeSpan.FromMilliseconds(200),
+                        MaxBackoff = TimeSpan.FromSeconds(2),
+                        BackoffMultiplier = 2,
+                        RetryableStatusCodes = { StatusCode.Unavailable }
+                    }
+                }
+            }
+        };
 
-        var aiGradingUrl = configuration.GetValue<string>("AiGradingServiceUrl")
-            ?? "http://localhost:8081";
-        services.AddHttpClient<IAiGradingServiceClient, AiGradingServiceClient>(client =>
-        {
-            client.BaseAddress = new Uri(aiGradingUrl);
-            // Sync grade can take a while (download + LLM)
-            client.Timeout = TimeSpan.FromSeconds(180);
-        });
+        // The global standard resilience handler (Phase 0) breaks gRPC streaming/deadlines — gRPC has
+        // its own retry/deadline, so strip the HTTP resilience pipeline off these clients.
+        // RemoveAllResilienceHandlers is [Experimental] (EXTEXP0001); suppress that specific warning.
+#pragma warning disable EXTEXP0001
+        services.AddGrpcClient<RubricService.RubricServiceClient>(o => o.Address = new Uri(examCatalogGrpcUrl))
+            .AddInterceptor<GrpcClientAuthInterceptor>()
+            .ConfigureChannel(ch => ch.ServiceConfig = retryServiceConfig)
+            .RemoveAllResilienceHandlers();
 
-        var iamUrl = configuration.GetValue<string>("IamServiceUrl")
-            ?? throw new InvalidOperationException("IamServiceUrl is missing.");
-        services.AddHttpClient<IIamServiceClient, Clients.IamServiceClient>(client =>
-        {
-            client.BaseAddress = new Uri(iamUrl);
-            client.Timeout = TimeSpan.FromSeconds(10);
-            client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
-        });
+        services.AddGrpcClient<PaperService.PaperServiceClient>(o => o.Address = new Uri(submissionGrpcUrl))
+            .AddInterceptor<GrpcClientAuthInterceptor>()
+            .ConfigureChannel(ch => ch.ServiceConfig = retryServiceConfig)
+            .RemoveAllResilienceHandlers();
+#pragma warning restore EXTEXP0001
+
+        services.AddScoped<IExamCatalogServiceClient, ExamCatalogGrpcClient>();
+        services.AddScoped<ISubmissionServiceClient, PaperGrpcClient>();
     }
 
     private static void RegisterJwtAuthentication(IServiceCollection services, IConfiguration configuration)

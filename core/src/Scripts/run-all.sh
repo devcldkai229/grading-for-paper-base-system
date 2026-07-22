@@ -74,6 +74,11 @@ sync_internal_api_keys() {
   export INTERNAL_API_KEY="${INTERNAL_API_KEY:-duN6gR1GLWwprRnNH4tWxKLZLqM9zDYWQM2x0S0tYfC}"
   export InternalAuth__ApiKey="$INTERNAL_API_KEY"
   export AiGradingServiceUrl="${AiGradingServiceUrl:-http://localhost:8081}"
+  # Phase 2 gRPC (h2c) endpoints consumed by GradingService (UseGrpcClients defaults true).
+  export ExamCatalogGrpcUrl="${ExamCatalogGrpcUrl:-http://localhost:5066}"
+  export SubmissionGrpcUrl="${SubmissionGrpcUrl:-http://localhost:5067}"
+  # Opt-in trace export: set OTEL_EXPORTER_OTLP_ENDPOINT (e.g. http://localhost:4317) in .env.
+  export OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
 }
 
 ensure_ai_venv() {
@@ -105,7 +110,11 @@ start_python_ai() {
   export INTERNAL_API_KEY="${INTERNAL_API_KEY:-duN6gR1GLWwprRnNH4tWxKLZLqM9zDYWQM2x0S0tYfC}"
   export InternalAuth__ApiKey="$INTERNAL_API_KEY"
   export OPENAI_MODEL="${OPENAI_MODEL:-gpt-4o-mini}"
-  export GRADING_SERVICE_BASE_URL="${GRADING_SERVICE_BASE_URL:-http://localhost:5058}"
+  export RABBITMQ_HOST="${RABBITMQ_HOST:-localhost}"
+  export RABBITMQ_PORT="${RABBITMQ_PORT:-5673}"
+  export RABBITMQ_USERNAME="${RABBITMQ_USERNAME:-root}"
+  export RABBITMQ_PASSWORD="${RABBITMQ_PASSWORD:-rootpassword}"
+  export OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
 
   ensure_ai_venv "$service_root"
   mkdir -p "$PID_DIR"
@@ -177,6 +186,8 @@ for entry in "${SERVICES[@]}"; do
     export INTERNAL_API_KEY
     export InternalAuth__ApiKey
     export AiGradingServiceUrl
+    export ExamCatalogGrpcUrl
+    export SubmissionGrpcUrl
     dotnet run --project "$project_path" --launch-profile http
   ) >"$log_file" 2>&1 &
 

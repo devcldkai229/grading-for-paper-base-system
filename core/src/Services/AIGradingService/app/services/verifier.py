@@ -40,19 +40,49 @@ def _scan_injection(text: str) -> bool:
     return False
 
 
-def _evidence_grounded(ev: str, answer_lower: str) -> bool:
-    """Soft match: quote appears in answer, or ≥50% word overlap."""
-    ev_clean = ev.strip().strip("'\"").lower()
+# Vietnamese-specific characters (diacritics + đ) — a strong signal the text is Vietnamese.
+_VI_DIACRITICS = re.compile(
+    r"[àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ]",
+    re.IGNORECASE,
+)
+# Common Vietnamese function words (covers un-accented Vietnamese too).
+_VI_WORDS = {
+    "và", "là", "của", "không", "điểm", "đúng", "thiếu", "câu", "học", "sinh",
+    "va", "la", "cua", "khong", "diem", "dung", "thieu", "cau", "hoc", "sinh",
+    "nên", "cần", "vì", "cho", "được", "có", "đã", "trả", "lời", "bài",
+}
+
+
+def is_vietnamese_text(text: str) -> bool:
+    """Deterministic heuristic: is `text` (human feedback) written in Vietnamese?
+
+    Short strings are treated as Vietnamese (nothing to translate). Diacritics are a strong
+    positive; otherwise we look for common Vietnamese function words.
+    """
+    clean = (text or "").strip()
+    if len(clean) < 15:
+        return True
+    if _VI_DIACRITICS.search(clean):
+        return True
+    words = {w.strip(".,;:!?()[]\"'").lower() for w in clean.split()}
+    return len(words & _VI_WORDS) >= 2
+
+
+def _normalize_ws(text: str) -> str:
+    """Lower-case + collapse whitespace so verbatim matching ignores formatting noise only."""
+    return " ".join(text.lower().split())
+
+
+def _evidence_verbatim(ev: str, answer_norm: str) -> bool:
+    """Evidence must appear VERBATIM in the answer (whitespace-normalized substring, doc 5.7).
+
+    Very short quotes are exempt (too small to judge). This is stricter than the previous soft
+    word-overlap match: an ungrounded quote invalidates the verdict → MANUAL.
+    """
+    ev_clean = _normalize_ws(ev.strip().strip("'\""))
     if len(ev_clean) <= 10:
         return True  # too short to judge
-    if ev_clean in answer_lower:
-        return True
-    ev_words = set(ev_clean.split())
-    answer_words = set(answer_lower.split())
-    if not ev_words:
-        return True
-    overlap = len(ev_words & answer_words) / len(ev_words)
-    return overlap >= 0.5
+    return ev_clean in answer_norm
 
 
 def verify_suggestions(
@@ -99,6 +129,18 @@ def verify_suggestions(
         # 2. Clamp confidence to [0, 1]
         suggestion.confidence = max(0.0, min(1.0, suggestion.confidence))
 
+        # 2b. Signal penalties for the legacy (non-contract) path. Contract leaves already fold
+        # vision + specificity into their composite confidence (confidence.py), so we don't
+        # double-penalize them here.
+        if not grid_item.has_contract:
+            spec = (grid_item.extraction_confidence or grid_item.specificity or "").lower()
+            if spec == "low":
+                suggestion.confidence *= 0.8
+                if "low_specificity" not in suggestion.flags:
+                    suggestion.flags.append("low_specificity")
+            if "needs_vision" in suggestion.flags:
+                suggestion.confidence *= settings.vision_confidence_penalty
+
         # 3. Confidence gate
         if suggestion.confidence < settings.confidence_threshold:
             if "manual_only" not in suggestion.flags:
@@ -114,21 +156,29 @@ def verify_suggestions(
                 suggestion.flags.append("manual_only")
             warnings.append(f"Q{q_num}: empty evidence → MANUAL_ONLY")
 
-        # 5. Evidence grounding: >50% ungrounded → MANUAL_ONLY
+        # 5. Evidence grounding: quotes must be VERBATIM; >50% ungrounded → MANUAL_ONLY
         if student_answers and q_num in student_answers and suggestion.evidence:
-            answer_lower = student_answers[q_num].lower()
+            answer_norm = _normalize_ws(student_answers[q_num])
             ungrounded = 0
             for i, ev in enumerate(suggestion.evidence):
-                if not _evidence_grounded(ev, answer_lower):
+                if not _evidence_verbatim(ev, answer_norm):
                     ungrounded += 1
-                    warnings.append(f"Q{q_num}: evidence[{i}] not grounded in answer")
+                    warnings.append(f"Q{q_num}: evidence[{i}] not verbatim in answer")
 
             if ungrounded / len(suggestion.evidence) > 0.5:
                 if "manual_only" not in suggestion.flags:
                     suggestion.flags.append("manual_only")
                 warnings.append(
-                    f"Q{q_num}: >50% evidence ungrounded → MANUAL_ONLY"
+                    f"Q{q_num}: >50% evidence not verbatim → MANUAL_ONLY"
                 )
+
+        # 5b. Language check: human-facing rationale must be Vietnamese (doc 5.8). Flag only —
+        # the pipeline performs a single re-call to translate flagged rationales (evidence stays
+        # verbatim). Deterministic detection here; the actual re-call lives in language.py.
+        if suggestion.rationale and not is_vietnamese_text(suggestion.rationale):
+            if "language_mismatch" not in suggestion.flags:
+                suggestion.flags.append("language_mismatch")
+            warnings.append(f"Q{q_num}: rationale not in Vietnamese → queued for re-call")
 
         # 6. Injection scan
         if student_answers and q_num in student_answers:
@@ -142,18 +192,17 @@ def verify_suggestions(
                     "(score NOT penalised)"
                 )
 
-    # 7. Sum-check: clamp proportionally + flag lowest-confidence leaf
+    # 7. Sum-check: total > subject max → MANUAL (NO auto-scale, doc 5.7). Auto-scaling would
+    # silently distort per-criterion scores; instead surface it for a human. Flag every leaf so the
+    # whole paper is reviewed rather than guessing which criterion is wrong.
     total_suggested = sum(s.score for s in suggestions)
-    if total_max > 0 and total_suggested > total_max:
-        ratio = total_max / total_suggested
+    if total_max > 0 and total_suggested > total_max + 1e-6:
         for s in suggestions:
-            s.score = round(s.score * ratio, 2)
-        lowest = min(suggestions, key=lambda s: s.confidence)
-        if "manual_only" not in lowest.flags:
-            lowest.flags.append("manual_only")
+            if "manual_only" not in s.flags:
+                s.flags.append("manual_only")
         warnings.append(
             f"Total suggested score ({total_suggested:.2f}) exceeds max ({total_max:.2f}) "
-            f"— clamped proportionally; Q{lowest.question_number} → MANUAL_ONLY"
+            "→ ALL criteria MANUAL_ONLY (no auto-scaling)"
         )
 
     return suggestions, warnings

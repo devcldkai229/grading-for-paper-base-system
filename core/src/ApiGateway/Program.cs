@@ -8,6 +8,8 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.AddPlatformObservability("api-gateway");
+
 builder.Services.AddOpenApi();
 
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
@@ -92,6 +94,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapHealthChecks("/health", new HealthCheckOptions { Predicate = _ => false });
+app.MapPlatformHealthChecks();
 app.MapReverseProxy();
 
 app.Run();

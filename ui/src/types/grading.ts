@@ -25,6 +25,14 @@ export interface GradingQuestionMark {
   aiReviewStatus?: string | null;
 }
 
+export interface AiSuggestion {
+  questionNumber: string;
+  score: number;
+  questionComment: string | null;
+  confidence: number;
+  isManualOnly: boolean;
+}
+
 export interface GradingSession {
   assignmentId: string;
   studentPaperId: string;
@@ -41,6 +49,8 @@ export interface GradingSession {
   aliasNumber: number | null;
   questions: GradingQuestionMark[];
   isFlagged: boolean;
+  aiSuggestions: AiSuggestion[] | null;
+  aiPaperComment: string | null;
 }
 
 export interface SaveMarksPayload {

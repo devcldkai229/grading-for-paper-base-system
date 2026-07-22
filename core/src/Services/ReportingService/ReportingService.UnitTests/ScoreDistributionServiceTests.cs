@@ -7,6 +7,7 @@ using NSubstitute;
 using ReportingService.Application.DTOs;
 using ReportingService.Application.Interfaces;
 using ReportingService.Application.Services;
+using ReportingService.Domain.Entities;
 using Xunit;
 
 namespace ReportingService.UnitTests
@@ -16,12 +17,24 @@ namespace ReportingService.UnitTests
         private static SubjectFilterResultClientDto MakeSubject(Guid id, decimal maxScore = 10m, string code = "PRN232") =>
             new(id, code, "Title", Guid.NewGuid(), "FE Exam", Guid.NewGuid(), "SP26", maxScore);
 
-        private static SubjectScoreDistributionClientDto MakeDistribution(Guid subjectId, params decimal[] scores) =>
-            new(subjectId, scores.Length,
-                scores.Length > 0 ? Math.Round(scores.Average(), 2) : null,
-                scores.Length > 0 ? scores.Min() : null,
-                scores.Length > 0 ? scores.Max() : null,
-                scores);
+        private static List<ScoreRecord> MakeScores(Guid subjectId, params decimal[] scores) =>
+            scores.Select(s => new ScoreRecord
+            {
+                PaperId = Guid.NewGuid(),
+                SubjectId = subjectId,
+                TeacherId = Guid.NewGuid(),
+                TotalScore = s,
+                MaxScore = 10m,
+                OccurredAt = DateTime.UtcNow
+            }).ToList();
+
+        private static IScoreRecordReadRepository ScoreRepo(params ScoreRecord[] records)
+        {
+            var repo = Substitute.For<IScoreRecordReadRepository>();
+            repo.GetBySubjectsAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+                .Returns(records.ToList());
+            return repo;
+        }
 
         [Fact]
         public async Task GetDistributionAsync_WhenCatalogUnreachable_ReturnsError()
@@ -29,26 +42,7 @@ namespace ReportingService.UnitTests
             var catalogClient = Substitute.For<IExamCatalogServiceClient>();
             catalogClient.SearchSubjectsAsync(null, null, Arg.Any<CancellationToken>())
                 .Returns((IReadOnlyList<SubjectFilterResultClientDto>?)null);
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            var service = new ScoreDistributionService(catalogClient, gradingClient);
-
-            var (result, error) = await service.GetDistributionAsync(null, null, CancellationToken.None);
-
-            Assert.Null(result);
-            Assert.NotNull(error);
-        }
-
-        [Fact]
-        public async Task GetDistributionAsync_WhenGradingServiceUnreachable_ReturnsError()
-        {
-            var subjectId = Guid.NewGuid();
-            var catalogClient = Substitute.For<IExamCatalogServiceClient>();
-            catalogClient.SearchSubjectsAsync(null, null, Arg.Any<CancellationToken>())
-                .Returns(new List<SubjectFilterResultClientDto> { MakeSubject(subjectId) });
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            gradingClient.GetScoreDistributionAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
-                .Returns((ScoreDistributionDashboardClientDto?)null);
-            var service = new ScoreDistributionService(catalogClient, gradingClient);
+            var service = new ScoreDistributionService(catalogClient, ScoreRepo());
 
             var (result, error) = await service.GetDistributionAsync(null, null, CancellationToken.None);
 
@@ -63,10 +57,7 @@ namespace ReportingService.UnitTests
             var catalogClient = Substitute.For<IExamCatalogServiceClient>();
             catalogClient.SearchSubjectsAsync(null, null, Arg.Any<CancellationToken>())
                 .Returns(new List<SubjectFilterResultClientDto> { MakeSubject(subjectId) });
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            gradingClient.GetScoreDistributionAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
-                .Returns(new ScoreDistributionDashboardClientDto(new List<SubjectScoreDistributionClientDto>()));
-            var service = new ScoreDistributionService(catalogClient, gradingClient);
+            var service = new ScoreDistributionService(catalogClient, ScoreRepo());
 
             var (result, error) = await service.GetDistributionAsync(null, null, CancellationToken.None);
 
@@ -84,14 +75,9 @@ namespace ReportingService.UnitTests
             var catalogClient = Substitute.For<IExamCatalogServiceClient>();
             catalogClient.SearchSubjectsAsync(null, null, Arg.Any<CancellationToken>())
                 .Returns(new List<SubjectFilterResultClientDto> { MakeSubject(subjectId, maxScore: 10m) });
-            var gradingClient = Substitute.For<IGradingServiceClient>();
             // 0.5 -> bucket [0,1); 5.0 -> bucket [5,6); 9.9 -> bucket [9,10)
-            gradingClient.GetScoreDistributionAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
-                .Returns(new ScoreDistributionDashboardClientDto(new List<SubjectScoreDistributionClientDto>
-                {
-                    MakeDistribution(subjectId, 0.5m, 5.0m, 9.9m)
-                }));
-            var service = new ScoreDistributionService(catalogClient, gradingClient);
+            var service = new ScoreDistributionService(
+                catalogClient, ScoreRepo(MakeScores(subjectId, 0.5m, 5.0m, 9.9m).ToArray()));
 
             var (result, error) = await service.GetDistributionAsync(null, null, CancellationToken.None);
 
@@ -112,13 +98,8 @@ namespace ReportingService.UnitTests
             var catalogClient = Substitute.For<IExamCatalogServiceClient>();
             catalogClient.SearchSubjectsAsync(null, null, Arg.Any<CancellationToken>())
                 .Returns(new List<SubjectFilterResultClientDto> { MakeSubject(subjectId, maxScore: 10m) });
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            gradingClient.GetScoreDistributionAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
-                .Returns(new ScoreDistributionDashboardClientDto(new List<SubjectScoreDistributionClientDto>
-                {
-                    MakeDistribution(subjectId, 10m)
-                }));
-            var service = new ScoreDistributionService(catalogClient, gradingClient);
+            var service = new ScoreDistributionService(
+                catalogClient, ScoreRepo(MakeScores(subjectId, 10m).ToArray()));
 
             var (result, error) = await service.GetDistributionAsync(null, null, CancellationToken.None);
 
@@ -136,13 +117,8 @@ namespace ReportingService.UnitTests
             var catalogClient = Substitute.For<IExamCatalogServiceClient>();
             catalogClient.SearchSubjectsAsync(null, null, Arg.Any<CancellationToken>())
                 .Returns(new List<SubjectFilterResultClientDto> { MakeSubject(subjectId, maxScore: 100m) });
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            gradingClient.GetScoreDistributionAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
-                .Returns(new ScoreDistributionDashboardClientDto(new List<SubjectScoreDistributionClientDto>
-                {
-                    MakeDistribution(subjectId, 55m)
-                }));
-            var service = new ScoreDistributionService(catalogClient, gradingClient);
+            var service = new ScoreDistributionService(
+                catalogClient, ScoreRepo(MakeScores(subjectId, 55m).ToArray()));
 
             var (result, error) = await service.GetDistributionAsync(null, null, CancellationToken.None);
 
@@ -159,13 +135,8 @@ namespace ReportingService.UnitTests
             var catalogClient = Substitute.For<IExamCatalogServiceClient>();
             catalogClient.SearchSubjectsAsync(null, null, Arg.Any<CancellationToken>())
                 .Returns(new List<SubjectFilterResultClientDto> { MakeSubject(subjectId, code: "PRN232") });
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            gradingClient.GetScoreDistributionAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
-                .Returns(new ScoreDistributionDashboardClientDto(new List<SubjectScoreDistributionClientDto>
-                {
-                    MakeDistribution(subjectId, 4m, 8m)
-                }));
-            var service = new ScoreDistributionService(catalogClient, gradingClient);
+            var service = new ScoreDistributionService(
+                catalogClient, ScoreRepo(MakeScores(subjectId, 4m, 8m).ToArray()));
 
             var (result, error) = await service.GetDistributionAsync(null, null, CancellationToken.None);
 

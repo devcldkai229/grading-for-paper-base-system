@@ -13,7 +13,7 @@ import hashlib
 import logging
 
 from app.config import settings
-from app.infra.redis_cache import get_cached, set_cached
+from app.infra.redis_cache import delete_by_pattern, get_cached, set_cached
 from app.schemas.grading import AngleScore, QuestionSuggestion
 
 logger = logging.getLogger(__name__)
@@ -92,3 +92,16 @@ async def set_cached_suggestion(
 
     await set_cached(key, data, ttl=settings.cache_ttl_seconds)
     logger.debug("Cache set: Q%s (key=%s)", question_number, key)
+
+
+async def invalidate_suggestions(subject_id: str, rubric_version: str | None = None) -> int:
+    """Drop cached suggestions for a subject (optionally a single rubric version).
+
+    Called when a compiled rubric changes/recompiles. Version-scoped keys make a new version
+    naturally isolated; this covers same-version recompiles (e.g. admin edits + re-approval).
+    """
+    version = rubric_version if rubric_version is not None else "*"
+    pattern = f"{_CACHE_PREFIX}:{subject_id}:{version}:*"
+    deleted = await delete_by_pattern(pattern)
+    logger.info("Invalidated %d cached suggestions (pattern=%s)", deleted, pattern)
+    return deleted

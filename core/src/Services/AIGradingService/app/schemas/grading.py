@@ -20,8 +20,29 @@ class FileRef(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class ContractCheckItem(BaseModel):
+    """An atomic, verifiable requirement compiled from the barem (Phase 3)."""
+    check_id: str = Field(alias="checkId")
+    description: str = ""
+    points: float = 0.0
+    required: bool = False
+    evidence_hint: str | None = Field(default=None, alias="evidenceHint")
+
+    model_config = {"populate_by_name": True}
+
+
+class ContractPartialCredit(BaseModel):
+    """A score band mapped to satisfied check-items."""
+    label: str = ""
+    score: float = 0.0
+    condition: str = ""
+    check_ids: list[str] = Field(default_factory=list, alias="checkIds")
+
+    model_config = {"populate_by_name": True}
+
+
 class ScoreGridItem(BaseModel):
-    """One leaf of the scoring rubric grid."""
+    """One leaf of the scoring rubric grid, optionally enriched by a compiled contract."""
     question_number: str = Field(alias="questionNumber")
     group_label: str | None = Field(default=None, alias="groupLabel")
     label: str | None = None
@@ -34,7 +55,23 @@ class ScoreGridItem(BaseModel):
     scoring_rule: str | None = Field(default=None, alias="scoringRule")
     answer_key: str | None = Field(default=None, alias="answerKey")
 
+    # ── Compiled-contract enrichment (Phase 3) — empty when no approved contract ──
+    question_text: str | None = Field(default=None, alias="questionText")
+    check_items: list[ContractCheckItem] = Field(default_factory=list, alias="checkItems")
+    partial_credit: list[ContractPartialCredit] = Field(default_factory=list, alias="partialCredit")
+    common_mistakes: list[str] = Field(default_factory=list, alias="commonMistakes")
+    not_penalize: list[str] = Field(default_factory=list, alias="notPenalize")
+    requires_visual: bool = Field(default=False, alias="requiresVisual")
+    visual_asset_urls: list[str] = Field(default_factory=list, alias="visualAssetUrls")
+    specificity: str | None = None
+    extraction_confidence: str | None = Field(default=None, alias="extractionConfidence")
+
     model_config = {"populate_by_name": True}
+
+    @property
+    def has_contract(self) -> bool:
+        """True when this leaf carries compiled check-items (use the verdict path)."""
+        return len(self.check_items) > 0
 
 
 class GradeMode(str, Enum):
@@ -54,6 +91,18 @@ class GradePaperRequest(BaseModel):
         alias="rubricText",
         description="Full rubric/barem text for Slice 1 (optional).",
     )
+    rubric_files: list[FileRef] = Field(
+        default_factory=list,
+        alias="rubricFiles",
+        description="Original barem file(s) (+ optional exam paper) — downloaded and normalized into "
+        "the rubric context so the grader reads the real questions/keys/guide.",
+    )
+    compiled_rubric_version: str | None = Field(default=None, alias="compiledRubricVersion")
+    language: str = "vi"
+    student_page_image_urls: list[str] = Field(
+        default_factory=list, alias="studentPageImageUrls",
+        description="Presigned page images of the student paper for multimodal grading.",
+    )
     mode: GradeMode = GradeMode.SYNC
 
     model_config = {"populate_by_name": True}
@@ -65,23 +114,28 @@ class GradePaperRequest(BaseModel):
 
 class AngleScore(BaseModel):
     """Score for a single evaluation angle (0..1 scale)."""
-    s: float = Field(ge=0, le=1, description="Score 0-1 for this angle")
-    note: str = Field(description="Brief note explaining the score")
+    s: float = Field(ge=0, le=1, description="Điểm 0-1 cho góc đánh giá này")
+    note: str = Field(description="Ghi chú ngắn bằng TIẾNG VIỆT giải thích điểm số")
 
 
 class QuestionSuggestion(BaseModel):
     """AI suggestion for one leaf criterion."""
     question_number: str = Field(alias="questionNumber")
     angles: dict[str, AngleScore] = Field(
-        description="Multi-angle scores: correctness, completeness, relevance, clarity"
+        description="Điểm đa góc: correctness, completeness, relevance, clarity"
     )
-    score: float = Field(ge=0, description="Proposed score according to scoring rule")
-    rationale: str = Field(description="Explanation tied to scoring rule and evidence")
-    evidence: list[str] = Field(description="Direct quotes from student answer")
-    confidence: float = Field(ge=0, le=1, description="Model confidence 0-1")
+    score: float = Field(ge=0, description="Điểm đề xuất theo quy tắc chấm (scoringRule)")
+    rationale: str = Field(
+        description="Giải thích bằng TIẾNG VIỆT, bám sát quy tắc chấm và dẫn chứng"
+    )
+    evidence: list[str] = Field(
+        description="Trích dẫn NGUYÊN VĂN từ bài làm học sinh (giữ nguyên ngôn ngữ gốc, không dịch)"
+    )
+    confidence: float = Field(ge=0, le=1, description="Mức độ tự tin của mô hình 0-1")
     flags: list[str] = Field(
         default_factory=list,
-        description="Flags: needs_vision, possible_injection, off_topic, manual_only, missing",
+        description="Flags: needs_vision, possible_injection, off_topic, manual_only, "
+        "blank, not_found, coverage_miss",
     )
 
     model_config = {"populate_by_name": True}
@@ -90,6 +144,55 @@ class QuestionSuggestion(BaseModel):
 class GradingResultLLM(BaseModel):
     """Top-level structured output from LLM (array of suggestions)."""
     suggestions: list[QuestionSuggestion]
+
+
+# ---------------------------------------------------------------------------
+# Verdict-based grading (Phase 3 — one call per criterion, verdict per check-item)
+# ---------------------------------------------------------------------------
+
+class CheckVerdict(BaseModel):
+    """LLM verdict for a single check-item (no score — code computes the score)."""
+    check_id: str = Field(alias="checkId")
+    verdict: str = Field(description="yes | partial | no | unclear")
+    evidence: list[str] = Field(default_factory=list, description="Verbatim quotes from the answer")
+    note: str = ""
+
+    model_config = {"populate_by_name": True}
+
+
+class CriterionVerdict(BaseModel):
+    """One sample's verdicts across all check-items of a criterion."""
+    verdicts: list[CheckVerdict] = Field(default_factory=list)
+    confidence: float = 0.5
+
+
+# OpenAI structured-output schema for a single criterion's verdicts.
+VERDICT_JSON_SCHEMA: dict[str, Any] = {
+    "name": "criterion_verdict",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "verdicts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "checkId": {"type": "string"},
+                        "verdict": {"type": "string", "enum": ["yes", "partial", "no", "unclear"]},
+                        "evidence": {"type": "array", "items": {"type": "string"}},
+                        "note": {"type": "string"},
+                    },
+                    "required": ["checkId", "verdict", "evidence", "note"],
+                    "additionalProperties": False,
+                },
+            },
+            "confidence": {"type": "number"},
+        },
+        "required": ["verdicts", "confidence"],
+        "additionalProperties": False,
+    },
+}
 
 
 # ---------------------------------------------------------------------------

@@ -1,9 +1,11 @@
 using BuildingBlocks.AwsS3;
+using Contracts.Messages;
 using ExamCatalogService.API.Authorization;
 using ExamCatalogService.Application.DTOs;
 using ExamCatalogService.Application.Interfaces;
 using ExamCatalogService.Domain.Enums;
 using ExamCatalogService.Infrastructure.Services;
+using MassTransit;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -539,6 +541,7 @@ public class SubjectsController : ControllerBase
     public async Task<IActionResult> UploadRubric(
         Guid subjectId,
         IFormFile file,
+        [FromServices] IPublishEndpoint publishEndpoint,
         CancellationToken ct = default)
     {
         var validationError = ValidateUploadFile(file);
@@ -600,6 +603,11 @@ public class SubjectsController : ControllerBase
                     ResponsedAt = DateTime.UtcNow
                 });
             }
+
+            // Rubric changed → old compiled contract is stale. Trigger a fresh ingestion in the
+            // background (a consumer runs the long compile off the request thread).
+            await publishEndpoint.Publish(new RubricVersionChangedEvent(
+                Guid.NewGuid(), subjectId, rubricVersion.Value, null, DateTime.UtcNow), ct);
 
             return Ok(new ApiResponse<RubricUploadResponse>
             {

@@ -7,46 +7,54 @@ using NSubstitute;
 using ReportingService.Application.DTOs;
 using ReportingService.Application.Interfaces;
 using ReportingService.Application.Services;
+using ReportingService.Domain.Entities;
 using Xunit;
 
 namespace ReportingService.UnitTests
 {
     public class GlobalAuditLogServiceTests
     {
-        private readonly IIamServiceClient _iamClient = Substitute.For<IIamServiceClient>();
-        private readonly IGradingServiceClient _gradingClient = Substitute.For<IGradingServiceClient>();
+        private readonly IAuditRecordReadRepository _auditRepository = Substitute.For<IAuditRecordReadRepository>();
         private readonly ISubmissionServiceClient _submissionClient = Substitute.For<ISubmissionServiceClient>();
         private readonly GlobalAuditLogService _service;
 
         public GlobalAuditLogServiceTests()
         {
-            _service = new GlobalAuditLogService(_iamClient, _gradingClient, _submissionClient);
+            _service = new GlobalAuditLogService(_auditRepository, _submissionClient);
 
-            // Default: all sources empty, so tests only need to stub the source(s) they care about.
-            _iamClient.GetAuditLogsAsync(Arg.Any<Guid?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-                .Returns(new IamAuditLogPageClientDto(new List<IamAuditLogEntryClientDto>(), 1, 50, 0));
-            _gradingClient.GetAuditLogsAsync(Arg.Any<Guid?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-                .Returns(new GradingAuditLogPageClientDto(new List<GradingAuditLogEntryClientDto>(), 0));
+            // Default: local audit projection empty + Submission empty, so each test stubs only what it needs.
+            _auditRepository.QueryAsync(Arg.Any<Guid?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+                .Returns(((IReadOnlyList<AuditRecord>)new List<AuditRecord>(), 0));
             _submissionClient.GetAuditLogsAsync(Arg.Any<Guid?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
                 .Returns(new SubmissionAuditLogPageClientDto(new List<SubmissionAuditLogEntryClientDto>(), 0));
         }
 
+        private static AuditRecord Record(string source, string action, DateTime occurredAt,
+            string? oldValue = null, string? newValue = null, string? reason = null) =>
+            new()
+            {
+                MessageId = Guid.NewGuid(),
+                SourceService = source,
+                UserId = Guid.NewGuid(),
+                Action = action,
+                EntityType = "User",
+                EntityId = Guid.NewGuid(),
+                OldValue = oldValue,
+                NewValue = newValue,
+                Reason = reason,
+                OccurredAt = occurredAt
+            };
+
         [Fact]
-        public async Task GetAuditLogsAsync_MergesAllThreeSourcesSortedNewestFirst()
+        public async Task GetAuditLogsAsync_MergesLocalAndSubmissionSortedNewestFirst()
         {
             var now = DateTime.UtcNow;
-            _iamClient.GetAuditLogsAsync(null, null, null, Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-                .Returns(new IamAuditLogPageClientDto(
-                    new List<IamAuditLogEntryClientDto>
-                    {
-                        new(Guid.NewGuid(), Guid.NewGuid(), "Create", "User", Guid.NewGuid(), null, null, now.AddMinutes(-10))
-                    }, 1, 50, 1));
-            _gradingClient.GetAuditLogsAsync(null, null, null, Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-                .Returns(new GradingAuditLogPageClientDto(
-                    new List<GradingAuditLogEntryClientDto>
-                    {
-                        new(Guid.NewGuid(), Guid.NewGuid(), "ScoreOverridden", "GradingForm", Guid.NewGuid(), "5", "8", "typo fix", now)
-                    }, 1));
+            _auditRepository.QueryAsync(null, null, null, Arg.Any<int>(), Arg.Any<CancellationToken>())
+                .Returns(((IReadOnlyList<AuditRecord>)new List<AuditRecord>
+                {
+                    Record("grading", "ScoreOverridden", now, "5", "8", "typo fix"),
+                    Record("iam", "Create", now.AddMinutes(-10))
+                }, 2));
             _submissionClient.GetAuditLogsAsync(null, null, null, Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
                 .Returns(new SubmissionAuditLogPageClientDto(
                     new List<SubmissionAuditLogEntryClientDto>
@@ -65,52 +73,31 @@ namespace ReportingService.UnitTests
         }
 
         [Fact]
-        public async Task GetAuditLogsAsync_WhenOneSourceUnreachable_SkipsItButReturnsOthers()
+        public async Task GetAuditLogsAsync_WhenSubmissionUnreachable_SkipsItButReturnsLocalEntries()
         {
-            _gradingClient.GetAuditLogsAsync(Arg.Any<Guid?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-                .Returns((GradingAuditLogPageClientDto?)null);
-            _iamClient.GetAuditLogsAsync(Arg.Any<Guid?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-                .Returns(new IamAuditLogPageClientDto(
-                    new List<IamAuditLogEntryClientDto>
-                    {
-                        new(Guid.NewGuid(), Guid.NewGuid(), "Create", "User", Guid.NewGuid(), null, null, DateTime.UtcNow)
-                    }, 1, 50, 1));
-
-            var result = await _service.GetAuditLogsAsync(null, null, null, 1, 20, CancellationToken.None);
-
-            Assert.Single(result.Items);
-            Assert.Equal(1, result.TotalCount);
-            Assert.Contains("GradingService", result.UnavailableSources);
-        }
-
-        [Fact]
-        public async Task GetAuditLogsAsync_WhenAllSourcesUnreachable_ReturnsEmptyWithAllUnavailable()
-        {
-            _iamClient.GetAuditLogsAsync(Arg.Any<Guid?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-                .Returns((IamAuditLogPageClientDto?)null);
-            _gradingClient.GetAuditLogsAsync(Arg.Any<Guid?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-                .Returns((GradingAuditLogPageClientDto?)null);
+            _auditRepository.QueryAsync(Arg.Any<Guid?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+                .Returns(((IReadOnlyList<AuditRecord>)new List<AuditRecord>
+                {
+                    Record("iam", "Create", DateTime.UtcNow)
+                }, 1));
             _submissionClient.GetAuditLogsAsync(Arg.Any<Guid?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
                 .Returns((SubmissionAuditLogPageClientDto?)null);
 
             var result = await _service.GetAuditLogsAsync(null, null, null, 1, 20, CancellationToken.None);
 
-            Assert.Empty(result.Items);
-            Assert.Equal(0, result.TotalCount);
-            Assert.Equal(3, result.UnavailableSources.Count);
+            Assert.Single(result.Items);
+            Assert.Equal(1, result.TotalCount);
+            Assert.Contains("SubmissionService", result.UnavailableSources);
         }
 
         [Fact]
         public async Task GetAuditLogsAsync_PaginatesTheMergedList()
         {
             var now = DateTime.UtcNow;
-            _iamClient.GetAuditLogsAsync(Arg.Any<Guid?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-                .Returns(new IamAuditLogPageClientDto(
-                    Enumerable.Range(0, 5)
-                        .Select(i => new IamAuditLogEntryClientDto(
-                            Guid.NewGuid(), Guid.NewGuid(), "Create", "User", Guid.NewGuid(), null, null, now.AddMinutes(-i)))
-                        .ToList(),
-                    1, 50, 5));
+            _auditRepository.QueryAsync(Arg.Any<Guid?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+                .Returns(((IReadOnlyList<AuditRecord>)Enumerable.Range(0, 5)
+                    .Select(i => Record("iam", "Create", now.AddMinutes(-i)))
+                    .ToList(), 5));
 
             var page1 = await _service.GetAuditLogsAsync(null, null, null, 1, 2, CancellationToken.None);
             var page2 = await _service.GetAuditLogsAsync(null, null, null, 2, 2, CancellationToken.None);
@@ -126,12 +113,11 @@ namespace ReportingService.UnitTests
         [Fact]
         public async Task GetAuditLogsAsync_FormatsGradingDetailsWithOldNewAndReason()
         {
-            _gradingClient.GetAuditLogsAsync(Arg.Any<Guid?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-                .Returns(new GradingAuditLogPageClientDto(
-                    new List<GradingAuditLogEntryClientDto>
-                    {
-                        new(Guid.NewGuid(), Guid.NewGuid(), "ScoreOverridden", "GradingForm", Guid.NewGuid(), "5", "8", "typo fix", DateTime.UtcNow)
-                    }, 1));
+            _auditRepository.QueryAsync(Arg.Any<Guid?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+                .Returns(((IReadOnlyList<AuditRecord>)new List<AuditRecord>
+                {
+                    Record("grading", "ScoreOverridden", DateTime.UtcNow, "5", "8", "typo fix")
+                }, 1));
 
             var result = await _service.GetAuditLogsAsync(null, null, null, 1, 20, CancellationToken.None);
 
@@ -142,14 +128,13 @@ namespace ReportingService.UnitTests
         }
 
         [Fact]
-        public async Task GetAuditLogsAsync_PassesFiltersThroughToEverySource()
+        public async Task GetAuditLogsAsync_PassesFiltersThroughToBothSources()
         {
             var userId = Guid.NewGuid();
 
             await _service.GetAuditLogsAsync(userId, "User", "Create", 1, 20, CancellationToken.None);
 
-            await _iamClient.Received(1).GetAuditLogsAsync(userId, "User", "Create", 1, Arg.Any<int>(), Arg.Any<CancellationToken>());
-            await _gradingClient.Received(1).GetAuditLogsAsync(userId, "User", "Create", 1, Arg.Any<int>(), Arg.Any<CancellationToken>());
+            await _auditRepository.Received(1).QueryAsync(userId, "User", "Create", Arg.Any<int>(), Arg.Any<CancellationToken>());
             await _submissionClient.Received(1).GetAuditLogsAsync(userId, "User", "Create", 1, Arg.Any<int>(), Arg.Any<CancellationToken>());
         }
     }

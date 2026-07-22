@@ -7,6 +7,7 @@ using NSubstitute;
 using ReportingService.Application.DTOs;
 using ReportingService.Application.Interfaces;
 using ReportingService.Application.Services;
+using ReportingService.Domain.Entities;
 using Xunit;
 
 namespace ReportingService.UnitTests
@@ -17,12 +18,24 @@ namespace ReportingService.UnitTests
             Guid id, decimal? passScore, decimal maxScore = 10m, string code = "PRN232") =>
             new(id, code, "Title", Guid.NewGuid(), "FE Exam", Guid.NewGuid(), "SP26", maxScore, passScore);
 
-        private static SubjectScoreDistributionClientDto MakeDistribution(Guid subjectId, params decimal[] scores) =>
-            new(subjectId, scores.Length,
-                scores.Length > 0 ? Math.Round(scores.Average(), 2) : null,
-                scores.Length > 0 ? scores.Min() : null,
-                scores.Length > 0 ? scores.Max() : null,
-                scores);
+        private static List<ScoreRecord> MakeScores(Guid subjectId, params decimal[] scores) =>
+            scores.Select(s => new ScoreRecord
+            {
+                PaperId = Guid.NewGuid(),
+                SubjectId = subjectId,
+                TeacherId = Guid.NewGuid(),
+                TotalScore = s,
+                MaxScore = 10m,
+                OccurredAt = DateTime.UtcNow
+            }).ToList();
+
+        private static IScoreRecordReadRepository ScoreRepo(params ScoreRecord[] records)
+        {
+            var repo = Substitute.For<IScoreRecordReadRepository>();
+            repo.GetBySubjectsAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+                .Returns(records.ToList());
+            return repo;
+        }
 
         [Fact]
         public async Task GetReportAsync_WhenCatalogUnreachable_ReturnsError()
@@ -30,26 +43,7 @@ namespace ReportingService.UnitTests
             var catalogClient = Substitute.For<IExamCatalogServiceClient>();
             catalogClient.SearchSubjectsAsync(null, null, Arg.Any<CancellationToken>())
                 .Returns((IReadOnlyList<SubjectFilterResultClientDto>?)null);
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            var service = new PassFailReportService(catalogClient, gradingClient);
-
-            var (result, error) = await service.GetReportAsync(null, null, CancellationToken.None);
-
-            Assert.Null(result);
-            Assert.NotNull(error);
-        }
-
-        [Fact]
-        public async Task GetReportAsync_WhenGradingServiceUnreachable_ReturnsError()
-        {
-            var subjectId = Guid.NewGuid();
-            var catalogClient = Substitute.For<IExamCatalogServiceClient>();
-            catalogClient.SearchSubjectsAsync(null, null, Arg.Any<CancellationToken>())
-                .Returns(new List<SubjectFilterResultClientDto> { MakeSubject(subjectId, passScore: 5m) });
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            gradingClient.GetScoreDistributionAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
-                .Returns((ScoreDistributionDashboardClientDto?)null);
-            var service = new PassFailReportService(catalogClient, gradingClient);
+            var service = new PassFailReportService(catalogClient, ScoreRepo());
 
             var (result, error) = await service.GetReportAsync(null, null, CancellationToken.None);
 
@@ -64,13 +58,7 @@ namespace ReportingService.UnitTests
             var catalogClient = Substitute.For<IExamCatalogServiceClient>();
             catalogClient.SearchSubjectsAsync(null, null, Arg.Any<CancellationToken>())
                 .Returns(new List<SubjectFilterResultClientDto> { MakeSubject(subjectId, passScore: null) });
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            gradingClient.GetScoreDistributionAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
-                .Returns(new ScoreDistributionDashboardClientDto(new List<SubjectScoreDistributionClientDto>
-                {
-                    MakeDistribution(subjectId, 8m, 3m)
-                }));
-            var service = new PassFailReportService(catalogClient, gradingClient);
+            var service = new PassFailReportService(catalogClient, ScoreRepo(MakeScores(subjectId, 8m, 3m).ToArray()));
 
             var (result, error) = await service.GetReportAsync(null, null, CancellationToken.None);
 
@@ -90,13 +78,9 @@ namespace ReportingService.UnitTests
             var catalogClient = Substitute.For<IExamCatalogServiceClient>();
             catalogClient.SearchSubjectsAsync(null, null, Arg.Any<CancellationToken>())
                 .Returns(new List<SubjectFilterResultClientDto> { MakeSubject(subjectId, passScore: 5m) });
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            gradingClient.GetScoreDistributionAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
-                .Returns(new ScoreDistributionDashboardClientDto(new List<SubjectScoreDistributionClientDto>
-                {
-                    MakeDistribution(subjectId, 8m, 3m, 6m, 4m) // pass: 8,6 ; fail: 3,4
-                }));
-            var service = new PassFailReportService(catalogClient, gradingClient);
+            // pass: 8,6 ; fail: 3,4
+            var service = new PassFailReportService(
+                catalogClient, ScoreRepo(MakeScores(subjectId, 8m, 3m, 6m, 4m).ToArray()));
 
             var (result, error) = await service.GetReportAsync(null, null, CancellationToken.None);
 
@@ -114,13 +98,7 @@ namespace ReportingService.UnitTests
             var catalogClient = Substitute.For<IExamCatalogServiceClient>();
             catalogClient.SearchSubjectsAsync(null, null, Arg.Any<CancellationToken>())
                 .Returns(new List<SubjectFilterResultClientDto> { MakeSubject(subjectId, passScore: 5m) });
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            gradingClient.GetScoreDistributionAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
-                .Returns(new ScoreDistributionDashboardClientDto(new List<SubjectScoreDistributionClientDto>
-                {
-                    MakeDistribution(subjectId, 5m)
-                }));
-            var service = new PassFailReportService(catalogClient, gradingClient);
+            var service = new PassFailReportService(catalogClient, ScoreRepo(MakeScores(subjectId, 5m).ToArray()));
 
             var (result, error) = await service.GetReportAsync(null, null, CancellationToken.None);
 
@@ -138,10 +116,7 @@ namespace ReportingService.UnitTests
             var catalogClient = Substitute.For<IExamCatalogServiceClient>();
             catalogClient.SearchSubjectsAsync(null, null, Arg.Any<CancellationToken>())
                 .Returns(new List<SubjectFilterResultClientDto> { MakeSubject(subjectId, passScore: 5m) });
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            gradingClient.GetScoreDistributionAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
-                .Returns(new ScoreDistributionDashboardClientDto(new List<SubjectScoreDistributionClientDto>()));
-            var service = new PassFailReportService(catalogClient, gradingClient);
+            var service = new PassFailReportService(catalogClient, ScoreRepo());
 
             var (result, error) = await service.GetReportAsync(null, null, CancellationToken.None);
 
@@ -153,19 +128,19 @@ namespace ReportingService.UnitTests
         }
 
         [Fact]
-        public async Task GetReportAsync_WhenNoSubjectsMatchFilter_ReturnsEmptyWithoutCallingGradingService()
+        public async Task GetReportAsync_WhenNoSubjectsMatchFilter_ReturnsEmptyWithoutReadingScores()
         {
             var catalogClient = Substitute.For<IExamCatalogServiceClient>();
             catalogClient.SearchSubjectsAsync(Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
                 .Returns(new List<SubjectFilterResultClientDto>());
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            var service = new PassFailReportService(catalogClient, gradingClient);
+            var scoreRepo = ScoreRepo();
+            var service = new PassFailReportService(catalogClient, scoreRepo);
 
             var (result, error) = await service.GetReportAsync(Guid.NewGuid(), null, CancellationToken.None);
 
             Assert.Null(error);
             Assert.Empty(result!.Subjects);
-            await gradingClient.DidNotReceive().GetScoreDistributionAsync(
+            await scoreRepo.DidNotReceive().GetBySubjectsAsync(
                 Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>());
         }
     }

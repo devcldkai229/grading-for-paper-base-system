@@ -14,9 +14,12 @@
     <ProjectReference Include="..\..\..\BuildingBlocks\AspNetCore\AspNetCore.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks\EfCore\EfCore.csproj" />
     <ProjectReference Include="..\GradingService.Application\GradingService.Application.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\Contracts.Protos\Contracts.Protos.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Grpc.Net.ClientFactory" Version="2.80.0" />
+    <PackageReference Include="MassTransit.EntityFrameworkCore" Version="8.4.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0">

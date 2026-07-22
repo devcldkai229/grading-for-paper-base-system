@@ -9,6 +9,7 @@
   <Folder Name="/src/BuildingBlocks/">
 
     <Project Path="src/BuildingBlocks/Contracts/Contracts.csproj" />
+    <Project Path="src/BuildingBlocks/Contracts.Protos/Contracts.Protos.csproj" />
     <Project Path="src/BuildingBlocks/AspNetCore/AspNetCore.csproj" />
     <Project Path="src/BuildingBlocks/AwsS3/AwsS3.csproj" />
     <Project Path="src/BuildingBlocks/EfCore/EfCore.csproj" />

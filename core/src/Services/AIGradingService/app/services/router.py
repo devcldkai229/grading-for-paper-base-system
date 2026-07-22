@@ -14,7 +14,11 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from app.schemas.grading import ScoreGridItem
-from app.services.segmenter import derive_parent_question
+from app.services.segmenter import (
+    STATE_NOT_FOUND,
+    Segmentation,
+    derive_parent_question,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,13 +51,13 @@ def resolve_parent(item: ScoreGridItem) -> str:
 
 
 def route_questions(
-    segments: dict[str, str],
+    segmentation: Segmentation,
     score_grid: list[ScoreGridItem],
 ) -> list[EvalTask]:
     """Route each leaf criterion to an evaluator using its parent segment.
 
     Args:
-        segments: {parentQuestion → answer_text} from segmenter.
+        segmentation: Per-parent Segmentation (text + 3-state + confidence) from the segmenter.
         score_grid: Leaf criteria from the rubric scoring grid.
 
     Returns:
@@ -64,10 +68,13 @@ def route_questions(
     for item in score_grid:
         q_num = item.question_number
         parent = resolve_parent(item)
-        answer = segments.get(parent, "")
+        answer = segmentation.text(parent)
         is_empty = not answer.strip()
 
         if is_empty:
+            # Distinguish "not_found" (segmenter never located the parent question) from "blank"
+            # (parent located but the student left it empty) — doc's 3-state segmentation vocabulary.
+            state_flag = "not_found" if segmentation.state(parent) == STATE_NOT_FOUND else "blank"
             task = EvalTask(
                 question_number=q_num,
                 evaluator=Evaluator.EMPTY_CHECK,
@@ -78,7 +85,7 @@ def route_questions(
                 label=item.label,
                 scoring_rule=item.scoring_rule,
                 answer_key=item.answer_key,
-                flags=["missing"] if parent not in segments or not segments.get(parent, "").strip() else ["blank"],
+                flags=[state_flag],
             )
             logger.debug("Leaf %s (parent %s) → empty_check (%s)", q_num, parent, task.flags)
         else:

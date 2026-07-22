@@ -1,10 +1,15 @@
 using BuildingBlocks.AspNetCore.Extensions;
-using BuildingBlocks.AspNetCore.Health;
-using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using BuildingBlocks.AspNetCore.Grpc;
 using Microsoft.OpenApi.Models;
+using SubmissionService.API.Services.Grpc;
 using SubmissionService.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.AddPlatformObservability("submission-service");
+
+// Dedicated Http2-only (h2c) port for gRPC alongside the existing HTTP/1.1 port.
+builder.AddDualProtocolGrpcHosting(defaultHttpPort: 8080, defaultGrpcPort: 5067);
 
 const long MaxUploadBytes = 524_288_000;
 builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = MaxUploadBytes);
@@ -46,6 +51,8 @@ builder.Services.AddSwaggerGen(options =>
         }
     });
 });
+builder.Services.AddSingleton<GrpcInternalApiKeyInterceptor>();
+builder.Services.AddGrpc(o => o.Interceptors.Add<GrpcInternalApiKeyInterceptor>());
 builder.Services.AddSubmissionInfrastructure(builder.Configuration);
 
 builder.Services.AddHealthChecks()
@@ -72,12 +79,9 @@ app.UseMiddleware<SubmissionService.Infrastructure.Middleware.InternalApiKeyMidd
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
-app.MapHealthChecks("/health/ready", new HealthCheckOptions
-{
-    Predicate = check => check.Tags.Contains("ready"),
-    ResponseWriter = HealthCheckResponseWriter.WriteMinimalJson
-});
+app.MapPlatformHealthChecks();
+
+app.MapGrpcService<PaperGrpcService>();
 
 app.MapControllers();
 

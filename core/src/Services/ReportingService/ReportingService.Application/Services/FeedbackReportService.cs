@@ -1,4 +1,5 @@
 using System.Globalization;
+using ReportingService.Application.DTOs;
 using ReportingService.Application.Interfaces;
 using ReportingService.Domain.Entities;
 using ReportingService.Domain.Enums;
@@ -7,16 +8,16 @@ namespace ReportingService.Application.Services;
 
 public class FeedbackReportService : IFeedbackReportService
 {
-    private readonly IGradingServiceClient _gradingClient;
+    private readonly IFeedbackRecordReadRepository _feedbackRepository;
     private readonly IExportJobRepository _exportJobRepository;
     private readonly IReportFileService _reportFileService;
 
     public FeedbackReportService(
-        IGradingServiceClient gradingClient,
+        IFeedbackRecordReadRepository feedbackRepository,
         IExportJobRepository exportJobRepository,
         IReportFileService reportFileService)
     {
-        _gradingClient = gradingClient;
+        _feedbackRepository = feedbackRepository;
         _exportJobRepository = exportJobRepository;
         _reportFileService = reportFileService;
     }
@@ -44,25 +45,33 @@ public class FeedbackReportService : IFeedbackReportService
                 "File mapping rỗng hoặc thiếu cột bắt buộc (AliasNumber, StudentCode, StudentName).");
         }
 
-        var feedback = await _gradingClient.GetReleasableFeedbackAsync(subjectId, ct);
-        if (feedback is null)
-        {
-            return (null, null, "Không thể lấy dữ liệu chấm bài từ GradingService. Vui lòng thử lại.");
-        }
-
-        if (feedback.Students.Count == 0)
+        // Releasable feedback == submitted feedback, now served from the local feedback_record projection
+        // (kept in sync by Grading's ScoreSubmitted/Overridden events) instead of a REST call to Grading.
+        var records = await _feedbackRepository.GetBySubjectAsync(subjectId, ct);
+        if (records.Count == 0)
         {
             return (null, null, "Chưa có bài nào đã nộp (Submitted) cho môn này để xuất báo cáo.");
         }
 
-        var questionNumbers = feedback.Students
+        var students = records
+            .Select(r => new
+            {
+                r.AliasNumber,
+                r.StudentAlias,
+                r.TotalScore,
+                r.PaperComment,
+                Questions = FeedbackQuestionsJson.Deserialize(r.QuestionsJson)
+            })
+            .ToList();
+
+        var questionNumbers = students
             .SelectMany(s => s.Questions)
             .GroupBy(q => q.QuestionNumber)
             .Select(g => g.Key)
             .ToList();
 
         var rows = new List<Dictionary<string, object>>();
-        foreach (var student in feedback.Students)
+        foreach (var student in students)
         {
             var matched = student.AliasNumber.HasValue && mapping.TryGetValue(student.AliasNumber.Value, out var m)
                 ? m

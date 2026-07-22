@@ -26,6 +26,16 @@ public interface IStudentPaperRepository
 
     Task<BatchPapersDto?> GetPapersByBatchAsync(Guid batchId, CancellationToken ct = default);
 
+    /// <summary>Batch header (existence + ownership) only. Null when the batch does not exist.
+    /// Paired with <see cref="StreamPapersByBatchAsync"/> so the gRPC path can emit a header before
+    /// streaming papers without first materializing the whole batch in memory.</summary>
+    Task<BatchSummaryDto?> GetBatchSummaryAsync(Guid batchId, CancellationToken ct = default);
+
+    /// <summary>Streams a batch's papers ordered by alias number using a server-side cursor (no
+    /// full ToListAsync). Yields nothing when the batch has no papers or does not exist — callers
+    /// should check existence via <see cref="GetBatchSummaryAsync"/> first.</summary>
+    IAsyncEnumerable<BatchPaperDto> StreamPapersByBatchAsync(Guid batchId, CancellationToken ct = default);
+
     Task<InternalPaperSummaryDto?> GetPaperSummaryAsync(Guid paperId, CancellationToken ct = default);
 
     /// <summary>Bulk-resolves summaries (alias, batch, subject) for an arbitrary set of paper ids

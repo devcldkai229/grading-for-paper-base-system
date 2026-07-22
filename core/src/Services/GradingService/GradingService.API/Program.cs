@@ -1,12 +1,12 @@
 using BuildingBlocks.AspNetCore.Extensions;
-using BuildingBlocks.AspNetCore.Health;
 using GradingService.Infrastructure;
 using GradingService.Infrastructure.Auth;
 using GradingService.Infrastructure.Middleware;
-using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.AddPlatformObservability("grading-service");
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -49,12 +49,7 @@ app.UseMiddleware<InternalApiKeyMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
-app.MapHealthChecks("/health/ready", new HealthCheckOptions
-{
-    Predicate = check => check.Tags.Contains("ready"),
-    ResponseWriter = HealthCheckResponseWriter.WriteMinimalJson
-});
+app.MapPlatformHealthChecks();
 
 app.MapControllers();
 
