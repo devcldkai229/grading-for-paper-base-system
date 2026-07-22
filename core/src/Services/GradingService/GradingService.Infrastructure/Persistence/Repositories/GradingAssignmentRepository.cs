@@ -165,4 +165,6 @@ public class GradingAssignmentRepository : IGradingAssignmentRepository
     public void Add(GradingAssignment assignment) => _db.GradingAssignments.Add(assignment);
 
     public void AddForm(GradingForm form) => _db.GradingForms.Add(form);
+
+    public void Remove(GradingAssignment assignment) => _db.GradingAssignments.Remove(assignment);
 }

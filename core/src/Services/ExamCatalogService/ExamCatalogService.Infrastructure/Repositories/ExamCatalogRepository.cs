@@ -607,6 +607,7 @@ public class ExamCatalogRepository : IExamCatalogRepository
         string contentType,
         string previewS3Key,
         string previewContentType,
+        Func<int, Task>? onBeforeCommit = null,
         CancellationToken ct = default)
     {
         var subject = await _context.Subjects.FirstOrDefaultAsync(s => s.Id == subjectId, ct);
@@ -618,6 +619,14 @@ public class ExamCatalogRepository : IExamCatalogRepository
         subject.RubricContentType = contentType;
         subject.RubricPreviewS3Key = previewS3Key;
         subject.RubricPreviewContentType = previewContentType;
+
+        // Runs while the version bump is still uncommitted: a publish here lands in the bus outbox
+        // and is flushed by the SaveChanges below, so barem + ingestion trigger commit atomically.
+        if (onBeforeCommit is not null)
+        {
+            await onBeforeCommit(subject.RubricVersion);
+        }
+
         await _context.SaveChangesAsync(ct);
         return subject.RubricVersion;
     }
@@ -705,8 +714,16 @@ public class ExamCatalogRepository : IExamCatalogRepository
             existing.CoverageOk = contract.CoverageOk;
             existing.ModelUsed = contract.ModelUsed;
             existing.Status = contract.Status;
-            existing.ReviewedBy = null;
-            existing.ReviewedAt = null;
+            if (contract.Status == GradingContractStatus.Approved)
+            {
+                existing.ReviewedAt = contract.ReviewedAt ?? DateTime.UtcNow;
+                existing.ReviewedBy = contract.ReviewedBy;
+            }
+            else
+            {
+                existing.ReviewedBy = null;
+                existing.ReviewedAt = null;
+            }
         }
         else
         {

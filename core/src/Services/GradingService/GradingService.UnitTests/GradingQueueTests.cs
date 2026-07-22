@@ -141,7 +141,7 @@ namespace GradingService.UnitTests
             var service = NewService(db, submissionClient);
 
             var result = await service.GetGradingQueueAsync(
-                Guid.NewGuid(), null, null, null, 1, 20, CancellationToken.None);
+                Guid.NewGuid(), null, null, null, null, 1, 20, CancellationToken.None);
 
             Assert.Empty(result.Items);
             Assert.Equal(0, result.TotalCount);
@@ -162,7 +162,7 @@ namespace GradingService.UnitTests
             var service = NewService(db, client);
 
             var result = await service.GetGradingQueueAsync(
-                teacherId, null, null, "0001", 1, 20, CancellationToken.None);
+                teacherId, null, null, "0001", null, 1, 20, CancellationToken.None);
 
             Assert.Single(result.Items);
             Assert.Equal("Student_0001", result.Items[0].StudentAlias);
@@ -181,7 +181,7 @@ namespace GradingService.UnitTests
             var service = NewService(db, client);
 
             var result = await service.GetGradingQueueAsync(
-                teacherId, null, null, "12", 1, 20, CancellationToken.None);
+                teacherId, null, null, "12", null, 1, 20, CancellationToken.None);
 
             Assert.Single(result.Items);
             Assert.Equal(12, result.Items[0].AliasNumber);
@@ -199,7 +199,7 @@ namespace GradingService.UnitTests
             var service = NewService(db, client);
 
             var result = await service.GetGradingQueueAsync(
-                teacherId, null, null, null, 1, 20, CancellationToken.None);
+                teacherId, null, null, null, null, 1, 20, CancellationToken.None);
 
             Assert.Single(result.Items);
             Assert.Null(result.Items[0].StudentAlias);
@@ -218,7 +218,7 @@ namespace GradingService.UnitTests
             var service = NewService(db, client);
 
             var result = await service.GetGradingQueueAsync(
-                teacherId, null, null, null, 1, 20, CancellationToken.None);
+                teacherId, null, null, null, null, 1, 20, CancellationToken.None);
 
             Assert.Equal(2, result.Items.Count);
             Assert.Equal(2, result.Items[0].AliasNumber);
@@ -239,8 +239,8 @@ namespace GradingService.UnitTests
             var client = StubPaperSummaries(papers.ToArray());
             var service = NewService(db, client);
 
-            var page1 = await service.GetGradingQueueAsync(teacherId, null, null, null, 1, 2, CancellationToken.None);
-            var page2 = await service.GetGradingQueueAsync(teacherId, null, null, null, 2, 2, CancellationToken.None);
+            var page1 = await service.GetGradingQueueAsync(teacherId, null, null, null, null, 1, 2, CancellationToken.None);
+            var page2 = await service.GetGradingQueueAsync(teacherId, null, null, null, null, 2, 2, CancellationToken.None);
 
             Assert.Equal(5, page1.TotalCount);
             Assert.Equal(3, page1.TotalPages);

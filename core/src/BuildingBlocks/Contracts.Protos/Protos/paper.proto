@@ -15,6 +15,10 @@ service PaperService {
   rpc GetPaperSummaries(PaperRefs) returns (PaperSummaries);
   rpc GetSubjectPaperStats(SubjectRef) returns (SubjectPaperStats);
   rpc GetPaperFileUrls(PaperRef) returns (PaperFileUrls);
+  // Papers in a subject whose AliasNumber falls within [alias_start, alias_end] (inclusive).
+  rpc ListPapersByAliasRange(AliasRangeRef) returns (stream PaperSummary);
+  // Bulk-flip ReadyToAssign papers to Assigned after GradingService materializes assignments.
+  rpc MarkPapersAssigned(MarkPapersAssignedRequest) returns (MarkPapersAssignedResponse);
 }
 
 message BatchRef {
@@ -31,6 +35,22 @@ message PaperRefs {
 
 message SubjectRef {
   string subject_id = 1;
+}
+
+message AliasRangeRef {
+  string subject_id = 1;
+  int32 alias_start = 2;
+  int32 alias_end = 3;
+  // Optional status filter (e.g. "ready_to_assign"). When empty, returns ReadyToAssign + Assigned.
+  optional string status_filter = 4;
+}
+
+message MarkPapersAssignedRequest {
+  repeated string paper_ids = 1;
+}
+
+message MarkPapersAssignedResponse {
+  int32 updated_count = 1;
 }
 
 message BatchHeader {

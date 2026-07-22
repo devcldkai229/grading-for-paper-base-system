@@ -68,4 +68,13 @@ public interface IStudentPaperRepository
     /// <summary>Total paper count and highest alias number submitted for a subject (across every
     /// batch). Consumed internally by GradingService to validate marker-assignment alias ranges.</summary>
     Task<SubjectPaperStatsDto> GetSubjectPaperStatsAsync(Guid subjectId, CancellationToken ct = default);
+
+    /// <summary>Papers in a subject with AliasNumber in [aliasStart, aliasEnd]. When
+    /// <paramref name="statusFilter"/> is null, returns ReadyToAssign and Assigned papers.</summary>
+    Task<IReadOnlyList<InternalPaperSummaryDto>> GetPapersByAliasRangeAsync(
+        Guid subjectId, int aliasStart, int aliasEnd, string? statusFilter = null,
+        CancellationToken ct = default);
+
+    /// <summary>Bulk-updates ReadyToAssign papers to Assigned. Returns count updated.</summary>
+    Task<int> MarkPapersAssignedAsync(IReadOnlyCollection<Guid> paperIds, CancellationToken ct = default);
 }

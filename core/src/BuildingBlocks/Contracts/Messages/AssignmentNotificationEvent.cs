@@ -11,5 +11,8 @@ public record AssignmentNotificationEvent(
     Guid SubjectId,
     int AliasStart,
     int AliasEnd,
-    DateTime OccurredAt
+    DateTime OccurredAt,
+    Guid? BatchId = null,
+    string? ZipFileName = null,
+    int? PaperCount = null
 );

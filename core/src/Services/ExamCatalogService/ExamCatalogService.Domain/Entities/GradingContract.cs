@@ -3,9 +3,9 @@ using Contracts.Domain;
 namespace ExamCatalogService.Domain.Entities;
 
 /// <summary>
-/// Review status of a compiled grading contract. A contract is <see cref="Pending"/> after the AI
-/// ingestion pipeline produces it, becomes <see cref="Approved"/> once an admin reviews it (the hard
-/// gate before it can be used for AI grading), or <see cref="Rejected"/> if unusable.
+/// Review status of a compiled grading contract. After ingestion the contract is
+/// <see cref="Approved"/> automatically; <see cref="Pending"/> is legacy, and
+/// <see cref="Rejected"/> marks an admin-invalidated contract.
 /// </summary>
 public enum GradingContractStatus
 {

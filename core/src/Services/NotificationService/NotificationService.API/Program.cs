@@ -1,5 +1,8 @@
 using BuildingBlocks.AspNetCore.Extensions;
 using Microsoft.OpenApi.Models;
+using NotificationService.API.Hubs;
+using NotificationService.API.Services;
+using NotificationService.Application.Interfaces;
 using NotificationService.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -7,6 +10,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddPlatformObservability("notification-service");
 
 builder.Services.AddControllers();
+builder.Services.AddSignalR();
+builder.Services.AddScoped<INotificationPushService, NotificationPushService>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -39,5 +44,6 @@ app.UseAuthorization();
 app.MapPlatformHealthChecks();
 
 app.MapControllers();
+app.MapHub<NotificationsHub>("/hubs/notifications");
 
 app.Run();

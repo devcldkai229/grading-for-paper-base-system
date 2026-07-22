@@ -1,0 +1,73 @@
+{
+  "subject_id": "00000000-0000-0000-0000-00000000pmg1",
+  "rubric_version": "1",
+  "rubric_text": "PMG201c Final PE #1 — golden reference case (spec section 8).",
+  "papers": [
+    {
+      "assignment_id": "00000000-0000-0000-0000-00000000b101",
+      "answer_text": "Request 1: Purpose is to build grading system. Scope covers upload and reporting.\nRequest 2: School and University organization.\nRequest 3: Risk 1 budget. Risk 2 staff. Risk 3 requirements change. Risk 4 timeline.\nRequest 4: Path A-B-C-G=15. Path D-B-C-G=16. Path D-E-F-G=17.\nRequest 5: ",
+      "score_grid": [
+        {
+          "questionNumber": "3",
+          "groupLabel": "Request 3",
+          "label": "Risks",
+          "maxScore": 2.0,
+          "checkItems": [
+            { "checkId": "c1", "description": "Nêu >= 3 rủi ro cụ thể", "points": 0.9, "required": true },
+            { "checkId": "c2", "description": "Mỗi rủi ro có probability + impact", "points": 0.6 },
+            { "checkId": "c3", "description": "Mỗi rủi ro có response plan", "points": 0.3 },
+            { "checkId": "c4", "description": "Trình bày rõ ràng", "points": 0.2 }
+          ],
+          "partialCredit": [
+            { "label": "none", "score": 0.0, "checkIds": [] },
+            { "label": "minimal", "score": 0.9, "checkIds": ["c1"] },
+            { "label": "partial", "score": 1.5, "checkIds": ["c1", "c2"] },
+            { "label": "high", "score": 1.8, "checkIds": ["c1", "c2", "c3"] },
+            { "label": "full", "score": 2.0, "checkIds": ["c1", "c2", "c3", "c4"] }
+          ]
+        },
+        {
+          "questionNumber": "4",
+          "groupLabel": "Request 4",
+          "label": "Network paths",
+          "maxScore": 2.0,
+          "requiresVisual": true,
+          "answerKey": "CHECKER:path_graph\nPATHS: ABCG=15; DBCG=16; DEFG=17; DHI=19",
+          "checkItems": [
+            { "checkId": "c1", "description": "Liệt kê đúng các path trong sơ đồ", "points": 1.0, "required": true },
+            { "checkId": "c2", "description": "Đề xuất 3 giải pháp", "points": 1.0 }
+          ],
+          "partialCredit": [
+            { "label": "none", "score": 0.0, "checkIds": [] },
+            { "label": "full", "score": 2.0, "checkIds": ["c1", "c2"] }
+          ]
+        },
+        {
+          "questionNumber": "5",
+          "groupLabel": "Request 5",
+          "label": "EVM",
+          "maxScore": 1.5,
+          "checkItems": [
+            { "checkId": "c1", "description": "SV/SPI", "points": 0.5 },
+            { "checkId": "c2", "description": "CV/CPI", "points": 0.5 },
+            { "checkId": "c3", "description": "Comment", "points": 0.5 }
+          ],
+          "partialCredit": [
+            { "label": "none", "score": 0.0, "checkIds": [] },
+            { "label": "full", "score": 1.5, "checkIds": ["c1", "c2", "c3"] }
+          ]
+        }
+      ],
+      "expected": {
+        "3": 0.9,
+        "4": 0.0,
+        "5": 0.0
+      },
+      "expected_verdicts": {
+        "3": { "c1": "yes", "c2": "no", "c3": "no", "c4": "partial" },
+        "4": { "c1": "no", "c2": "no" },
+        "5": { "c1": "no", "c2": "no", "c3": "no" }
+      }
+    }
+  ]
+}

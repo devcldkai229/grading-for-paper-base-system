@@ -19,16 +19,34 @@ from app.schemas.grading import QuestionSuggestion, ScoreGridItem
 
 logger = logging.getLogger(__name__)
 
+# Injection patterns must be HIGH PRECISION: a false positive forces a correct paper to MANUAL and
+# erodes trust in the flag. Two earlier patterns were far too broad and are deliberately narrowed:
+#   * r"system\s*:\s*"        matched "Scoring system:" — and the PMG201c paper literally instructs
+#                             "Create your own scoring system", so it fired on nearly every answer.
+#                             Now anchored to line start, where a forged chat turn would appear.
+#   * r"you\s+are\s+(now\s+)?a"  matched ordinary prose ("you are a student"). Now requires either a
+#                             role-reassignment ("you are now a ...") or an explicit grader/AI noun.
 _INJECTION_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"ignore\s+(all\s+)?(previous\s+)?instructions?", re.IGNORECASE),
-    re.compile(r"disregard\s+(the\s+)?rubric", re.IGNORECASE),
-    re.compile(r"give\s+(me\s+)?full\s+marks?", re.IGNORECASE),
+    # Instruction override
+    re.compile(r"ignore\s+(all\s+)?(the\s+)?(previous|prior|above)?\s*instructions?", re.IGNORECASE),
+    re.compile(r"disregard\s+(the\s+)?(rubric|barem|instructions?)", re.IGNORECASE),
+    re.compile(r"bỏ\s+qua\s+(mọi\s+)?(chỉ\s+thị|hướng\s+dẫn)", re.IGNORECASE),
+    # Grade manipulation
+    re.compile(r"give\s+(me\s+)?(full|max|maximum)\s+marks?", re.IGNORECASE),
     re.compile(r"cho\s+(tôi\s+)?điểm\s+tối\s+đa", re.IGNORECASE),
     re.compile(r"cho\s+điểm\s+cao\s+nhất", re.IGNORECASE),
-    re.compile(r"you\s+are\s+(now\s+)?a", re.IGNORECASE),
-    re.compile(r"bỏ\s+qua\s+(mọi\s+)?chỉ\s+thị", re.IGNORECASE),
-    re.compile(r"system\s*:\s*", re.IGNORECASE),
-    re.compile(r"<\|im_start\|>", re.IGNORECASE),
+    # Role reassignment (not incidental prose)
+    re.compile(r"you\s+are\s+now\s+(a|an|the)\b", re.IGNORECASE),
+    re.compile(
+        r"you\s+are\s+(a|an)\s+(helpful\s+|lenient\s+|generous\s+)?"
+        r"(grader|teacher|examiner|assistant|ai)\b",
+        re.IGNORECASE,
+    ),
+    # Chat-template markers
+    re.compile(r"<\|im_(start|end)\|>", re.IGNORECASE),
+    re.compile(r"<\|(system|assistant|user)\|>", re.IGNORECASE),
+    # Forged conversation turn — only when it OPENS a line ("Scoring system:" is not a match).
+    re.compile(r"^[ \t]*(system|assistant)\s*:", re.IGNORECASE | re.MULTILINE),
 ]
 
 

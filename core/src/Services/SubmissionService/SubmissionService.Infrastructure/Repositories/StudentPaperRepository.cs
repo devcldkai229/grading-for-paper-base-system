@@ -340,4 +340,53 @@ public class StudentPaperRepository : IStudentPaperRepository
 
         return new SubjectPaperStatsDto(totalPapers, highestAliasPaper?.AliasNumber);
     }
+
+    public async Task<IReadOnlyList<InternalPaperSummaryDto>> GetPapersByAliasRangeAsync(
+        Guid subjectId, int aliasStart, int aliasEnd, string? statusFilter = null,
+        CancellationToken ct = default)
+    {
+        var filterBuilder = Builders<StudentPaper>.Filter;
+        var filter = filterBuilder.Eq(p => p.SubjectId, subjectId)
+            & filterBuilder.Gte(p => p.AliasNumber, aliasStart)
+            & filterBuilder.Lte(p => p.AliasNumber, aliasEnd);
+
+        if (!string.IsNullOrWhiteSpace(statusFilter))
+        {
+            var statusEnum = Enum.Parse<PaperStatus>(statusFilter, ignoreCase: true);
+            filter &= filterBuilder.Eq(p => p.Status, statusEnum);
+        }
+        else
+        {
+            filter &= filterBuilder.In(
+                p => p.Status,
+                new[] { PaperStatus.ReadyToAssign, PaperStatus.Assigned });
+        }
+
+        var papers = await PapersCollection
+            .Find(filter)
+            .SortBy(p => p.AliasNumber)
+            .ToListAsync(ct);
+
+        return papers
+            .Select(paper => new InternalPaperSummaryDto(
+                paper.Id, paper.BatchId, paper.SubjectId,
+                paper.StudentAlias, paper.AliasNumber, paper.UploadedBy))
+            .ToList();
+    }
+
+    public async Task<int> MarkPapersAssignedAsync(
+        IReadOnlyCollection<Guid> paperIds, CancellationToken ct = default)
+    {
+        if (paperIds.Count == 0) return 0;
+
+        var filter = Builders<StudentPaper>.Filter.In(p => p.Id, paperIds)
+            & Builders<StudentPaper>.Filter.Eq(p => p.Status, PaperStatus.ReadyToAssign);
+
+        var update = Builders<StudentPaper>.Update
+            .Set(p => p.Status, PaperStatus.Assigned)
+            .Set(p => p.UpdatedAt, DateTime.UtcNow);
+
+        var result = await PapersCollection.UpdateManyAsync(filter, update, cancellationToken: ct);
+        return (int)result.ModifiedCount;
+    }
 }

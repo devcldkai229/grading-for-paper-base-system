@@ -15,11 +15,23 @@ public class NotificationDispatchService : INotificationDispatchService
         _notifications = notifications;
     }
 
-    public Task HandleAssignmentAsync(AssignmentNotificationEvent evt, CancellationToken ct = default) =>
-        DispatchAsync(
+    public Task HandleAssignmentAsync(AssignmentNotificationEvent evt, CancellationToken ct = default)
+    {
+        if (evt.BatchId.HasValue)
+        {
+            var label = string.IsNullOrWhiteSpace(evt.ZipFileName) ? "Folder ZIP" : evt.ZipFileName;
+            var count = evt.PaperCount ?? (evt.AliasEnd - evt.AliasStart + 1);
+            return DispatchAsync(
+                evt.TeacherId, NotificationType.Assignment, "Bạn vừa được giao folder chấm bài",
+                () => $"{label} — {count} bài",
+                evt, ct);
+        }
+
+        return DispatchAsync(
             evt.TeacherId, NotificationType.Assignment, "Bạn được phân công chấm bài mới",
             () => $"Bạn được phân công chấm các bài từ Student_{evt.AliasStart:D4} đến Student_{evt.AliasEnd:D4} (SubjectId: {evt.SubjectId}).",
             evt, ct);
+    }
 
     public Task HandleDeadlineReminderAsync(DeadlineReminderEvent evt, CancellationToken ct = default) =>
         DispatchAsync(

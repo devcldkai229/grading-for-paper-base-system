@@ -297,6 +297,10 @@ namespace GradingService.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("alias_start");
 
+                    b.Property<Guid?>("BatchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("batch_id");
+
                     b.Property<DateTime>("AssignedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("assigned_at");
@@ -313,6 +317,11 @@ namespace GradingService.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("teacher_id");
 
+                    b.Property<string>("ZipFileName")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("zip_file_name");
+
                     b.HasKey("Id");
 
                     b.HasIndex("SubjectId")
@@ -323,6 +332,10 @@ namespace GradingService.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("SubjectId", "AliasStart", "AliasEnd")
                         .IsUnique();
+
+                    b.HasIndex("SubjectId", "BatchId")
+                        .IsUnique()
+                        .HasFilter("batch_id IS NOT NULL");
 
                     b.ToTable("marker_assignments", null, t =>
                         {

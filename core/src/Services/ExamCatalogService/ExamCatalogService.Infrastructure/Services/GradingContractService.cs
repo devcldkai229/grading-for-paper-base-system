@@ -53,11 +53,24 @@ public sealed class GradingContractService : IGradingContractService
         var rubricUrl = await _s3Service.GeneratePresignedGetUrlAsync(
             rubric.S3Key, RubricPresignTtl, rubric.FileName, inline: true, ct);
 
+        var ingestFiles = new List<IngestRubricFileDto>
+        {
+            new(rubricUrl, rubric.ContentType, "rubric")
+        };
+
+        var examPaper = await _repository.GetExamPaperInfoAsync(subjectId, ct);
+        if (examPaper is { } exam)
+        {
+            var examUrl = await _s3Service.GeneratePresignedGetUrlAsync(
+                exam.S3Key, RubricPresignTtl, exam.FileName, inline: true, ct);
+            ingestFiles.Add(new IngestRubricFileDto(examUrl, exam.ContentType, "exam"));
+        }
+
         var request = new IngestRubricRequestDto(
             subjectId,
             rubric.RubricVersion.ToString(),
             subject.MaxScore,
-            new[] { new IngestRubricFileDto(rubricUrl, rubric.ContentType, "rubric") },
+            ingestFiles,
             subject.Questions
                 .Select(q => new IngestRubricScoreGridItemDto(
                     q.QuestionNumber, q.GroupLabel, q.Label, q.MaxScore, null))
@@ -93,6 +106,7 @@ public sealed class GradingContractService : IGradingContractService
 
         var assets = await PersistAssetsAsync(contractNode, subjectId, rubric.RubricVersion, ct);
 
+        var now = DateTime.UtcNow;
         var contract = new GradingContract
         {
             SubjectId = subjectId,
@@ -100,16 +114,17 @@ public sealed class GradingContractService : IGradingContractService
             ContractJson = contractNode.ToJsonString(),
             CoverageOk = coverageOk,
             ModelUsed = modelUsed,
-            Status = GradingContractStatus.Pending
+            Status = GradingContractStatus.Approved,
+            ReviewedAt = now
         };
 
         await _repository.UpsertGradingContractAsync(contract, assets, ct);
 
         await _publishEndpoint.Publish(new RubricCompiledEvent(
-            Guid.NewGuid(), subjectId, rubric.RubricVersion, coverageOk, null, DateTime.UtcNow), ct);
+            Guid.NewGuid(), subjectId, rubric.RubricVersion, coverageOk, null, now), ct);
 
         _logger.LogInformation(
-            "Compiled contract stored for subject {SubjectId} v{Version} ({AssetCount} assets, coverage_ok={Coverage})",
+            "Compiled contract auto-approved for subject {SubjectId} v{Version} ({AssetCount} assets, coverage_ok={Coverage})",
             subjectId, rubric.RubricVersion, assets.Count, coverageOk);
         return true;
     }

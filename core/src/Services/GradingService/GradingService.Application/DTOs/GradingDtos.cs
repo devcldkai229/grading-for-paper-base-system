@@ -82,7 +82,20 @@ public record GradingQueueRowDto(
     string Status,
     bool IsFlagged,
     decimal? TotalScore,
-    DateTime? SubmittedAt
+    DateTime? SubmittedAt,
+    Guid? BatchId = null,
+    string? ZipFileName = null
+);
+
+public record GradingQueueFolderDto(
+    Guid BatchId,
+    string? ZipFileName,
+    Guid SubjectId,
+    int TotalPapers,
+    int NotStarted,
+    int Drafting,
+    int Submitted,
+    DateTime AssignedAt
 );
 
 public record GradingQueuePageDto(
@@ -280,7 +293,15 @@ public record MarkerAssignmentDto(
     int AliasStart,
     int AliasEnd,
     Guid AssignedBy,
-    DateTime AssignedAt
+    DateTime AssignedAt,
+    Guid? BatchId = null,
+    string? ZipFileName = null
+);
+
+public record CreateFolderAssignmentRequest(
+    Guid TeacherId,
+    Guid BatchId,
+    string? ZipFileName
 );
 
 /// <summary>Either (AliasStart, AliasEnd) or Quota must be provided; Quota auto-picks the next
@@ -297,6 +318,19 @@ public record ReassignMarkerAssignmentRequest(
     Guid TeacherId,
     int AliasStart,
     int AliasEnd
+);
+
+public record MaterializeResultDto(
+    int MaterializedCount,
+    int SkippedInProgressCount,
+    IReadOnlyList<string> Warnings
+);
+
+public record MarkerAssignmentResultDto(
+    MarkerAssignmentDto Assignment,
+    int MaterializedCount,
+    int SkippedInProgressCount,
+    IReadOnlyList<string> Warnings
 );
 
 // ---------------------------------------------------------------------------

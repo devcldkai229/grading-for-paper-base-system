@@ -196,3 +196,37 @@ async def render_document(
     )
     _cache_put(sha, doc)
     return doc
+
+
+def merge_rendered_documents(primary: RenderedDocument, extra: RenderedDocument) -> RenderedDocument:
+    """Append pages and embedded images from `extra` onto `primary` (e.g. rubric + exam paper)."""
+    offset = len(primary.pages)
+    merged_pages = list(primary.pages)
+    for page in extra.pages:
+        merged_pages.append(
+            RenderedPage(
+                page_index=offset + page.page_index,
+                width=page.width,
+                height=page.height,
+                image_png=page.image_png,
+                text=page.text,
+            )
+        )
+
+    merged_embedded = list(primary.embedded_images)
+    img_offset = len(primary.embedded_images)
+    for img in extra.embedded_images:
+        merged_embedded.append(
+            EmbeddedImage(
+                page_index=offset + img.page_index,
+                image_index=img_offset + img.image_index,
+                data=img.data,
+                ext=img.ext,
+            )
+        )
+
+    return RenderedDocument(
+        sha256=primary.sha256,
+        pages=merged_pages,
+        embedded_images=merged_embedded,
+    )

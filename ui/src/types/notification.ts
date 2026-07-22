@@ -8,6 +8,15 @@ export interface AppNotification {
   sentAt: string | null;
   createdAt: string;
   assignmentId: string | null;
+  batchId?: string | null;
+}
+
+export interface RealtimeNotification {
+  type: string;
+  title: string;
+  body?: string | null;
+  batchId?: string | null;
+  subjectId?: string | null;
 }
 
 export interface NotificationPage {

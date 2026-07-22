@@ -25,4 +25,11 @@ public interface ISubmissionServiceClient
     /// </summary>
     Task<IReadOnlyList<InternalPaperSummaryClientDto>?> GetPaperSummariesAsync(
         IReadOnlyCollection<Guid> paperIds, CancellationToken ct = default);
+
+    /// <summary>Papers in a subject with AliasNumber in [aliasStart, aliasEnd]. Null when unreachable.</summary>
+    Task<IReadOnlyList<InternalPaperSummaryClientDto>?> ListPapersByAliasRangeAsync(
+        Guid subjectId, int aliasStart, int aliasEnd, CancellationToken ct = default);
+
+    /// <summary>Bulk-flip ReadyToAssign papers to Assigned. Returns -1 when unreachable.</summary>
+    Task<int> MarkPapersAssignedAsync(IReadOnlyCollection<Guid> paperIds, CancellationToken ct = default);
 }

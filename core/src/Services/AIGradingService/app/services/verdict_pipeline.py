@@ -19,6 +19,7 @@ import httpx
 from app.config import settings
 from app.schemas.grading import AngleScore, QuestionSuggestion, ScoreGridItem
 from app.services.adjudicator import adjudicate
+from app.services.checkers import apply_deterministic_checkers
 from app.services.comprehension import extract_claims
 from app.services.confidence import (
     ConfidenceSignals,
@@ -55,7 +56,7 @@ async def _download_image(url: str) -> bytes | None:
         return None
 
 
-async def _load_images(urls: list[str]) -> list[bytes]:
+async def load_images_from_urls(urls: list[str]) -> list[bytes]:
     if not urls:
         return []
     downloaded = await asyncio.gather(*[_download_image(u) for u in urls])
@@ -89,40 +90,48 @@ def _build_rationale(result: ScoreResult, item: ScoreGridItem, agreement: float)
     return " ".join(parts)
 
 
+async def _leaf_images(item: ScoreGridItem, student_pages: list[bytes]) -> list[bytes]:
+    """Barem visual assets + student page images for multimodal verdict (spec B7.2)."""
+    if not item.requires_visual and not item.visual_asset_urls:
+        return []
+
+    images: list[bytes] = []
+    if item.visual_asset_urls:
+        images.extend(await load_images_from_urls(item.visual_asset_urls))
+    if item.requires_visual:
+        images.extend(student_pages)
+    return images
+
+
 async def grade_contract_leaf(
     item: ScoreGridItem,
     answer_text: str,
-    images: list[bytes],
+    student_pages: list[bytes],
     samples: int,
     seg_confidence: float = 1.0,
 ) -> QuestionSuggestion:
     """Grade one contract leaf through the verdict path."""
     check_ids = [c.check_id for c in item.check_items]
 
-    # B3 — comprehension (best-effort; empty on blank answer or failure)
     claims = await extract_claims(item.question_text or item.label or "", answer_text)
 
-    # B4 — N independent verdict samples (visual leaves also get the student page images)
-    leaf_images = images if item.requires_visual else []
+    leaf_images = await _leaf_images(item, student_pages)
     verdict_samples = await grade_criterion_samples(
         item, answer_text, claims=claims, images=leaf_images, samples=samples,
     )
 
-    # B5 — adjudicate to one verdict per check-item + agreement
     adj = adjudicate(verdict_samples, check_ids)
+    verdict_by_check = apply_deterministic_checkers(item, answer_text, adj.verdict_by_check)
 
-    # B6 — CODE computes the score from the tier
-    result = compute_score(item, adj.verdict_by_check)
+    result = compute_score(item, verdict_by_check)
 
     evidence: list[str] = []
     for evs in adj.evidence_by_check.values():
         evidence.extend(evs)
     evidence = list(dict.fromkeys(evidence))
 
-    vision_unmet = item.requires_visual and not leaf_images
+    vision_unmet = (item.requires_visual or bool(item.visual_asset_urls)) and not leaf_images
 
-    # tier_match: verdicts should map cleanly to a tier. A positive score while a required check is
-    # unmet signals the verdicts and tier disagree.
     tier_match = 0.6 if (result.missing_required and result.score > 0) else 1.0
 
     confidence = compute_confidence(ConfidenceSignals(
@@ -156,7 +165,7 @@ async def grade_contract_leaf(
 async def grade_contract_leaves(
     items: list[ScoreGridItem],
     leaf_answers: dict[str, str],
-    student_image_urls: list[str],
+    student_pages: list[bytes],
     seg_confidence: dict[str, float] | None = None,
     samples: int | None = None,
 ) -> list[QuestionSuggestion]:
@@ -166,13 +175,12 @@ async def grade_contract_leaves(
 
     samples = samples or settings.verdict_samples
     seg_confidence = seg_confidence or {}
-    images = await _load_images(student_image_urls) if any(i.requires_visual for i in items) else []
 
     results = await asyncio.gather(*[
         grade_contract_leaf(
             item,
             leaf_answers.get(item.question_number, ""),
-            images,
+            student_pages,
             samples,
             seg_confidence.get(item.question_number, 1.0),
         )

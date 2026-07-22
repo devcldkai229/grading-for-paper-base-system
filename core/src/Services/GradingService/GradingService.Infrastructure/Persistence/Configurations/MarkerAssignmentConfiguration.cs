@@ -47,8 +47,19 @@ public class MarkerAssignmentConfiguration : IEntityTypeConfiguration<MarkerAssi
             .HasColumnName("assigned_at")
             .IsRequired();
 
+        builder.Property(x => x.BatchId)
+            .HasColumnName("batch_id");
+
+        builder.Property(x => x.ZipFileName)
+            .HasColumnName("zip_file_name")
+            .HasMaxLength(512);
+
         builder.HasIndex(x => new { x.SubjectId, x.AliasStart, x.AliasEnd })
             .IsUnique();
+
+        builder.HasIndex(x => new { x.SubjectId, x.BatchId })
+            .IsUnique()
+            .HasFilter("batch_id IS NOT NULL");
 
         builder.HasIndex(x => x.SubjectId)
             .HasDatabaseName("idx_marker_assign_subject");

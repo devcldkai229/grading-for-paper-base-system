@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using GradingService.Application.DTOs;
 using GradingService.Application.Interfaces;
 using GradingService.Application.Services;
+using GradingService.Domain.Entities;
 using GradingService.Infrastructure.Files;
 using GradingService.Infrastructure.Persistence;
 using GradingService.Infrastructure.Persistence.Repositories;
@@ -59,6 +60,8 @@ namespace GradingService.UnitTests
             var submissionClient = Substitute.For<ISubmissionServiceClient>();
             submissionClient.GetBatchPapersAsync(batchId, Arg.Any<CancellationToken>())
                 .Returns(MakeBatch(batchId, subjectId, teacherId));
+            submissionClient.MarkPapersAssignedAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+                .Returns(1);
             var catalogClient = Substitute.For<IExamCatalogServiceClient>();
             catalogClient.GetGradingGridAsync(subjectId, Arg.Any<CancellationToken>())
                 .Returns(MakeGrid(subjectId, "Closed"));
@@ -87,6 +90,8 @@ namespace GradingService.UnitTests
             var submissionClient = Substitute.For<ISubmissionServiceClient>();
             submissionClient.GetBatchPapersAsync(batchId, Arg.Any<CancellationToken>())
                 .Returns(MakeBatch(batchId, subjectId, teacherId));
+            submissionClient.MarkPapersAssignedAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+                .Returns(1);
             var catalogClient = Substitute.For<IExamCatalogServiceClient>();
             catalogClient.GetGradingGridAsync(subjectId, Arg.Any<CancellationToken>())
                 .Returns(MakeGrid(subjectId, status));
@@ -116,7 +121,7 @@ namespace GradingService.UnitTests
         }
 
         [Fact]
-        public async Task StartBatchAsync_WhenCallerIsNotUploader_ReturnsNullResultAndNullError()
+        public async Task StartBatchAsync_WhenCallerIsNotUploader_ReturnsAccessDenied()
         {
             using var db = NewInMemoryContext();
             var batchId = Guid.NewGuid();
@@ -127,12 +132,61 @@ namespace GradingService.UnitTests
             var submissionClient = Substitute.For<ISubmissionServiceClient>();
             submissionClient.GetBatchPapersAsync(batchId, Arg.Any<CancellationToken>())
                 .Returns(MakeBatch(batchId, subjectId, actualUploader));
-            var service = NewService(db, submissionClient, Substitute.For<IExamCatalogServiceClient>());
+            var catalogClient = Substitute.For<IExamCatalogServiceClient>();
+            catalogClient.GetGradingGridAsync(subjectId, Arg.Any<CancellationToken>())
+                .Returns(MakeGrid(subjectId, "Open"));
+            var service = NewService(db, submissionClient, catalogClient);
 
             var (result, error) = await service.StartBatchAsync(batchId, otherTeacher, CancellationToken.None);
 
             Assert.Null(result);
+            Assert.Equal("ACCESS_DENIED", error);
+        }
+
+        [Fact]
+        public async Task StartBatchAsync_WhenCallerHasMarkerAssignment_MaterializesOnlyAssignedAliasRange()
+        {
+            using var db = NewInMemoryContext();
+            var batchId = Guid.NewGuid();
+            var subjectId = Guid.NewGuid();
+            var uploader = Guid.NewGuid();
+            var markerTeacher = Guid.NewGuid();
+            var paperInRange = Guid.NewGuid();
+            var paperOutOfRange = Guid.NewGuid();
+
+            db.MarkerAssignments.Add(new MarkerAssignment
+            {
+                SubjectId = subjectId,
+                TeacherId = markerTeacher,
+                AliasStart = 1,
+                AliasEnd = 2,
+                AssignedBy = Guid.NewGuid()
+            });
+            db.SaveChanges();
+
+            var submissionClient = Substitute.For<ISubmissionServiceClient>();
+            submissionClient.GetBatchPapersAsync(batchId, Arg.Any<CancellationToken>())
+                .Returns(new BatchPapersClientDto(batchId, subjectId, uploader, new List<BatchPaperClientDto>
+                {
+                    new(paperInRange, subjectId, 1),
+                    new(Guid.NewGuid(), subjectId, 2),
+                    new(paperOutOfRange, subjectId, 5),
+                }));
+            submissionClient.MarkPapersAssignedAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+                .Returns(2);
+            var catalogClient = Substitute.For<IExamCatalogServiceClient>();
+            catalogClient.GetGradingGridAsync(subjectId, Arg.Any<CancellationToken>())
+                .Returns(MakeGrid(subjectId, "Open"));
+            var service = NewService(db, submissionClient, catalogClient);
+
+            var (result, error) = await service.StartBatchAsync(batchId, markerTeacher, CancellationToken.None);
+
             Assert.Null(error);
+            Assert.NotNull(result);
+            Assert.Equal(2, await db.GradingAssignments.CountAsync());
+            Assert.DoesNotContain(
+                await db.GradingAssignments.ToListAsync(),
+                a => a.StudentPaperId == paperOutOfRange);
         }
     }
 }
