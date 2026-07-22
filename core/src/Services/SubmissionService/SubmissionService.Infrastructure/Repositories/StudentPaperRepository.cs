@@ -141,6 +141,34 @@ public class StudentPaperRepository : IStudentPaperRepository
             papers.Select(p => new BatchPaperDto(p.Id, p.SubjectId, p.AliasNumber)).ToList());
     }
 
+    public async Task<BatchSummaryDto?> GetBatchSummaryAsync(Guid batchId, CancellationToken ct = default)
+    {
+        var batchCollection = _database.GetCollection<SubmissionBatch>(
+            MongoCollectionNames.For<SubmissionBatch>());
+        var batch = await batchCollection.Find(b => b.Id == batchId).FirstOrDefaultAsync(ct);
+        if (batch is null) return null;
+
+        return new BatchSummaryDto(batch.Id, batch.SubjectId, batch.UploadedBy);
+    }
+
+    public async IAsyncEnumerable<BatchPaperDto> StreamPapersByBatchAsync(
+        Guid batchId, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        using var cursor = await PapersCollection
+            .Find(p => p.BatchId == batchId)
+            .SortBy(p => p.AliasNumber)
+            .ToCursorAsync(ct);
+
+        while (await cursor.MoveNextAsync(ct))
+        {
+            foreach (var p in cursor.Current)
+            {
+                ct.ThrowIfCancellationRequested();
+                yield return new BatchPaperDto(p.Id, p.SubjectId, p.AliasNumber);
+            }
+        }
+    }
+
     public async Task<InternalPaperSummaryDto?> GetPaperSummaryAsync(Guid paperId, CancellationToken ct = default)
     {
         var paper = await PapersCollection.Find(p => p.Id == paperId).FirstOrDefaultAsync(ct);

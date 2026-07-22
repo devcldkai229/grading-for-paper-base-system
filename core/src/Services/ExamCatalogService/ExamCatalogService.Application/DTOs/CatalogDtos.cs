@@ -198,6 +198,64 @@ public record ExtractGridResponse(
     IReadOnlyList<string> Warnings
 );
 
+// ── Compiled grading-contract ingestion (ExamCatalog ↔ AIGradingService) ──
+
+public record IngestRubricFileDto(string Url, string ContentType, string Kind);
+
+public record IngestRubricScoreGridItemDto(
+    string QuestionNumber,
+    string? GroupLabel,
+    string? Label,
+    decimal MaxScore,
+    string? ParentQuestion
+);
+
+public record IngestRubricRequestDto(
+    Guid SubjectId,
+    string RubricVersion,
+    decimal MaxScore,
+    IReadOnlyList<IngestRubricFileDto> Files,
+    IReadOnlyList<IngestRubricScoreGridItemDto> ScoreGrid
+);
+
+/// <summary>Summary of a compiled contract for admin listing (full JSON fetched separately).</summary>
+public record GradingContractSummaryDto(
+    Guid Id,
+    Guid SubjectId,
+    int RubricVersion,
+    string Status,
+    bool CoverageOk,
+    string? ModelUsed,
+    int CriteriaCount,
+    int AssetCount,
+    int WarningCount,
+    DateTime CreatedAt,
+    DateTime? ReviewedAt
+);
+
+/// <summary>Full compiled contract for admin review / grading — contract JSON + asset URLs.</summary>
+public record GradingContractDetailDto(
+    Guid Id,
+    Guid SubjectId,
+    int RubricVersion,
+    string Status,
+    bool CoverageOk,
+    string? ModelUsed,
+    string ContractJson,
+    IReadOnlyList<RubricAssetDto> Assets,
+    DateTime CreatedAt,
+    DateTime? ReviewedAt
+);
+
+public record RubricAssetDto(
+    string AssetId,
+    string Kind,
+    string? Question,
+    int PageIndex,
+    string Url,
+    string ContentType
+);
+
 public record RubricUploadResponse(
     int RubricVersion,
     string FileName,

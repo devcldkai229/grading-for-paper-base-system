@@ -34,6 +34,14 @@ public class GradingFormConfiguration : IEntityTypeConfiguration<GradingForm>
         builder.Property(x => x.InternalComment)
             .HasColumnName("internal_comment");
 
+        builder.Property(x => x.AiSuggestionsJson)
+            .HasColumnName("ai_suggestions_json")
+            .HasDefaultValue("[]")
+            .IsRequired();
+
+        builder.Property(x => x.AiPaperComment)
+            .HasColumnName("ai_paper_comment");
+
         builder.Property(x => x.SubmittedAt)
             .HasColumnName("submitted_at");
 

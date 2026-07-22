@@ -17,6 +17,7 @@ namespace IamService.UnitTests
         private readonly IUserRepository _userRepository;
         private readonly IGoogleAuthService _googleAuthService;
         private readonly IRefreshTokenRepository _refreshTokenRepository;
+        private readonly IMessagePublisher _messagePublisher;
         private readonly AuthService _authService;
 
         public AuthServiceTests()
@@ -25,12 +26,14 @@ namespace IamService.UnitTests
             _userRepository = Substitute.For<IUserRepository>();
             _googleAuthService = Substitute.For<IGoogleAuthService>();
             _refreshTokenRepository = Substitute.For<IRefreshTokenRepository>();
+            _messagePublisher = Substitute.For<IMessagePublisher>();
 
             _authService = new AuthService(
                 _tokenService,
                 _userRepository,
                 _googleAuthService,
-                _refreshTokenRepository
+                _refreshTokenRepository,
+                _messagePublisher
             );
         }
 

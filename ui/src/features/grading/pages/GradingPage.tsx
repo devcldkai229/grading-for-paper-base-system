@@ -14,7 +14,7 @@ import { gradingService } from "@/services/gradingService";
 import { submissionService } from "@/services/submissionService";
 import { clearGradingQueue, loadGradingQueue, saveGradingQueue, updateQueueAssignmentStatus, updateQueueCurrentAssignment } from "@/lib/gradingQueue";
 import type { FileUrlResponse } from "@/types/catalog";
-import type { AuditLogEntry, GradingSession, SaveMarksPayload, AssignmentSummary } from "@/types/grading";
+import type { AiSuggestion, AuditLogEntry, GradingSession, SaveMarksPayload, AssignmentSummary } from "@/types/grading";
 import type { PaperFile, StudentPaperDetail } from "@/types/submission";
 
 const auditActionLabels: Record<string, string> = {
@@ -50,6 +50,26 @@ interface QuestionGroup {
   key: string;
   label: string | null;
   items: GradingSession["questions"];
+}
+
+// Decide how to label a leaf row so we don't show redundant sub-numbering. When a request group
+// has a single leaf, its group header ("Request 1 (20%)") already identifies it, so we don't repeat
+// the number (e.g. no "1.1"). Sub-numbers only appear when a request actually has multiple leaves.
+function leafLabelParts(
+  q: GradingSession["questions"][number],
+  group: QuestionGroup
+): { primary: string; subNumber: string } {
+  const label = q.label?.trim() || "";
+  const grouped = !!group.label;
+  const multi = group.items.length > 1;
+
+  let primary: string;
+  if (label) primary = label;
+  else if (!grouped || multi) primary = q.questionNumber;
+  else primary = ""; // single-leaf grouped, no label — the group header is enough
+
+  const subNumber = grouped && multi && label ? q.questionNumber : "";
+  return { primary, subNumber };
 }
 
 function buildQuestionGroups(questions: GradingSession["questions"]): QuestionGroup[] {
@@ -127,6 +147,7 @@ export function GradingPage() {
   const [auditError, setAuditError] = useState<string | null>(null);
   const [aiSuggesting, setAiSuggesting] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [rightTab, setRightTab] = useState<"manual" | "ai">("manual");
 
   const urlCacheRef = useRef<Record<string, { data: FileUrlResponse; expiresAt: number }>>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -254,12 +275,15 @@ export function GradingPage() {
     if (!assignmentId) return;
     try {
       const data = await gradingService.getSession(assignmentId);
-      applySession(data);
+      // Light refresh (used by AI polling): update the session snapshot so the AI status and the
+      // "Đề xuất bởi AI" tab pick up new suggestions, but do NOT call applySession — AI results live
+      // in a separate tab and must never clobber the lecturer's in-progress manual marks/comments.
+      setSession(data);
       updateQueueAssignmentStatus(assignmentId, data.status);
     } catch {
       /* silent poll failure */
     }
-  }, [assignmentId, applySession]);
+  }, [assignmentId]);
 
   useEffect(() => {
     const aiStatus = session?.aiStatus ?? "NotRequested";
@@ -310,6 +334,42 @@ export function GradingPage() {
     () => (session ? buildQuestionGroups(session.questions).flatMap((g) => g.items) : []),
     [session]
   );
+
+  const aiSuggestions = useMemo(() => session?.aiSuggestions ?? [], [session?.aiSuggestions]);
+  const aiByNumber = useMemo(() => {
+    const map: Record<string, AiSuggestion> = {};
+    for (const s of aiSuggestions) map[s.questionNumber] = s;
+    return map;
+  }, [aiSuggestions]);
+
+  // Copy AI suggestions into the manual marks (overwrite). The debounced autosave then persists them.
+  const copyAiToManual = useCallback(
+    (questionNumbers: string[]) => {
+      if (inputsLocked) return;
+      const byNum = new Map(aiSuggestions.map((s) => [s.questionNumber, s]));
+      setMarks((prev) => {
+        const next = { ...prev };
+        for (const qn of questionNumbers) {
+          const s = byNum.get(qn);
+          if (!s) continue;
+          next[qn] = {
+            score: s.score != null ? String(s.score) : "",
+            questionComment: s.questionComment ?? "",
+          };
+        }
+        return next;
+      });
+      setSaveStatus("idle");
+    },
+    [aiSuggestions, inputsLocked]
+  );
+
+  const copyAllAiToManual = useCallback(() => {
+    if (inputsLocked) return;
+    copyAiToManual(aiSuggestions.map((s) => s.questionNumber));
+    if (session?.aiPaperComment) setPaperComment(session.aiPaperComment);
+    setRightTab("manual");
+  }, [aiSuggestions, session?.aiPaperComment, inputsLocked, copyAiToManual]);
 
   // Default to the first question once a session loads, and re-clamp if the
   // active question no longer exists (e.g. after switching to another paper).
@@ -900,10 +960,54 @@ export function GradingPage() {
           <RedGutter />
 
           <PaperCard className="flex-1 p-4 xl:rounded-l-none xl:border-l-0">
-            <h2 className="font-display text-lg font-semibold text-ink mb-4">
-              Sổ điểm
-            </h2>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <div className="inline-flex rounded-lg border border-line p-0.5 bg-paper">
+                <button
+                  type="button"
+                  onClick={() => setRightTab("manual")}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                    rightTab === "manual"
+                      ? "bg-brand-red text-white"
+                      : "text-ink-soft hover:text-ink"
+                  }`}
+                >
+                  Điểm chấm tay
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRightTab("ai")}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                    rightTab === "ai"
+                      ? "bg-brand-red text-white"
+                      : "text-ink-soft hover:text-ink"
+                  }`}
+                >
+                  Đề xuất bởi AI
+                </button>
+              </div>
+              {!isReadOnly && (
+                <button
+                  type="button"
+                  onClick={() => void handleAiSuggest()}
+                  disabled={
+                    aiSuggesting ||
+                    session.aiStatus === "Queued" ||
+                    session.aiStatus === "Processing"
+                  }
+                  className="px-4 py-2 border border-brand-red/40 text-brand-red hover:bg-brand-red/5 disabled:opacity-50 rounded-lg text-sm font-medium"
+                >
+                  {aiSuggesting ||
+                  session.aiStatus === "Queued" ||
+                  session.aiStatus === "Processing"
+                    ? "AI đang xử lý..."
+                    : "Đề xuất AI"}
+                </button>
+              )}
+            </div>
+            {aiError && <p className="text-sm text-destructive mb-2">{aiError}</p>}
 
+            {rightTab === "manual" && (
+            <>
             <QuestionJumpList
               questions={orderedQuestions}
               activeQuestionNumber={activeQuestionNumber}
@@ -949,17 +1053,17 @@ export function GradingPage() {
                           }`}
                         >
                           <div className="col-span-3 text-sm font-medium text-ink">
-                            <span className="inline-flex items-center gap-1.5 flex-wrap">
-                              {q.label?.trim() || q.questionNumber}
-                              {q.aiDrafted && (
-                                <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-brand-red/10 text-brand-red font-semibold">
-                                  AI
-                                </span>
-                              )}
-                            </span>
-                            <div className="text-xs text-ink-soft font-score">
-                              {q.label?.trim() ? q.questionNumber + " · " : ""}/ {q.maxScore}
-                            </div>
+                            {(() => {
+                              const { primary, subNumber } = leafLabelParts(q, group);
+                              return (
+                                <>
+                                  {primary && <span>{primary}</span>}
+                                  <div className="text-xs text-ink-soft font-score">
+                                    {subNumber ? subNumber + " · " : ""}/ {q.maxScore}
+                                  </div>
+                                </>
+                              );
+                            })()}
                           </div>
                           <div className="col-span-3 flex items-center gap-1">
                             <input
@@ -1058,22 +1162,6 @@ export function GradingPage() {
 
             {!isReadOnly && (
               <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={() => void handleAiSuggest()}
-                  disabled={
-                    aiSuggesting ||
-                    session.aiStatus === "Queued" ||
-                    session.aiStatus === "Processing"
-                  }
-                  className="px-4 py-2.5 border border-brand-red/40 text-brand-red hover:bg-brand-red/5 disabled:opacity-50 rounded-lg text-sm font-medium"
-                >
-                  {aiSuggesting ||
-                  session.aiStatus === "Queued" ||
-                  session.aiStatus === "Processing"
-                    ? "AI đang xử lý..."
-                    : "Gợi ý AI"}
-                </button>
                 <button
                   type="button"
                   onClick={() => void persistMarks(false)}
@@ -1183,6 +1271,117 @@ export function GradingPage() {
                       <p className="text-sm text-ink-soft">Chưa có lịch sử chỉnh sửa</p>
                     )}
                   </div>
+                )}
+              </div>
+            )}
+            </>
+            )}
+
+            {rightTab === "ai" && (
+              <div className="space-y-4">
+                {(session.aiStatus === "Queued" || session.aiStatus === "Processing") && (
+                  <p className="text-sm text-ink-soft">
+                    AI đang chấm bài... Bạn có thể tiếp tục chấm tay trong lúc chờ.
+                  </p>
+                )}
+                {session.aiStatus === "Failed" && (
+                  <p className="text-sm text-destructive">
+                    AI chấm bài thất bại. Vui lòng nhấn "Đề xuất AI" để thử lại.
+                  </p>
+                )}
+
+                {aiSuggestions.length === 0 ? (
+                  session.aiStatus !== "Queued" &&
+                  session.aiStatus !== "Processing" && (
+                    <p className="text-sm text-ink-soft py-12 text-center">
+                      Chưa có đề xuất từ AI. Nhấn "Đề xuất AI" để bắt đầu.
+                    </p>
+                  )
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-ink-soft">
+                        Đề xuất điểm & nhận xét từ AI (chỉ đọc)
+                      </span>
+                      {!inputsLocked && (
+                        <button
+                          type="button"
+                          onClick={copyAllAiToManual}
+                          className="px-3 py-1.5 bg-brand-red text-white hover:bg-brand-red/90 rounded-lg text-xs font-medium"
+                        >
+                          Sao chép tất cả
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-1">
+                      {questionGroups.map((group) => (
+                        <div key={group.key}>
+                          {group.label && (
+                            <h3 className="text-sm font-semibold text-ink mb-2">{group.label}</h3>
+                          )}
+                          <div
+                            className={
+                              group.label
+                                ? "space-y-2 pl-2 border-l-2 border-line"
+                                : "space-y-2"
+                            }
+                          >
+                            {group.items.map((q) => {
+                              const s = aiByNumber[q.questionNumber];
+                              const { primary, subNumber } = leafLabelParts(q, group);
+                              return (
+                                <div
+                                  key={q.questionNumber}
+                                  className="p-2 rounded-lg bg-paper/60 border border-line/60"
+                                >
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="text-sm font-medium text-ink min-w-0">
+                                      {primary && <span>{primary}</span>}
+                                      <div className="text-xs text-ink-soft font-score">
+                                        {subNumber ? subNumber + " · " : ""}/ {q.maxScore}
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      <span className="text-sm font-score text-brand-red">
+                                        {s ? s.score.toFixed(2) : "—"} / {q.maxScore.toFixed(2)}
+                                      </span>
+                                      {s && !inputsLocked && (
+                                        <button
+                                          type="button"
+                                          onClick={() => copyAiToManual([q.questionNumber])}
+                                          className="px-2 py-1 border border-brand-red/40 text-brand-red hover:bg-brand-red/5 rounded-md text-xs font-medium"
+                                        >
+                                          Sao chép
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {s?.isManualOnly && (
+                                    <p className="text-[11px] text-amber-600 mt-1">
+                                      AI không tự chấm được — cần chấm tay.
+                                    </p>
+                                  )}
+                                  {s?.questionComment && (
+                                    <p className="text-xs text-ink-soft mt-1 whitespace-pre-wrap">
+                                      {s.questionComment}
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div>
+                      <label className="text-xs text-ink-soft mb-1 block">Nhận xét bài (AI)</label>
+                      <div className="text-sm text-ink whitespace-pre-wrap p-3 border border-line rounded-lg bg-paper/60 min-h-[60px]">
+                        {session.aiPaperComment || "—"}
+                      </div>
+                    </div>
+                  </>
                 )}
               </div>
             )}

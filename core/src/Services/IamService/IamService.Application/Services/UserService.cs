@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Contracts.Messages;
 using IamService.Application.Features.Users;
 using IamService.Application.Interfaces;
 using IamService.Domain.Entities;
@@ -14,11 +15,35 @@ namespace IamService.Application.Services
     {
         private readonly IUserRepository _userRepository;
         private readonly IRefreshTokenRepository _refreshTokenRepository;
+        private readonly IMessagePublisher _messagePublisher;
 
-        public UserService(IUserRepository userRepository, IRefreshTokenRepository refreshTokenRepository)
+        public UserService(
+            IUserRepository userRepository,
+            IRefreshTokenRepository refreshTokenRepository,
+            IMessagePublisher messagePublisher)
         {
             _userRepository = userRepository;
             _refreshTokenRepository = refreshTokenRepository;
+            _messagePublisher = messagePublisher;
+        }
+
+        /// <summary>
+        /// Publishes a marker-code/name replication event via the bus outbox. Called BEFORE the
+        /// repository save so the event row commits in the same transaction as the user change (N7).
+        /// </summary>
+        private Task PublishLecturerProfileChangedAsync(User user) =>
+            _messagePublisher.PublishAsync(new LecturerProfileChanged(
+                Guid.NewGuid(), user.Id, user.MarkerCode, user.FullName, null, DateTime.UtcNow));
+
+        /// <summary>Persists an audit-trail row AND mirrors it onto the bus as an <see cref="AuditLogRecorded"/>
+        /// so Reporting can serve the global audit-log viewer from its own DB. Publish-before-save: the
+        /// outbox row is flushed inside AddAuditLogAsync's SaveChanges (N7).</summary>
+        private async Task RecordAuditAsync(AuditLog log)
+        {
+            await _messagePublisher.PublishAsync(new AuditLogRecorded(
+                Guid.NewGuid(), "iam", log.UserId, log.Action, log.EntityType,
+                log.EntityId, log.OldValue, log.NewValue, null, DateTime.UtcNow));
+            await _userRepository.AddAuditLogAsync(log);
         }
 
         public async Task<PagedResult<UserDto>> GetUsersAsync(int page, int pageSize, string? search)
@@ -64,6 +89,12 @@ namespace IamService.Application.Services
                 LoginProvider = LoginProvider.PasswordAuth
             };
 
+            // Publish-before-save: the outbox row is flushed inside AddAsync's SaveChanges (N7).
+            if (user.Role == UserRole.Lecturer)
+            {
+                await PublishLecturerProfileChangedAsync(user);
+            }
+
             await _userRepository.AddAsync(user);
 
             var auditLog = new AuditLog
@@ -82,7 +113,7 @@ namespace IamService.Application.Services
                     user.Status 
                 })
             };
-            await _userRepository.AddAuditLogAsync(auditLog);
+            await RecordAuditAsync(auditLog);
 
             return MapToDto(user);
         }
@@ -102,10 +133,21 @@ namespace IamService.Application.Services
                 user.Status 
             };
 
+            var previousMarkerCode = user.MarkerCode;
+            var previousFullName = user.FullName;
+
             if (request.FullName != null) user.FullName = request.FullName;
             if (request.PhoneNumber != null) user.PhoneNumber = request.PhoneNumber;
             if (request.MarkerCode != null) user.MarkerCode = request.MarkerCode;
             if (request.Role.HasValue) user.Role = request.Role.Value;
+
+            var profileReplicationChanged = user.Role == UserRole.Lecturer
+                && (user.MarkerCode != previousMarkerCode || user.FullName != previousFullName);
+            if (profileReplicationChanged)
+            {
+                // Publish-before-save: outbox row committed with the user update below (N7).
+                await PublishLecturerProfileChangedAsync(user);
+            }
             
             if (request.Status.HasValue)
             {
@@ -147,7 +189,7 @@ namespace IamService.Application.Services
                     user.Status 
                 })
             };
-            await _userRepository.AddAuditLogAsync(auditLog);
+            await RecordAuditAsync(auditLog);
 
             return MapToDto(user);
         }
@@ -193,7 +235,7 @@ namespace IamService.Application.Services
                         user.IsDeleted
                     })
                 };
-                await _userRepository.AddAuditLogAsync(auditLog);
+                await RecordAuditAsync(auditLog);
             }
             else
             {
@@ -208,7 +250,7 @@ namespace IamService.Application.Services
                     EntityId = user.Id,
                     OldValue = JsonSerializer.Serialize(oldState)
                 };
-                await _userRepository.AddAuditLogAsync(auditLog);
+                await RecordAuditAsync(auditLog);
             }
 
             return true;

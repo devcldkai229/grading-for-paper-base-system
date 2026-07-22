@@ -1,0 +1,83 @@
+syntax = "proto3";
+
+package gradepaper.examcatalog.v1;
+
+option csharp_namespace = "Gradepaper.ExamCatalog.V1";
+
+// ExamCatalog rubric/grid/exam-info — the synchronous east-west surface GradingService needs.
+// Guid is carried as the canonical "D" string; decimal as an invariant-culture string (to keep
+// score precision); DateOnly and other nullables use proto3 `optional` for explicit presence.
+service RubricService {
+  rpc GetGradingGrid(SubjectRef) returns (GradingGrid);
+  rpc GetExamInfo(SubjectRef) returns (ExamInfo);
+  rpc GetRubricText(SubjectRef) returns (RubricText);
+  // Presigned URLs to the ORIGINAL rubric (barem) file (+ optional exam paper) so the AI grader can
+  // read the real questions / answer keys / grading guide, instead of a synthesized score-grid summary.
+  rpc GetRubricSourceFiles(SubjectRef) returns (RubricSourceFiles);
+  // The APPROVED compiled grading contract (check-items + partial-credit) + presigned asset URLs.
+  rpc GetCompiledRubric(CompiledRubricRef) returns (CompiledRubric);
+}
+
+message SubjectRef {
+  string subject_id = 1;
+}
+
+message RubricSourceFile {
+  string url = 1;
+  string content_type = 2;
+  string kind = 3; // "rubric" | "exam_paper"
+}
+
+message RubricSourceFiles {
+  repeated RubricSourceFile files = 1;
+}
+
+message CompiledRubricRef {
+  string subject_id = 1;
+  optional int32 rubric_version = 2; // omit for the latest approved version
+}
+
+message CompiledRubricAsset {
+  string asset_id = 1;
+  string url = 2;          // presigned GET url
+  string content_type = 3;
+  optional string question = 4;
+}
+
+message CompiledRubric {
+  string subject_id = 1;
+  int32 rubric_version = 2;
+  string status = 3;        // Pending | Approved | Rejected
+  string contract_json = 4; // serialized CompiledContract
+  bool coverage_ok = 5;
+  repeated CompiledRubricAsset assets = 6;
+}
+
+message GradingGridQuestion {
+  string question_number = 1;
+  optional string group_label = 2;
+  optional string label = 3;
+  string max_score = 4;
+  int32 order_index = 5;
+}
+
+message GradingGrid {
+  string subject_id = 1;
+  string max_score = 2;
+  int32 rubric_version = 3;
+  optional string status = 4;
+  repeated GradingGridQuestion questions = 5;
+}
+
+message ExamInfo {
+  string subject_id = 1;
+  string subject_code = 2;
+  string exam_id = 3;
+  string exam_name = 4;
+  optional string exam_end_date = 5;
+  optional string grading_deadline = 6;
+}
+
+message RubricText {
+  string text = 1;
+}

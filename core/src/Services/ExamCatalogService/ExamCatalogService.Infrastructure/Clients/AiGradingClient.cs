@@ -58,4 +58,57 @@ public class AiGradingClient : IAiGradingClient
             return null;
         }
     }
+
+    public async Task<string?> IngestRubricAsync(IngestRubricRequestDto request, CancellationToken ct = default)
+    {
+        try
+        {
+            var body = new
+            {
+                subjectId = request.SubjectId.ToString("D"),
+                rubricVersion = request.RubricVersion,
+                maxScore = request.MaxScore,
+                files = request.Files.Select(f => new
+                {
+                    url = f.Url,
+                    contentType = f.ContentType,
+                    kind = f.Kind
+                }),
+                scoreGrid = request.ScoreGrid.Select(q => new
+                {
+                    questionNumber = q.QuestionNumber,
+                    groupLabel = q.GroupLabel,
+                    label = q.Label,
+                    maxScore = q.MaxScore,
+                    parentQuestion = q.ParentQuestion
+                })
+            };
+
+            // Ingestion runs the full render + 2-pass extract + per-leaf compile (see the extended
+            // client timeout in DI).
+            var response = await _httpClient.PostAsJsonAsync("/ai/ingest/rubric", body, ct);
+
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            {
+                _logger.LogWarning(
+                    "AIGradingService rejected ingestion: internal API key mismatch (status {StatusCode}).",
+                    response.StatusCode);
+                return null;
+            }
+
+            if (response.StatusCode is HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout)
+            {
+                _logger.LogWarning("AIGradingService unavailable for ingestion (status {StatusCode})", response.StatusCode);
+                return null;
+            }
+
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadAsStringAsync(ct);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            _logger.LogError(ex, "AIGradingService unreachable for rubric ingestion");
+            return null;
+        }
+    }
 }

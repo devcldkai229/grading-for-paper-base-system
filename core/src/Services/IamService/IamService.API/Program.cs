@@ -1,12 +1,12 @@
 using BuildingBlocks.AspNetCore.Extensions;
-using BuildingBlocks.AspNetCore.Health;
 using IamService.Infrastructure;
 using IamService.Infrastructure.Auth;
 using IamService.Infrastructure.Middleware;
-using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.AddPlatformObservability("iam-service");
 
 // Add services to the container.
 builder.Services.AddControllers();
@@ -80,12 +80,7 @@ app.UseMiddleware<InternalApiKeyMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
-app.MapHealthChecks("/health/ready", new HealthCheckOptions
-{
-    Predicate = check => check.Tags.Contains("ready"),
-    ResponseWriter = HealthCheckResponseWriter.WriteMinimalJson
-});
+app.MapPlatformHealthChecks();
 
 app.MapControllers();
 

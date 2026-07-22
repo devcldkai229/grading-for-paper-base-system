@@ -17,6 +17,15 @@ public class ExamCatalogDbContext : DbContext
     public DbSet<Question> Questions => Set<Question>();
     public DbSet<ScoreGridTemplate> ScoreGridTemplates => Set<ScoreGridTemplate>();
 
+    /// <summary>Compiled grading contracts (check-items + partial-credit) per subject/rubric version.</summary>
+    public DbSet<GradingContract> GradingContracts => Set<GradingContract>();
+
+    /// <summary>Illustration/table crops referenced by compiled contracts.</summary>
+    public DbSet<RubricAsset> RubricAssets => Set<RubricAsset>();
+
+    /// <summary>Local projection of GradingService marker assignments (via MarkerAssignmentChanged).</summary>
+    public DbSet<MarkerAssignmentView> MarkerAssignmentViews => Set<MarkerAssignmentView>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasPostgresExtension("pgcrypto");

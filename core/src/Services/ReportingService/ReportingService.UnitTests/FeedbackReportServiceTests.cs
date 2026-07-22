@@ -5,11 +5,11 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Contracts.Messages;
 using Microsoft.EntityFrameworkCore;
-using NSubstitute;
 using ReportingService.Application.DTOs;
-using ReportingService.Application.Interfaces;
 using ReportingService.Application.Services;
+using ReportingService.Domain.Entities;
 using ReportingService.Domain.Enums;
 using ReportingService.Infrastructure.Files;
 using ReportingService.Infrastructure.Persistence;
@@ -39,32 +39,37 @@ namespace ReportingService.UnitTests
             return new MemoryStream(Encoding.UTF8.GetBytes(sb.ToString()));
         }
 
-        private static StudentFeedbackClientDto MakeStudent(int aliasNumber, decimal score, string? paperComment) =>
-            new(
-                Guid.NewGuid(),
-                aliasNumber,
-                $"Student_{aliasNumber:D4}",
-                score,
-                paperComment,
-                new List<QuestionFeedbackClientDto>
+        private static FeedbackRecord MakeRecord(Guid subjectId, int aliasNumber, decimal score, string? paperComment) =>
+            new()
+            {
+                PaperId = Guid.NewGuid(),
+                SubjectId = subjectId,
+                TeacherId = Guid.NewGuid(),
+                AliasNumber = aliasNumber,
+                StudentAlias = $"Student_{aliasNumber:D4}",
+                TotalScore = score,
+                MaxScore = 10m,
+                PaperComment = paperComment,
+                QuestionsJson = FeedbackQuestionsJson.Serialize(new List<ScoreQuestionPayload>
                 {
                     new("Q1", "Question 1", score, 10m, "nice")
-                });
+                }),
+                OccurredAt = DateTime.UtcNow
+            };
+
+        private static FeedbackReportService NewService(ReportingDbContext db) =>
+            new(new FeedbackRecordReadRepository(db), new ExportJobRepository(db), new MiniExcelReportFileService());
 
         [Fact]
         public async Task GenerateFeedbackReportAsync_WithValidData_ReturnsOneRowPerStudentAndPersistsExportJob()
         {
             using var db = NewInMemoryContext();
             var subjectId = Guid.NewGuid();
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            gradingClient.GetReleasableFeedbackAsync(subjectId, Arg.Any<CancellationToken>())
-                .Returns(new SubjectFeedbackClientDto(subjectId, new List<StudentFeedbackClientDto>
-                {
-                    MakeStudent(1, 8m, "good"),
-                    MakeStudent(2, 9m, "great"),
-                }));
-            var service = new FeedbackReportService(
-                gradingClient, new ExportJobRepository(db), new MiniExcelReportFileService());
+            db.FeedbackRecords.AddRange(
+                MakeRecord(subjectId, 1, 8m, "good"),
+                MakeRecord(subjectId, 2, 9m, "great"));
+            await db.SaveChangesAsync();
+            var service = NewService(db);
 
             using var mapping = MakeMappingCsv((1, "SE001", "Nguyen Van A"), (2, "SE002", "Tran Thi B"));
             var (bytes, fileName, error) = await service.GenerateFeedbackReportAsync(
@@ -81,35 +86,11 @@ namespace ReportingService.UnitTests
         }
 
         [Fact]
-        public async Task GenerateFeedbackReportAsync_WhenGradingServiceUnreachable_ReturnsError()
-        {
-            using var db = NewInMemoryContext();
-            var subjectId = Guid.NewGuid();
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            gradingClient.GetReleasableFeedbackAsync(subjectId, Arg.Any<CancellationToken>())
-                .Returns((SubjectFeedbackClientDto?)null);
-            var service = new FeedbackReportService(
-                gradingClient, new ExportJobRepository(db), new MiniExcelReportFileService());
-
-            using var mapping = MakeMappingCsv((1, "SE001", "Nguyen Van A"));
-            var (bytes, _, error) = await service.GenerateFeedbackReportAsync(
-                subjectId, Guid.NewGuid(), mapping, "mapping.csv", CancellationToken.None);
-
-            Assert.Null(bytes);
-            Assert.NotNull(error);
-            Assert.Empty(db.ExportJobs);
-        }
-
-        [Fact]
         public async Task GenerateFeedbackReportAsync_WhenNoSubmittedPapers_ReturnsError()
         {
             using var db = NewInMemoryContext();
             var subjectId = Guid.NewGuid();
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            gradingClient.GetReleasableFeedbackAsync(subjectId, Arg.Any<CancellationToken>())
-                .Returns(new SubjectFeedbackClientDto(subjectId, new List<StudentFeedbackClientDto>()));
-            var service = new FeedbackReportService(
-                gradingClient, new ExportJobRepository(db), new MiniExcelReportFileService());
+            var service = NewService(db);
 
             using var mapping = MakeMappingCsv((1, "SE001", "Nguyen Van A"));
             var (bytes, _, error) = await service.GenerateFeedbackReportAsync(
@@ -124,9 +105,9 @@ namespace ReportingService.UnitTests
         {
             using var db = NewInMemoryContext();
             var subjectId = Guid.NewGuid();
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            var service = new FeedbackReportService(
-                gradingClient, new ExportJobRepository(db), new MiniExcelReportFileService());
+            db.FeedbackRecords.Add(MakeRecord(subjectId, 1, 8m, "good"));
+            await db.SaveChangesAsync();
+            var service = NewService(db);
 
             using var mapping = new MemoryStream(Encoding.UTF8.GetBytes("AliasNumber,StudentCode,StudentName\n"));
             var (bytes, _, error) = await service.GenerateFeedbackReportAsync(
@@ -134,7 +115,7 @@ namespace ReportingService.UnitTests
 
             Assert.Null(bytes);
             Assert.NotNull(error);
-            await gradingClient.DidNotReceive().GetReleasableFeedbackAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+            Assert.Empty(db.ExportJobs);
         }
 
         [Fact]
@@ -142,15 +123,11 @@ namespace ReportingService.UnitTests
         {
             using var db = NewInMemoryContext();
             var subjectId = Guid.NewGuid();
-            var gradingClient = Substitute.For<IGradingServiceClient>();
-            gradingClient.GetReleasableFeedbackAsync(subjectId, Arg.Any<CancellationToken>())
-                .Returns(new SubjectFeedbackClientDto(subjectId, new List<StudentFeedbackClientDto>
-                {
-                    MakeStudent(1, 8m, "good"),
-                    MakeStudent(99, 6m, "ok"), // alias 99 has no mapping row
-                }));
-            var service = new FeedbackReportService(
-                gradingClient, new ExportJobRepository(db), new MiniExcelReportFileService());
+            db.FeedbackRecords.AddRange(
+                MakeRecord(subjectId, 1, 8m, "good"),
+                MakeRecord(subjectId, 99, 6m, "ok")); // alias 99 has no mapping row
+            await db.SaveChangesAsync();
+            var service = NewService(db);
 
             using var mapping = MakeMappingCsv((1, "SE001", "Nguyen Van A"));
             var (bytes, _, error) = await service.GenerateFeedbackReportAsync(
@@ -162,10 +139,10 @@ namespace ReportingService.UnitTests
         }
 
         [Fact]
-        public void StudentFeedbackClientDto_HasNoInternalCommentField()
+        public void FeedbackRecord_HasNoInternalCommentField()
         {
             // Structural guarantee that internal notes can never flow into the export payload.
-            var properties = typeof(StudentFeedbackClientDto).GetProperties().Select(p => p.Name);
+            var properties = typeof(FeedbackRecord).GetProperties().Select(p => p.Name);
             Assert.DoesNotContain("InternalComment", properties);
         }
     }

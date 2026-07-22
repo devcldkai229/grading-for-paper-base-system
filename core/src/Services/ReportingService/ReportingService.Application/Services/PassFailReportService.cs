@@ -6,17 +6,19 @@ namespace ReportingService.Application.Services;
 public class PassFailReportService : IPassFailReportService
 {
     private readonly IExamCatalogServiceClient _catalogClient;
-    private readonly IGradingServiceClient _gradingClient;
+    private readonly IScoreRecordReadRepository _scoreRepository;
 
-    public PassFailReportService(IExamCatalogServiceClient catalogClient, IGradingServiceClient gradingClient)
+    public PassFailReportService(
+        IExamCatalogServiceClient catalogClient, IScoreRecordReadRepository scoreRepository)
     {
         _catalogClient = catalogClient;
-        _gradingClient = gradingClient;
+        _scoreRepository = scoreRepository;
     }
 
     public async Task<(PassFailReportResultDto? Result, string? Error)> GetReportAsync(
         Guid? semesterId, Guid? examId, CancellationToken ct = default)
     {
+        // ExamCatalog /search stays REST — it resolves the filter + MaxScore/PassScore metadata.
         var subjects = await _catalogClient.SearchSubjectsAsync(semesterId, examId, ct);
         if (subjects is null)
         {
@@ -29,13 +31,12 @@ public class PassFailReportService : IPassFailReportService
         }
 
         var subjectIds = subjects.Select(s => s.Id).ToList();
-        var distribution = await _gradingClient.GetScoreDistributionAsync(subjectIds, ct);
-        if (distribution is null)
-        {
-            return (null, "GradingService is unreachable. Try again later.");
-        }
 
-        var bySubject = distribution.Subjects.ToDictionary(s => s.SubjectId);
+        // Submitted scores come from the local score_record projection kept in sync by Grading events.
+        var scoreRecords = await _scoreRepository.GetBySubjectsAsync(subjectIds, ct);
+        var scoresBySubject = scoreRecords
+            .GroupBy(r => r.SubjectId)
+            .ToDictionary(g => g.Key, g => g.Select(r => r.TotalScore).ToList());
 
         // Every subject the filter matched is included, even without a PassScore configured or
         // without any submitted papers yet — those just get null counts/rate instead of being
@@ -43,8 +44,8 @@ public class PassFailReportService : IPassFailReportService
         var merged = subjects
             .Select(s =>
             {
-                bySubject.TryGetValue(s.Id, out var d);
-                var scores = d?.Scores ?? Array.Empty<decimal>();
+                scoresBySubject.TryGetValue(s.Id, out var scores);
+                scores ??= new List<decimal>();
 
                 int? passCount = null;
                 int? failCount = null;
@@ -67,7 +68,7 @@ public class PassFailReportService : IPassFailReportService
                     s.SemesterCode,
                     s.MaxScore,
                     s.PassScore,
-                    d?.SubmittedCount ?? 0,
+                    scores.Count,
                     passCount,
                     failCount,
                     passRate);

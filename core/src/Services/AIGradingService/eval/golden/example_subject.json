@@ -1,0 +1,16 @@
+{
+  "subject_id": "00000000-0000-0000-0000-0000000000aa",
+  "rubric_version": "1",
+  "rubric_text": "Cau 1 (2.0d): Mo ta muc dich va pham vi cua du an. Key: neu ro muc tieu + pham vi. Cham: du muc tieu va pham vi 2.0d; chi 1 trong 2 cho 1.0d.\nCau 2 (2.0d): Phan tich 3 rui ro chinh va bien phap ung pho. Key: rui ro ngan sach / nhan su / thay doi yeu cau. Cham: moi rui ro day du (nguy co + xac suat + ung pho) 0.66d.",
+  "papers": [
+    {
+      "assignment_id": "00000000-0000-0000-0000-0000000000b1",
+      "answer_text": "Request 1: The project aims to build an internal grading system for exam papers. Its scope covers uploading student papers, distributing them to lecturers, AI-assisted grading and reporting.\nRequest 2: Firstly the team may run over budget on cloud servers. Secondly a freelancer may leave mid-project which risks the timeline; we can keep documentation to mitigate. Thirdly the customer may change requirements.",
+      "score_grid": [
+        { "questionNumber": "1", "groupLabel": "Request 1", "label": "Muc dich va pham vi", "maxScore": 2.0, "parentQuestion": null, "scoringRule": null, "answerKey": null },
+        { "questionNumber": "2", "groupLabel": "Request 2", "label": "Ba rui ro va ung pho", "maxScore": 2.0, "parentQuestion": null, "scoringRule": null, "answerKey": null }
+      ],
+      "expected": { "1": 2.0, "2": 1.25 }
+    }
+  ]
+}

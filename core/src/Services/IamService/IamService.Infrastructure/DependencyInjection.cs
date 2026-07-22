@@ -1,4 +1,6 @@
+using BuildingBlocks.AspNetCore.Observability;
 using BuildingBlocks.EfCore;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -26,6 +28,9 @@ public static class DependencyInjection
 
         services.AddSingleton(new IamDatabaseSettings(connectionString));
 
+        // outbox_pending_messages gauge (§9.1b) — surfaces outbox backlog for this service.
+        services.AddOutboxPendingMetric<Persistence.IamDbContext>();
+
         // Repositories
         services.AddScoped<IamService.Application.Interfaces.IUserRepository, Persistence.Repositories.UserRepository>();
         services.AddScoped<IamService.Application.Interfaces.IRefreshTokenRepository, Persistence.Repositories.RefreshTokenRepository>();
@@ -39,6 +44,9 @@ public static class DependencyInjection
         services.AddScoped<IamService.Application.Interfaces.IGoogleAuthService, Services.GoogleAuthService>();
         services.AddScoped<IamService.Application.Interfaces.IAuthService, IamService.Application.Services.AuthService>();
         services.AddScoped<IamService.Application.Interfaces.IUserService, IamService.Application.Services.UserService>();
+        services.AddScoped<IamService.Application.Interfaces.IMessagePublisher, Messaging.MassTransitMessagePublisher>();
+
+        RegisterMessaging(services, configuration);
 
         // JWT Authentication middleware
         var jwtSettings = configuration.GetSection("JwtSettings").Get<Services.JwtSettings>();
@@ -80,6 +88,36 @@ public static class DependencyInjection
         });
 
         return services;
+    }
+
+    private static void RegisterMessaging(IServiceCollection services, IConfiguration configuration)
+    {
+        var rabbitMq = configuration.GetSection("RabbitMq");
+        var rabbitHost = rabbitMq["Host"] ?? "localhost";
+        var rabbitPort = ushort.TryParse(rabbitMq["Port"], out var port) ? port : (ushort)5673;
+        var rabbitUser = rabbitMq["Username"] ?? "root";
+        var rabbitPass = rabbitMq["Password"] ?? "rootpassword";
+
+        services.AddMassTransit(x =>
+        {
+            // Publishes LecturerProfileChanged atomically with user changes (N7). Producer only.
+            x.AddEntityFrameworkOutbox<Persistence.IamDbContext>(o =>
+            {
+                o.UsePostgres();
+                o.UseBusOutbox();
+            });
+
+            x.UsingRabbitMq((ctx, cfg) =>
+            {
+                cfg.Host(rabbitHost, rabbitPort, "/", h =>
+                {
+                    h.Username(rabbitUser);
+                    h.Password(rabbitPass);
+                });
+
+                cfg.ConfigureEndpoints(ctx);
+            });
+        });
     }
 
     public static async Task MigrateIamDatabaseAsync(this IServiceProvider serviceProvider)

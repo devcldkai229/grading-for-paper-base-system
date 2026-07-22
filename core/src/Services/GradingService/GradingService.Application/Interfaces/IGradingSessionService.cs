@@ -134,17 +134,26 @@ public interface IGradingSessionService
     Task<int> RunDeadlineReminderSweepAsync(int reminderWindowDays = 3, CancellationToken ct = default);
 
     /// <summary>
-    /// Applies AI-generated score suggestions to an assignment's grading form.
-    /// Called by the internal AI write-back endpoint. Idempotent: re-applying the same
-    /// suggestions is a no-op (AiDrafted is already true). Skips assignments that are
-    /// already Submitted.
+    /// Applies AI-generated score suggestions to an assignment's grading form and moves AiStatus to
+    /// Completed. Called by AiGradeCompletedConsumer (the single writer for the AI terminal state).
+    /// Idempotent: re-applying the same suggestions is a no-op (AiDrafted is already true). Skips
+    /// assignments that are already Submitted.
     /// </summary>
     Task<(bool Success, string? Error)> ApplyAiSuggestionsAsync(
         ApplyAiSuggestionsRequest request, CancellationToken ct = default);
 
     /// <summary>
+    /// Moves an assignment's AiStatus to Failed. Called by AiGradeFailedConsumer when the AI service
+    /// reports an unrecoverable grading failure. Idempotent and a no-op for already-submitted
+    /// assignments. Returns false only when the assignment doesn't exist.
+    /// </summary>
+    Task<bool> MarkAiGradeFailedAsync(Guid assignmentId, string reason, CancellationToken ct = default);
+
+    /// <summary>
     /// Fire-and-forget: request AI suggestions for an assignment owned by the teacher.
-    /// Sets AiStatus=Queued and returns Accepted. AI write-back updates scores later.
+    /// Sets AiStatus=Queued, enqueues an AiGradeRequestedEvent via the transactional outbox, and
+    /// returns Accepted. The Python AI worker grades asynchronously and replies with an
+    /// AiGradeCompletedEvent/AiGradeFailedEvent that updates scores/status later.
     /// </summary>
     Task<(bool Accepted, string? Error, bool Conflict)> RequestAiSuggestionsAsync(
         Guid assignmentId, Guid teacherId, CancellationToken ct = default);

@@ -8,17 +8,19 @@ public class ScoreDistributionService : IScoreDistributionService
     private const int BucketCount = 10;
 
     private readonly IExamCatalogServiceClient _catalogClient;
-    private readonly IGradingServiceClient _gradingClient;
+    private readonly IScoreRecordReadRepository _scoreRepository;
 
-    public ScoreDistributionService(IExamCatalogServiceClient catalogClient, IGradingServiceClient gradingClient)
+    public ScoreDistributionService(
+        IExamCatalogServiceClient catalogClient, IScoreRecordReadRepository scoreRepository)
     {
         _catalogClient = catalogClient;
-        _gradingClient = gradingClient;
+        _scoreRepository = scoreRepository;
     }
 
     public async Task<(ScoreDistributionResultDto? Result, string? Error)> GetDistributionAsync(
         Guid? semesterId, Guid? examId, CancellationToken ct = default)
     {
+        // ExamCatalog /search stays REST — it resolves the semester/exam filter + MaxScore metadata.
         var subjects = await _catalogClient.SearchSubjectsAsync(semesterId, examId, ct);
         if (subjects is null)
         {
@@ -31,21 +33,20 @@ public class ScoreDistributionService : IScoreDistributionService
         }
 
         var subjectIds = subjects.Select(s => s.Id).ToList();
-        var distribution = await _gradingClient.GetScoreDistributionAsync(subjectIds, ct);
-        if (distribution is null)
-        {
-            return (null, "GradingService is unreachable. Try again later.");
-        }
 
-        var bySubject = distribution.Subjects.ToDictionary(s => s.SubjectId);
+        // Submitted scores come from the local score_record projection kept in sync by Grading events.
+        var scoreRecords = await _scoreRepository.GetBySubjectsAsync(subjectIds, ct);
+        var scoresBySubject = scoreRecords
+            .GroupBy(r => r.SubjectId)
+            .ToDictionary(g => g.Key, g => g.Select(r => r.TotalScore).ToList());
 
         // Every subject the filter matched is included, even with no submitted papers yet —
         // it just gets an all-zero histogram instead of being silently dropped.
         var merged = subjects
             .Select(s =>
             {
-                bySubject.TryGetValue(s.Id, out var d);
-                var scores = d?.Scores ?? Array.Empty<decimal>();
+                scoresBySubject.TryGetValue(s.Id, out var scores);
+                scores ??= new List<decimal>();
                 return new SubjectScoreDistributionResultDto(
                     s.Id,
                     s.SubjectCode,
@@ -53,10 +54,10 @@ public class ScoreDistributionService : IScoreDistributionService
                     s.ExamName,
                     s.SemesterCode,
                     s.MaxScore,
-                    d?.SubmittedCount ?? 0,
-                    d?.ScoreAvg,
-                    d?.ScoreMin,
-                    d?.ScoreMax,
+                    scores.Count,
+                    scores.Count > 0 ? Math.Round(scores.Average(), 2) : null,
+                    scores.Count > 0 ? scores.Min() : null,
+                    scores.Count > 0 ? scores.Max() : null,
                     BuildHistogram(scores, s.MaxScore));
             })
             .OrderBy(s => s.SubjectCode)

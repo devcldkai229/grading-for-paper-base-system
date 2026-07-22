@@ -17,6 +17,17 @@ public class ExamCatalogRepository : IExamCatalogRepository
         _context = context;
     }
 
+    public async Task<IReadOnlyList<Guid>> GetAssignedSubjectIdsAsync(
+        Guid lecturerId, CancellationToken ct = default)
+    {
+        return await _context.MarkerAssignmentViews
+            .AsNoTracking()
+            .Where(v => v.TeacherId == lecturerId)
+            .Select(v => v.SubjectId)
+            .Distinct()
+            .ToListAsync(ct);
+    }
+
     public async Task<(IReadOnlyList<SemesterDto> Items, int TotalCount)> GetSemestersAsync(
         bool? active, int page, int pageSize, CancellationToken ct = default)
     {
@@ -678,4 +689,102 @@ public class ExamCatalogRepository : IExamCatalogRepository
             semester.IsActive,
             semester.CreatedAt
         );
+
+    // ── Compiled grading contracts ──
+
+    public async Task UpsertGradingContractAsync(
+        GradingContract contract, IReadOnlyList<RubricAsset> assets, CancellationToken ct = default)
+    {
+        var existing = await _context.GradingContracts
+            .FirstOrDefaultAsync(c => c.SubjectId == contract.SubjectId
+                && c.RubricVersion == contract.RubricVersion, ct);
+
+        if (existing is not null)
+        {
+            existing.ContractJson = contract.ContractJson;
+            existing.CoverageOk = contract.CoverageOk;
+            existing.ModelUsed = contract.ModelUsed;
+            existing.Status = contract.Status;
+            existing.ReviewedBy = null;
+            existing.ReviewedAt = null;
+        }
+        else
+        {
+            await _context.GradingContracts.AddAsync(contract, ct);
+        }
+
+        var oldAssets = await _context.RubricAssets
+            .Where(a => a.SubjectId == contract.SubjectId && a.RubricVersion == contract.RubricVersion)
+            .ToListAsync(ct);
+        if (oldAssets.Count > 0)
+        {
+            _context.RubricAssets.RemoveRange(oldAssets);
+        }
+        if (assets.Count > 0)
+        {
+            await _context.RubricAssets.AddRangeAsync(assets, ct);
+        }
+
+        await _context.SaveChangesAsync(ct);
+    }
+
+    public async Task<GradingContract?> GetGradingContractAsync(
+        Guid subjectId, int rubricVersion, CancellationToken ct = default) =>
+        await _context.GradingContracts
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.SubjectId == subjectId && c.RubricVersion == rubricVersion, ct);
+
+    public async Task<GradingContract?> GetGradingContractByIdAsync(Guid id, CancellationToken ct = default) =>
+        await _context.GradingContracts.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id, ct);
+
+    public async Task<GradingContract?> GetApprovedGradingContractAsync(
+        Guid subjectId, int? rubricVersion, CancellationToken ct = default)
+    {
+        var query = _context.GradingContracts.AsNoTracking()
+            .Where(c => c.SubjectId == subjectId && c.Status == GradingContractStatus.Approved);
+        if (rubricVersion is { } v)
+        {
+            query = query.Where(c => c.RubricVersion == v);
+        }
+        return await query.OrderByDescending(c => c.RubricVersion).FirstOrDefaultAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<GradingContract>> ListGradingContractsAsync(
+        GradingContractStatus? status, CancellationToken ct = default)
+    {
+        var query = _context.GradingContracts.AsNoTracking();
+        if (status is { } s)
+        {
+            query = query.Where(c => c.Status == s);
+        }
+        return await query.OrderByDescending(c => c.CreatedAt).ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<RubricAsset>> GetRubricAssetsAsync(
+        Guid subjectId, int rubricVersion, CancellationToken ct = default) =>
+        await _context.RubricAssets.AsNoTracking()
+            .Where(a => a.SubjectId == subjectId && a.RubricVersion == rubricVersion)
+            .ToListAsync(ct);
+
+    public async Task<bool> UpdateGradingContractReviewAsync(
+        Guid id, GradingContractStatus status, Guid reviewedBy, string? contractJson,
+        CancellationToken ct = default)
+    {
+        var contract = await _context.GradingContracts.FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (contract is null)
+        {
+            return false;
+        }
+
+        contract.Status = status;
+        contract.ReviewedBy = reviewedBy;
+        contract.ReviewedAt = DateTime.UtcNow;
+        if (!string.IsNullOrWhiteSpace(contractJson))
+        {
+            contract.ContractJson = contractJson;
+        }
+
+        await _context.SaveChangesAsync(ct);
+        return true;
+    }
 }

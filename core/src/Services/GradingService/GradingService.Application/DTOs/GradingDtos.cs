@@ -42,7 +42,19 @@ public record GradingSessionDto(
     string? StudentAlias,
     int? AliasNumber,
     IReadOnlyList<QuestionMarkDto> Questions,
-    bool IsFlagged = false
+    bool IsFlagged = false,
+    IReadOnlyList<AiSuggestionDto>? AiSuggestions = null,
+    string? AiPaperComment = null
+);
+
+/// <summary>One AI grading suggestion for a leaf question, kept separate from the manual mark.
+/// The lecturer copies these into the manual marks explicitly (per-question or all at once).</summary>
+public record AiSuggestionDto(
+    string QuestionNumber,
+    decimal Score,
+    string? QuestionComment,
+    double Confidence,
+    bool IsManualOnly
 );
 
 public record SaveMarksRequest(
@@ -296,7 +308,8 @@ public record ApplyAiSuggestionsRequest(
     Guid AssignmentId,
     IReadOnlyList<AiQuestionGrade> QuestionGrades,
     string ModelUsed,
-    string PromptVersion
+    string PromptVersion,
+    string? PaperComment = null
 );
 
 public record AiQuestionGrade(
@@ -322,6 +335,21 @@ public record AiGradeSuggestRequest(
 );
 
 public record AiGradeFileRef(string Url, string ContentType);
+
+/// <summary>Presigned URL to an original rubric/exam source file for AI grading context.
+/// Kind is "rubric" or "exam_paper".</summary>
+public record RubricSourceFileClientDto(string Url, string ContentType, string Kind);
+
+/// <summary>Approved compiled grading contract for a subject (contract JSON + presigned asset URLs).</summary>
+public record CompiledRubricClientDto(
+    int RubricVersion,
+    string Status,
+    string ContractJson,
+    bool CoverageOk,
+    IReadOnlyList<CompiledRubricAssetClientDto> Assets);
+
+public record CompiledRubricAssetClientDto(
+    string AssetId, string Url, string ContentType, string? Question);
 
 public record AiGradeScoreGridItem(
     string QuestionNumber,

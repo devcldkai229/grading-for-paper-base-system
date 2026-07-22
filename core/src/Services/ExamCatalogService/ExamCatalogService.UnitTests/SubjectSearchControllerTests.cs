@@ -14,15 +14,12 @@ namespace ExamCatalogService.UnitTests
     public class SubjectSearchControllerTests
     {
         private readonly IExamCatalogRepository _repository;
-        private readonly IGradingServiceClient _gradingServiceClient;
         private readonly SubjectQueryService _service;
 
         public SubjectSearchControllerTests()
         {
             _repository = Substitute.For<IExamCatalogRepository>();
-            _gradingServiceClient = Substitute.For<IGradingServiceClient>();
-
-            _service = new SubjectQueryService(_repository, _gradingServiceClient);
+            _service = new SubjectQueryService(_repository);
         }
 
         private static SubjectSearchResultDto MakeResult(string code) => new(
@@ -42,7 +39,7 @@ namespace ExamCatalogService.UnitTests
         }
 
         [Fact]
-        public async Task SearchSubjectsAsync_WhenLecturerIdIsNull_DoesNotCallGradingServiceAndPassesNullRestriction()
+        public async Task SearchSubjectsAsync_WhenLecturerIdIsNull_DoesNotReadProjectionAndPassesNullRestriction()
         {
             _repository.SearchSubjectsAsync(
                     null, null, null, null, null, 1, 20, Arg.Any<CancellationToken>())
@@ -52,7 +49,7 @@ namespace ExamCatalogService.UnitTests
                 null, null, null, null, lecturerId: null, page: 1, pageSize: 20, CancellationToken.None);
 
             Assert.Null(result.Error);
-            await _gradingServiceClient.DidNotReceive().GetAssignedSubjectIdsAsync(
+            await _repository.DidNotReceive().GetAssignedSubjectIdsAsync(
                 Arg.Any<Guid>(), Arg.Any<CancellationToken>());
             await _repository.Received(1).SearchSubjectsAsync(
                 null, null, null, null,
@@ -61,11 +58,11 @@ namespace ExamCatalogService.UnitTests
         }
 
         [Fact]
-        public async Task SearchSubjectsAsync_WhenLecturerIdGiven_RestrictsToAssignedSubjectIds()
+        public async Task SearchSubjectsAsync_WhenLecturerIdGiven_RestrictsToAssignedSubjectIdsFromProjection()
         {
             var lecturerId = Guid.NewGuid();
             var assignedId = Guid.NewGuid();
-            _gradingServiceClient.GetAssignedSubjectIdsAsync(lecturerId, Arg.Any<CancellationToken>())
+            _repository.GetAssignedSubjectIdsAsync(lecturerId, Arg.Any<CancellationToken>())
                 .Returns(new List<Guid> { assignedId });
             _repository.SearchSubjectsAsync(
                     Arg.Any<string?>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<SubjectStatus?>(),
@@ -82,11 +79,11 @@ namespace ExamCatalogService.UnitTests
         }
 
         [Fact]
-        public async Task SearchSubjectsAsync_WhenGradingServiceUnreachable_FailsClosedToEmptyRestriction()
+        public async Task SearchSubjectsAsync_WhenLecturerHasNoAssignments_RestrictsToEmpty()
         {
             var lecturerId = Guid.NewGuid();
-            _gradingServiceClient.GetAssignedSubjectIdsAsync(lecturerId, Arg.Any<CancellationToken>())
-                .Returns((IReadOnlyList<Guid>?)null); // unreachable
+            _repository.GetAssignedSubjectIdsAsync(lecturerId, Arg.Any<CancellationToken>())
+                .Returns(new List<Guid>());
             _repository.SearchSubjectsAsync(
                     Arg.Any<string?>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<SubjectStatus?>(),
                     Arg.Any<IReadOnlySet<Guid>?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())

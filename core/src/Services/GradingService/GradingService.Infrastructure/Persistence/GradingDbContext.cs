@@ -1,5 +1,6 @@
 using GradingService.Domain.Entities;
 using GradingService.Domain.Enums;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 
 namespace GradingService.Infrastructure.Persistence;
@@ -17,6 +18,7 @@ public class GradingDbContext : DbContext
     public DbSet<QuestionGradeDetail> QuestionGradeDetails => Set<QuestionGradeDetail>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<GradingResumePointer> GradingResumePointers => Set<GradingResumePointer>();
+    public DbSet<LecturerMarkerCodeView> LecturerMarkerCodeViews => Set<LecturerMarkerCodeView>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -26,6 +28,12 @@ public class GradingDbContext : DbContext
         modelBuilder.HasPostgresEnum<AiReviewStatus>(name: "ai_review_status");
 
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(GradingDbContext).Assembly);
+
+        // MassTransit transactional outbox/inbox tables (N7 outbox, N8 idempotency).
+        modelBuilder.AddInboxStateEntity();
+        modelBuilder.AddOutboxStateEntity();
+        modelBuilder.AddOutboxMessageEntity();
+
         base.OnModelCreating(modelBuilder);
     }
 }

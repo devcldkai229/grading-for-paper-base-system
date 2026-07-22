@@ -1,4 +1,5 @@
 using ExamCatalogService.Application.DTOs;
+using ExamCatalogService.Domain.Entities;
 
 namespace ExamCatalogService.Application.Interfaces;
 
@@ -34,6 +35,14 @@ public interface IExamCatalogRepository
 
     Task<SubjectDetailDto?> GetSubjectDetailAsync(
         Guid subjectId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Distinct subject ids that <paramref name="lecturerId"/> is assigned to grade, read from the
+    /// local marker_assignment_view projection (kept in sync via MarkerAssignmentChanged events).
+    /// Replaces the former synchronous call to GradingService — no availability coupling (N5).
+    /// </summary>
+    Task<IReadOnlyList<Guid>> GetAssignedSubjectIdsAsync(
+        Guid lecturerId, CancellationToken ct = default);
 
     /// <summary>
     /// Minimal exam context for a subject — used by GradingService (internal, service-to-service)
@@ -114,4 +123,30 @@ public interface IExamCatalogRepository
 
     Task<IReadOnlyList<QuestionDto>?> ReplaceQuestionsAsync(
         Guid subjectId, IReadOnlyList<QuestionInputDto> questions, CancellationToken ct = default);
+
+    // ── Compiled grading contracts ──
+
+    /// <summary>Insert or replace the compiled contract + assets for a subject/rubric version.</summary>
+    Task UpsertGradingContractAsync(
+        GradingContract contract, IReadOnlyList<RubricAsset> assets, CancellationToken ct = default);
+
+    Task<GradingContract?> GetGradingContractAsync(
+        Guid subjectId, int rubricVersion, CancellationToken ct = default);
+
+    Task<GradingContract?> GetGradingContractByIdAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>Latest APPROVED contract for a subject (highest rubric version), or null.</summary>
+    Task<GradingContract?> GetApprovedGradingContractAsync(
+        Guid subjectId, int? rubricVersion, CancellationToken ct = default);
+
+    Task<IReadOnlyList<GradingContract>> ListGradingContractsAsync(
+        GradingContractStatus? status, CancellationToken ct = default);
+
+    Task<IReadOnlyList<RubricAsset>> GetRubricAssetsAsync(
+        Guid subjectId, int rubricVersion, CancellationToken ct = default);
+
+    /// <summary>Set review status (and optionally overwrite the edited contract JSON on approval).</summary>
+    Task<bool> UpdateGradingContractReviewAsync(
+        Guid id, GradingContractStatus status, Guid reviewedBy, string? contractJson,
+        CancellationToken ct = default);
 }

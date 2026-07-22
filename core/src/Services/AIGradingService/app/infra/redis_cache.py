@@ -79,6 +79,54 @@ async def set_cached(key: str, value: Any, ttl: int | None = None) -> None:
         logger.debug("Cache set failed for key=%s", key, exc_info=True)
 
 
+# ---------------------------------------------------------------------------
+# Inbox dedupe (SET NX) — protects the expensive LLM call from redelivery
+# ---------------------------------------------------------------------------
+
+async def claim_once(key: str, ttl: int = 86400) -> bool:
+    """Atomically claim a one-time key via SET NX.
+
+    Returns True if the key was newly claimed (caller should proceed), False if it already
+    existed (duplicate — caller should skip). Fails open: when Redis is unavailable we return
+    True so a cache outage never blocks grading (reply-side idempotency is the safety net).
+    """
+    pool = get_redis()
+    if pool is None:
+        return True
+    try:
+        acquired = await pool.set(key, "1", nx=True, ex=ttl)
+        return bool(acquired)
+    except Exception:
+        logger.debug("claim_once failed for key=%s", key, exc_info=True)
+        return True
+
+
+async def release_claim(key: str) -> None:
+    """Release a previously claimed key so a legitimate retry can re-run. Best-effort."""
+    pool = get_redis()
+    if pool is None:
+        return
+    try:
+        await pool.delete(key)
+    except Exception:
+        logger.debug("release_claim failed for key=%s", key, exc_info=True)
+
+
+async def delete_by_pattern(pattern: str) -> int:
+    """Delete all keys matching a glob pattern (SCAN-based; best-effort). Returns count deleted."""
+    pool = get_redis()
+    if pool is None:
+        return 0
+    deleted = 0
+    try:
+        async for key in pool.scan_iter(match=pattern, count=200):
+            await pool.delete(key)
+            deleted += 1
+    except Exception:
+        logger.debug("delete_by_pattern failed for pattern=%s", pattern, exc_info=True)
+    return deleted
+
+
 async def redis_healthy() -> bool:
     """Check Redis connectivity for readiness probe."""
     pool = get_redis()

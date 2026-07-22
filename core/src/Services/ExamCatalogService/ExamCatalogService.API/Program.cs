@@ -1,10 +1,15 @@
 using BuildingBlocks.AspNetCore.Extensions;
-using BuildingBlocks.AspNetCore.Health;
+using BuildingBlocks.AspNetCore.Grpc;
+using ExamCatalogService.API.Services.Grpc;
 using ExamCatalogService.Infrastructure;
-using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.AddPlatformObservability("exam-catalog-service");
+
+// Dedicated Http2-only (h2c) port for gRPC alongside the existing HTTP/1.1 port.
+builder.AddDualProtocolGrpcHosting(defaultHttpPort: 8080, defaultGrpcPort: 5066);
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -40,6 +45,8 @@ builder.Services.AddSwaggerGen(c =>
         }
     });
 });
+builder.Services.AddSingleton<GrpcInternalApiKeyInterceptor>();
+builder.Services.AddGrpc(o => o.Interceptors.Add<GrpcInternalApiKeyInterceptor>());
 builder.Services.AddExamCatalogInfrastructure(builder.Configuration);
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
@@ -68,12 +75,9 @@ app.UseMiddleware<ExamCatalogService.Infrastructure.Middleware.InternalApiKeyMid
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
-app.MapHealthChecks("/health/ready", new HealthCheckOptions
-{
-    Predicate = check => check.Tags.Contains("ready"),
-    ResponseWriter = HealthCheckResponseWriter.WriteMinimalJson
-});
+app.MapPlatformHealthChecks();
+
+app.MapGrpcService<RubricGrpcService>();
 
 app.MapControllers();
 

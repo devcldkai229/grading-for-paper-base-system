@@ -63,6 +63,13 @@ function Sync-InternalApiKeys {
     if (-not $env:AiGradingServiceUrl) {
         $env:AiGradingServiceUrl = "http://localhost:8081"
     }
+    # Phase 2 gRPC (h2c) endpoints consumed by GradingService (UseGrpcClients defaults true).
+    if (-not $env:ExamCatalogGrpcUrl) {
+        $env:ExamCatalogGrpcUrl = "http://localhost:5066"
+    }
+    if (-not $env:SubmissionGrpcUrl) {
+        $env:SubmissionGrpcUrl = "http://localhost:5067"
+    }
 }
 
 function Import-RepoDotEnv {
@@ -131,7 +138,7 @@ function Start-ServiceProcess {
     }
 
     $shell = if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh" } else { "powershell" }
-    $command = "Set-Location '$SrcRoot'; `$env:ASPNETCORE_ENVIRONMENT='Development'; `$env:INTERNAL_API_KEY='$($env:INTERNAL_API_KEY)'; `$env:InternalAuth__ApiKey='$($env:INTERNAL_API_KEY)'; `$env:AiGradingServiceUrl='$($env:AiGradingServiceUrl)'; dotnet $($runArgs -join ' ')"
+    $command = "Set-Location '$SrcRoot'; `$env:ASPNETCORE_ENVIRONMENT='Development'; `$env:INTERNAL_API_KEY='$($env:INTERNAL_API_KEY)'; `$env:InternalAuth__ApiKey='$($env:INTERNAL_API_KEY)'; `$env:AiGradingServiceUrl='$($env:AiGradingServiceUrl)'; `$env:ExamCatalogGrpcUrl='$($env:ExamCatalogGrpcUrl)'; `$env:SubmissionGrpcUrl='$($env:SubmissionGrpcUrl)'; `$env:OTEL_EXPORTER_OTLP_ENDPOINT='$($env:OTEL_EXPORTER_OTLP_ENDPOINT)'; dotnet $($runArgs -join ' ')"
     Write-Host "[$Name] Starting on port $Port..."
     Start-Process -FilePath $shell -ArgumentList @("-NoExit", "-Command", $command) -WindowStyle Normal
 }
@@ -168,11 +175,19 @@ function Start-PythonAiService {
     $logFile = Join-Path $PidDir "$Name.log"
 
     if ($NoNewWindow) {
+        $errFile = Join-Path $PidDir "$Name.err.log"
         Write-Host "[$Name] Starting on port $Port (background, log: $logFile)..."
+        # The child process inherits our environment; set the RabbitMQ vars the Python services expect
+        # (same values the new-window branch hardcodes) so background mode reaches the broker too.
+        $env:RABBITMQ_HOST = "localhost"
+        $env:RABBITMQ_PORT = "5673"
+        $env:RABBITMQ_USERNAME = "root"
+        $env:RABBITMQ_PASSWORD = "rootpassword"
+        # Start-Process rejects the same path for stdout and stderr, so keep them in separate files.
         $proc = Start-Process -FilePath $uvicorn -ArgumentList @(
             "app.main:app", "--host", "0.0.0.0", "--port", "$Port", "--reload"
         ) -WorkingDirectory $ServiceRoot -WindowStyle Hidden -PassThru `
-            -RedirectStandardOutput $logFile -RedirectStandardError $logFile
+            -RedirectStandardOutput $logFile -RedirectStandardError $errFile
         $proc.Id | Out-File -FilePath (Join-Path $PidDir "$Name.pid") -Encoding ascii
         return
     }
@@ -183,7 +198,13 @@ Set-Location '$ServiceRoot'
 `$env:INTERNAL_API_KEY='$($env:INTERNAL_API_KEY)'
 `$env:OPENAI_API_KEY='$($env:OPENAI_API_KEY)'
 `$env:OPENAI_MODEL='$($env:OPENAI_MODEL)'
-`$env:GRADING_SERVICE_BASE_URL='http://localhost:5058'
+`$env:OPENAI_MODEL_T1='$($env:OPENAI_MODEL_T1)'
+`$env:OPENAI_MODEL_T2='$($env:OPENAI_MODEL_T2)'
+`$env:RABBITMQ_HOST='localhost'
+`$env:RABBITMQ_PORT='5673'
+`$env:RABBITMQ_USERNAME='root'
+`$env:RABBITMQ_PASSWORD='rootpassword'
+`$env:OTEL_EXPORTER_OTLP_ENDPOINT='$($env:OTEL_EXPORTER_OTLP_ENDPOINT)'
 & '$uvicorn' app.main:app --host 0.0.0.0 --port $Port --reload
 "@
     Write-Host "[$Name] Starting on port $Port (local Python)..."

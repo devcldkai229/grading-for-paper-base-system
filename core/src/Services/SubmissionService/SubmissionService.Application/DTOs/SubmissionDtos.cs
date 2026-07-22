@@ -81,6 +81,14 @@ public record BatchPapersDto(
     IReadOnlyList<BatchPaperDto> Papers
 );
 
+/// <summary>Batch header (existence + ownership) without materializing its papers — used by the
+/// gRPC streaming path to emit a header frame before streaming papers one at a time.</summary>
+public record BatchSummaryDto(
+    Guid BatchId,
+    Guid SubjectId,
+    Guid UploadedBy
+);
+
 public record InternalPaperSummaryDto(
     Guid Id,
     Guid BatchId,

@@ -7,12 +7,10 @@ namespace ExamCatalogService.Application.Services;
 public class SubjectQueryService : ISubjectQueryService
 {
     private readonly IExamCatalogRepository _repository;
-    private readonly IGradingServiceClient _gradingServiceClient;
 
-    public SubjectQueryService(IExamCatalogRepository repository, IGradingServiceClient gradingServiceClient)
+    public SubjectQueryService(IExamCatalogRepository repository)
     {
         _repository = repository;
-        _gradingServiceClient = gradingServiceClient;
     }
 
     public async Task<SubjectSearchResult> SearchSubjectsAsync(
@@ -43,9 +41,10 @@ public class SubjectQueryService : ISubjectQueryService
         IReadOnlySet<Guid>? restrictToSubjectIds = null;
         if (lecturerId.HasValue)
         {
-            var assignedSubjectIds = await _gradingServiceClient.GetAssignedSubjectIdsAsync(lecturerId.Value, ct);
-            // Fail-closed: GradingService unreachable => show nothing rather than everything.
-            restrictToSubjectIds = (assignedSubjectIds ?? Array.Empty<Guid>()).ToHashSet();
+            // Read from the local marker_assignment_view projection (kept in sync via
+            // MarkerAssignmentChanged events) — no synchronous cross-call to GradingService.
+            var assignedSubjectIds = await _repository.GetAssignedSubjectIdsAsync(lecturerId.Value, ct);
+            restrictToSubjectIds = assignedSubjectIds.ToHashSet();
         }
 
         var (items, totalCount) = await _repository.SearchSubjectsAsync(

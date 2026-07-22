@@ -1,8 +1,11 @@
+using BuildingBlocks.AspNetCore.Observability;
 using BuildingBlocks.EfCore;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using ReportingService.Domain.Enums;
+using ReportingService.Infrastructure.Consumers;
 
 namespace ReportingService.Infrastructure;
 
@@ -23,22 +26,97 @@ public static class DependencyInjection
 
         services.AddSingleton(new ReportingDatabaseSettings(connectionString));
 
+        // outbox_pending_messages gauge (§9.1b). Reporting is consumer-only but still runs the EF
+        // outbox table (inbox/outbox share the schema), so the backlog signal is meaningful here too.
+        services.AddOutboxPendingMetric<Persistence.ReportingDbContext>();
+
         services.AddScoped<Application.Interfaces.IExportJobRepository, Persistence.Repositories.ExportJobRepository>();
         services.AddScoped<Application.Interfaces.IReportFileService, Files.MiniExcelReportFileService>();
+
+        // Local read models populated by the event consumers (replace the former REST aggregation).
+        services.AddScoped<Application.Interfaces.IProgressReadRepository, Persistence.Repositories.ProgressReadRepository>();
+        services.AddScoped<Application.Interfaces.IScoreRecordReadRepository, Persistence.Repositories.ScoreRecordReadRepository>();
+        services.AddScoped<Application.Interfaces.IFeedbackRecordReadRepository, Persistence.Repositories.FeedbackRecordReadRepository>();
+        services.AddScoped<Application.Interfaces.IAuditRecordReadRepository, Persistence.Repositories.AuditRecordReadRepository>();
 
         services.AddScoped<Application.Interfaces.IFeedbackReportService, Application.Services.FeedbackReportService>();
         services.AddScoped<Application.Interfaces.IGradingProgressService, Application.Services.GradingProgressService>();
         services.AddScoped<Application.Interfaces.IScoreDistributionService, Application.Services.ScoreDistributionService>();
         services.AddScoped<Application.Interfaces.IPassFailReportService, Application.Services.PassFailReportService>();
         services.AddScoped<Application.Interfaces.IGlobalAuditLogService, Application.Services.GlobalAuditLogService>();
-        RegisterGradingServiceClient(services, configuration);
+        // Grading + Iam data is now event-sourced into local projections; only ExamCatalog (/search) and
+        // Submission (/audit-logs) remain synchronous REST dependencies.
         RegisterExamCatalogServiceClient(services, configuration);
-        RegisterIamServiceClient(services, configuration);
         RegisterSubmissionServiceClient(services, configuration);
         RegisterJwtAuthentication(services, configuration);
         RegisterAuthorization(services);
+        RegisterMessaging(services, configuration);
 
         return services;
+    }
+
+    private static void RegisterMessaging(IServiceCollection services, IConfiguration configuration)
+    {
+        var rabbitMq = configuration.GetSection("RabbitMq");
+        var rabbitHost = rabbitMq["Host"] ?? "localhost";
+        var rabbitPort = ushort.TryParse(rabbitMq["Port"], out var p) ? p : (ushort)5672;
+        var rabbitUser = rabbitMq["Username"] ?? "root";
+        var rabbitPass = rabbitMq["Password"] ?? "rootpassword";
+
+        services.AddMassTransit(x =>
+        {
+            // Consumer-only: Reporting builds local read models from Grading + Iam events.
+            x.AddConsumer<GradingAssignmentStatusChangedConsumer>();
+            x.AddConsumer<ScoreSubmittedConsumer>();
+            x.AddConsumer<ScoreOverriddenConsumer>();
+            x.AddConsumer<AuditLogRecordedConsumer>();
+
+            // EF inbox for idempotent consume (N8). No UseBusOutbox — Reporting never publishes.
+            x.AddEntityFrameworkOutbox<Persistence.ReportingDbContext>(o => o.UsePostgres());
+
+            x.UsingRabbitMq((ctx, cfg) =>
+            {
+                cfg.Host(rabbitHost, rabbitPort, "/", h =>
+                {
+                    h.Username(rabbitUser);
+                    h.Password(rabbitPass);
+                });
+
+                cfg.ReceiveEndpoint("grading-assignment-status-changed-reporting", e =>
+                {
+                    e.UseEntityFrameworkOutbox<Persistence.ReportingDbContext>(ctx);
+                    e.ConfigureConsumer<GradingAssignmentStatusChangedConsumer>(ctx);
+                    e.UseMessageRetry(r => r.Intervals(
+                        TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30)));
+                });
+
+                cfg.ReceiveEndpoint("score-submitted-reporting", e =>
+                {
+                    e.UseEntityFrameworkOutbox<Persistence.ReportingDbContext>(ctx);
+                    e.ConfigureConsumer<ScoreSubmittedConsumer>(ctx);
+                    e.UseMessageRetry(r => r.Intervals(
+                        TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30)));
+                });
+
+                cfg.ReceiveEndpoint("score-overridden-reporting", e =>
+                {
+                    e.UseEntityFrameworkOutbox<Persistence.ReportingDbContext>(ctx);
+                    e.ConfigureConsumer<ScoreOverriddenConsumer>(ctx);
+                    e.UseMessageRetry(r => r.Intervals(
+                        TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30)));
+                });
+
+                cfg.ReceiveEndpoint("audit-log-recorded-reporting", e =>
+                {
+                    e.UseEntityFrameworkOutbox<Persistence.ReportingDbContext>(ctx);
+                    e.ConfigureConsumer<AuditLogRecordedConsumer>(ctx);
+                    e.UseMessageRetry(r => r.Intervals(
+                        TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30)));
+                });
+
+                cfg.ConfigureEndpoints(ctx);
+            });
+        });
     }
 
     private static string GetInternalApiKey(IConfiguration configuration) =>
@@ -46,22 +124,6 @@ public static class DependencyInjection
             ?? configuration.GetSection("InternalAuth")["ApiKey"]
             ?? throw new InvalidOperationException(
                 "Internal API key missing. Set INTERNAL_API_KEY or InternalAuth:ApiKey.");
-
-    private static void RegisterGradingServiceClient(IServiceCollection services, IConfiguration configuration)
-    {
-        var internalApiKey = GetInternalApiKey(configuration);
-
-        var gradingServiceUrl = configuration.GetValue<string>("GradingServiceUrl")
-            ?? throw new InvalidOperationException(
-                "GradingServiceUrl is missing. It is required to fetch releasable feedback for export.");
-
-        services.AddHttpClient<Application.Interfaces.IGradingServiceClient, Clients.GradingServiceClient>(client =>
-        {
-            client.BaseAddress = new Uri(gradingServiceUrl);
-            client.Timeout = TimeSpan.FromSeconds(30);
-            client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
-        });
-    }
 
     private static void RegisterExamCatalogServiceClient(IServiceCollection services, IConfiguration configuration)
     {
@@ -74,22 +136,6 @@ public static class DependencyInjection
         services.AddHttpClient<Application.Interfaces.IExamCatalogServiceClient, Clients.ExamCatalogServiceClient>(client =>
         {
             client.BaseAddress = new Uri(examCatalogServiceUrl);
-            client.Timeout = TimeSpan.FromSeconds(30);
-            client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
-        });
-    }
-
-    private static void RegisterIamServiceClient(IServiceCollection services, IConfiguration configuration)
-    {
-        var internalApiKey = GetInternalApiKey(configuration);
-
-        var iamServiceUrl = configuration.GetValue<string>("IamServiceUrl")
-            ?? throw new InvalidOperationException(
-                "IamServiceUrl is missing. It is required for the global audit log viewer.");
-
-        services.AddHttpClient<Application.Interfaces.IIamServiceClient, Clients.IamServiceClient>(client =>
-        {
-            client.BaseAddress = new Uri(iamServiceUrl);
             client.Timeout = TimeSpan.FromSeconds(30);
             client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
         });

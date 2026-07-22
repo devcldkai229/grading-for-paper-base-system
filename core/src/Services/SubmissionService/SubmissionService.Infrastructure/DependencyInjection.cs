@@ -113,28 +113,6 @@ public static class DependencyInjection
                 StackExchange.Redis.ConnectionMultiplexer.Connect(redisConnString));
         }
 
-        // GradingService Client (fail-fast: required for lecturer authorization)
-        var gradingServiceUrl = configuration.GetValue<string>("GradingServiceUrl");
-        if (string.IsNullOrWhiteSpace(gradingServiceUrl))
-        {
-            throw new InvalidOperationException(
-                "GradingServiceUrl is missing. It is required to enforce lecturer alias-range authorization.");
-        }
-
-        var internalApiKey = configuration.GetSection("InternalAuth")["ApiKey"];
-        if (string.IsNullOrWhiteSpace(internalApiKey))
-        {
-            throw new InvalidOperationException(
-                "InternalAuth:ApiKey is missing. It is required for GradingService M2M calls.");
-        }
-
-        services.AddHttpClient<Application.Interfaces.IGradingServiceClient, Services.GradingServiceClient>(client =>
-        {
-            client.BaseAddress = new Uri(gradingServiceUrl);
-            client.Timeout = TimeSpan.FromSeconds(5);
-            client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
-        });
-
         // JWT Authentication
         var jwtSettings = configuration.GetSection("JwtSettings");
 

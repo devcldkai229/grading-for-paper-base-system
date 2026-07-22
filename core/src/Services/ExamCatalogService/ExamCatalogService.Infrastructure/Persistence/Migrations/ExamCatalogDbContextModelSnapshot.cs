@@ -72,6 +72,101 @@ namespace ExamCatalogService.Infrastructure.Persistence.Migrations
                     b.ToTable("exams", (string)null);
                 });
 
+            modelBuilder.Entity("ExamCatalogService.Domain.Entities.GradingContract", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ContractJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("contract_json");
+
+                    b.Property<bool>("CoverageOk")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("coverage_ok");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("ModelUsed")
+                        .HasColumnType("text")
+                        .HasColumnName("model_used");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<Guid?>("ReviewedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reviewed_by");
+
+                    b.Property<int>("RubricVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("rubric_version");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("SubjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("subject_id");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SubjectId", "RubricVersion")
+                        .IsUnique()
+                        .HasDatabaseName("idx_grading_contracts_subject_version");
+
+                    b.ToTable("grading_contracts", (string)null);
+                });
+
+            modelBuilder.Entity("ExamCatalogService.Domain.Entities.MarkerAssignmentView", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AliasEnd")
+                        .HasColumnType("integer")
+                        .HasColumnName("alias_end");
+
+                    b.Property<int>("AliasStart")
+                        .HasColumnType("integer")
+                        .HasColumnName("alias_start");
+
+                    b.Property<Guid>("SubjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("subject_id");
+
+                    b.Property<Guid>("TeacherId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("teacher_id");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SubjectId");
+
+                    b.HasIndex("TeacherId");
+
+                    b.ToTable("marker_assignment_view", (string)null);
+                });
+
             modelBuilder.Entity("ExamCatalogService.Domain.Entities.Question", b =>
                 {
                     b.Property<Guid>("Id")
@@ -124,6 +219,64 @@ namespace ExamCatalogService.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("CK_questions_max_score", "max_score > 0");
                         });
+                });
+
+            modelBuilder.Entity("ExamCatalogService.Domain.Entities.RubricAsset", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AssetId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("asset_id");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("content_type");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("kind");
+
+                    b.Property<int>("PageIndex")
+                        .HasColumnType("integer")
+                        .HasColumnName("page_index");
+
+                    b.Property<string>("Question")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("question");
+
+                    b.Property<int>("RubricVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("rubric_version");
+
+                    b.Property<string>("S3Key")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("s3_key");
+
+                    b.Property<Guid>("SubjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("subject_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SubjectId", "RubricVersion")
+                        .HasDatabaseName("idx_rubric_assets_subject_version");
+
+                    b.ToTable("rubric_assets", (string)null);
                 });
 
             modelBuilder.Entity("ExamCatalogService.Domain.Entities.ScoreGridTemplate", b =>

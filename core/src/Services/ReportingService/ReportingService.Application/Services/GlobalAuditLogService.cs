@@ -11,15 +11,13 @@ public class GlobalAuditLogService : IGlobalAuditLogService
     // entries from a source with a long tail, though TotalCount always stays accurate.
     private const int MaxFetchPerSource = 500;
 
-    private readonly IIamServiceClient _iamClient;
-    private readonly IGradingServiceClient _gradingClient;
+    private readonly IAuditRecordReadRepository _auditRepository;
     private readonly ISubmissionServiceClient _submissionClient;
 
     public GlobalAuditLogService(
-        IIamServiceClient iamClient, IGradingServiceClient gradingClient, ISubmissionServiceClient submissionClient)
+        IAuditRecordReadRepository auditRepository, ISubmissionServiceClient submissionClient)
     {
-        _iamClient = iamClient;
-        _gradingClient = gradingClient;
+        _auditRepository = auditRepository;
         _submissionClient = submissionClient;
     }
 
@@ -28,40 +26,21 @@ public class GlobalAuditLogService : IGlobalAuditLogService
     {
         var fetchCount = Math.Min(page * pageSize, MaxFetchPerSource);
 
-        var iamTask = _iamClient.GetAuditLogsAsync(userId, entityType, action, 1, fetchCount, ct);
-        var gradingTask = _gradingClient.GetAuditLogsAsync(userId, entityType, action, 1, fetchCount, ct);
+        // Grading + Iam audit entries now come from the local audit_record projection. Submission's audit
+        // log stays REST (its store is Mongo without a safe outbox), so it can still degrade gracefully.
+        var localTask = _auditRepository.QueryAsync(userId, entityType, action, fetchCount, ct);
         var submissionTask = _submissionClient.GetAuditLogsAsync(userId, entityType, action, 1, fetchCount, ct);
-        await Task.WhenAll(iamTask, gradingTask, submissionTask);
+        await Task.WhenAll(localTask, submissionTask);
 
         var unavailable = new List<string>();
         var entries = new List<AuditLogEntryDto>();
         var totalCount = 0;
 
-        var iamResult = iamTask.Result;
-        if (iamResult is null)
-        {
-            unavailable.Add("IamService");
-        }
-        else
-        {
-            totalCount += iamResult.TotalCount;
-            entries.AddRange(iamResult.Items.Select(l => new AuditLogEntryDto(
-                "Iam", l.UserId, l.Action, l.EntityType, l.EntityId.ToString(),
-                FormatDetails(l.OldValue, l.NewValue, reason: null), l.CreatedAt)));
-        }
-
-        var gradingResult = gradingTask.Result;
-        if (gradingResult is null)
-        {
-            unavailable.Add("GradingService");
-        }
-        else
-        {
-            totalCount += gradingResult.TotalCount;
-            entries.AddRange(gradingResult.Items.Select(l => new AuditLogEntryDto(
-                "Grading", l.UserId, l.Action, l.EntityType, l.EntityId?.ToString(),
-                FormatDetails(l.OldValue, l.NewValue, l.Reason), l.CreatedAt)));
-        }
+        var (localItems, localTotal) = localTask.Result;
+        totalCount += localTotal;
+        entries.AddRange(localItems.Select(a => new AuditLogEntryDto(
+            ToSourceLabel(a.SourceService), a.UserId, a.Action, a.EntityType ?? string.Empty,
+            a.EntityId?.ToString(), FormatDetails(a.OldValue, a.NewValue, a.Reason), a.OccurredAt)));
 
         var submissionResult = submissionTask.Result;
         if (submissionResult is null)
@@ -84,6 +63,15 @@ public class GlobalAuditLogService : IGlobalAuditLogService
 
         return new GlobalAuditLogResultDto(pageItems, page, pageSize, totalCount, unavailable);
     }
+
+    private static string ToSourceLabel(string sourceService) => sourceService switch
+    {
+        "grading" => "Grading",
+        "iam" => "Iam",
+        _ => string.IsNullOrEmpty(sourceService)
+            ? "Unknown"
+            : char.ToUpperInvariant(sourceService[0]) + sourceService[1..]
+    };
 
     private static string? FormatDetails(string? oldValue, string? newValue, string? reason)
     {

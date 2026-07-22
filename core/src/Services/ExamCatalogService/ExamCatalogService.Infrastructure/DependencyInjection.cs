@@ -1,5 +1,7 @@
 using BuildingBlocks.AwsS3;
 using BuildingBlocks.EfCore;
+using ExamCatalogService.Infrastructure.Consumers;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -33,18 +35,65 @@ public static class DependencyInjection
         services.AddScoped<Application.Interfaces.ISubjectAdminService, Services.SubjectAdminService>();
         services.AddScoped<Services.SubjectFilePreviewService>();
         services.AddScoped<Application.Interfaces.ISubjectQueryService, Application.Services.SubjectQueryService>();
+        services.AddScoped<Application.Interfaces.IGradingContractService, Services.GradingContractService>();
 
         // S3 (AWS) — required for pre-signed URLs and uploads
         services.AddAwsS3Client(configuration);
         services.AddScoped<Application.Interfaces.IS3Service, Services.S3Service>();
 
         RegisterAiGradingClient(services, configuration);
-        RegisterGradingServiceClient(services, configuration);
         RegisterGotenbergClient(services, configuration);
+        RegisterMessaging(services, configuration);
         RegisterJwtAuthentication(services, configuration);
         RegisterAuthorization(services);
 
         return services;
+    }
+
+    private static void RegisterMessaging(IServiceCollection services, IConfiguration configuration)
+    {
+        var rabbitMq = configuration.GetSection("RabbitMq");
+        var rabbitHost = rabbitMq["Host"] ?? "localhost";
+        var rabbitPort = ushort.TryParse(rabbitMq["Port"], out var port) ? port : (ushort)5673;
+        var rabbitUser = rabbitMq["Username"] ?? "root";
+        var rabbitPass = rabbitMq["Password"] ?? "rootpassword";
+
+        services.AddMassTransit(x =>
+        {
+            // Replicates GradingService allocations into the local marker_assignment_view projection.
+            x.AddConsumer<MarkerAssignmentChangedConsumer>();
+            // Runs the long-running barem ingestion off the HTTP request thread.
+            x.AddConsumer<RubricVersionChangedConsumer>();
+
+            x.UsingRabbitMq((ctx, cfg) =>
+            {
+                cfg.Host(rabbitHost, rabbitPort, "/", h =>
+                {
+                    h.Username(rabbitUser);
+                    h.Password(rabbitPass);
+                });
+
+                cfg.ReceiveEndpoint("marker-assignment-changed-examcatalog", e =>
+                {
+                    e.ConfigureConsumer<MarkerAssignmentChangedConsumer>(ctx);
+                    e.UseMessageRetry(r => r.Intervals(
+                        TimeSpan.FromSeconds(5),
+                        TimeSpan.FromSeconds(15),
+                        TimeSpan.FromSeconds(30)));
+                });
+
+                cfg.ReceiveEndpoint("rubric-version-changed-examcatalog", e =>
+                {
+                    e.ConfigureConsumer<RubricVersionChangedConsumer>(ctx);
+                    // Ingestion is expensive and can time out on transient LLM issues — retry sparsely.
+                    e.UseMessageRetry(r => r.Intervals(
+                        TimeSpan.FromSeconds(30),
+                        TimeSpan.FromMinutes(2)));
+                });
+
+                cfg.ConfigureEndpoints(ctx);
+            });
+        });
     }
 
     private static void RegisterAiGradingClient(IServiceCollection services, IConfiguration configuration)
@@ -61,26 +110,8 @@ public static class DependencyInjection
         services.AddHttpClient<Application.Interfaces.IAiGradingClient, Clients.AiGradingClient>(client =>
         {
             client.BaseAddress = new Uri(aiGradingUrl);
-            client.Timeout = TimeSpan.FromMinutes(2);
-            client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
-        });
-    }
-
-    private static void RegisterGradingServiceClient(IServiceCollection services, IConfiguration configuration)
-    {
-        var internalApiKey = Environment.GetEnvironmentVariable("INTERNAL_API_KEY")
-            ?? configuration.GetSection(Auth.InternalAuthSettings.SectionName)["ApiKey"]
-            ?? throw new InvalidOperationException(
-                "Internal API key missing. Set INTERNAL_API_KEY or InternalAuth:ApiKey.");
-
-        var gradingServiceUrl = configuration.GetValue<string>("GradingServiceUrl")
-            ?? throw new InvalidOperationException(
-                "GradingServiceUrl is missing. It is required to scope subject search to a lecturer's assignments.");
-
-        services.AddHttpClient<Application.Interfaces.IGradingServiceClient, Clients.GradingServiceClient>(client =>
-        {
-            client.BaseAddress = new Uri(gradingServiceUrl);
-            client.Timeout = TimeSpan.FromSeconds(5);
+            // Rubric ingestion (render + 2-pass extract + per-leaf compile) can take several minutes.
+            client.Timeout = TimeSpan.FromMinutes(10);
             client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
         });
     }
