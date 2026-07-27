@@ -1,7 +1,9 @@
+using BuildingBlocks.EfCore;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Npgsql;
+using NotificationService.Application.Interfaces;
 using NotificationService.Domain.Enums;
 
 namespace NotificationService.Infrastructure;
@@ -25,7 +27,122 @@ public static class DependencyInjection
 
         services.AddSingleton(new NotificationDatabaseSettings(connectionString));
 
+        // Repositories + application services
+        services.AddScoped<INotificationRepository, Repositories.NotificationRepository>();
+        services.AddScoped<INotificationDispatchService, Application.Services.NotificationDispatchService>();
+        services.AddScoped<INotificationQueryService, Application.Services.NotificationQueryService>();
+
+        RegisterJwtAuthentication(services, configuration);
+
+        // Redis (idempotency dedup for consumers)
+        var redisConnString = configuration.GetSection("Redis")["ConnectionString"];
+        if (!string.IsNullOrWhiteSpace(redisConnString))
+        {
+            services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
+                StackExchange.Redis.ConnectionMultiplexer.Connect(redisConnString));
+        }
+        services.AddSingleton<Consumers.NotificationIdempotencyGuard>();
+
+        // MassTransit + RabbitMQ (consume-only — this service publishes nothing)
+        var rabbitMq = configuration.GetSection("RabbitMq");
+        var rabbitHost = rabbitMq["Host"] ?? "localhost";
+        var rabbitPort = ushort.TryParse(rabbitMq["Port"], out var port) ? port : (ushort)5673;
+        var rabbitUser = rabbitMq["Username"] ?? "root";
+        var rabbitPass = rabbitMq["Password"] ?? "rootpassword";
+
+        services.AddMassTransit(x =>
+        {
+            x.AddConsumer<Consumers.AssignmentNotificationConsumer>();
+            x.AddConsumer<Consumers.DeadlineReminderConsumer>();
+            x.AddConsumer<Consumers.ExportReadyConsumer>();
+            x.AddConsumer<Consumers.RegradeNotificationConsumer>();
+
+            x.UsingRabbitMq((ctx, cfg) =>
+            {
+                cfg.Host(rabbitHost, rabbitPort, "/", h =>
+                {
+                    h.Username(rabbitUser);
+                    h.Password(rabbitPass);
+                });
+
+                cfg.ReceiveEndpoint("notification-assignment", e =>
+                {
+                    e.ConfigureConsumer<Consumers.AssignmentNotificationConsumer>(ctx);
+                    e.UseMessageRetry(r => r.Intervals(
+                        TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30)));
+                });
+
+                cfg.ReceiveEndpoint("notification-deadline-reminder", e =>
+                {
+                    e.ConfigureConsumer<Consumers.DeadlineReminderConsumer>(ctx);
+                    e.UseMessageRetry(r => r.Intervals(
+                        TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30)));
+                });
+
+                cfg.ReceiveEndpoint("notification-export-ready", e =>
+                {
+                    e.ConfigureConsumer<Consumers.ExportReadyConsumer>(ctx);
+                    e.UseMessageRetry(r => r.Intervals(
+                        TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30)));
+                });
+
+                cfg.ReceiveEndpoint("notification-regrade", e =>
+                {
+                    e.ConfigureConsumer<Consumers.RegradeNotificationConsumer>(ctx);
+                    e.UseMessageRetry(r => r.Intervals(
+                        TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30)));
+                });
+
+                cfg.ConfigureEndpoints(ctx);
+            });
+        });
+
         return services;
+    }
+
+    private static void RegisterJwtAuthentication(IServiceCollection services, IConfiguration configuration)
+    {
+        var jwtSettings = configuration.GetSection("JwtSettings");
+        var secret = jwtSettings["Secret"];
+        if (string.IsNullOrEmpty(secret)) return;
+
+        var key = System.Text.Encoding.ASCII.GetBytes(secret);
+        services.AddAuthentication(options =>
+        {
+            options.DefaultAuthenticateScheme = Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme;
+            options.DefaultChallengeScheme = Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme;
+        })
+        .AddJwtBearer(options =>
+        {
+            options.SaveToken = true;
+            options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+            {
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(key),
+                ValidateIssuer = true,
+                ValidIssuer = jwtSettings["Issuer"],
+                ValidateAudience = true,
+                ValidAudience = jwtSettings["Audience"],
+                ValidateLifetime = true,
+                ClockSkew = TimeSpan.Zero
+            };
+            options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+            {
+                OnMessageReceived = context =>
+                {
+                    var accessToken = context.Request.Query["access_token"];
+                    var path = context.HttpContext.Request.Path;
+                    if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs/notifications"))
+                    {
+                        context.Token = accessToken;
+                    }
+
+                    return Task.CompletedTask;
+                }
+            };
+        });
+
+        services.AddAuthorization();
     }
 
     public static async Task MigrateNotificationDatabaseAsync(this IServiceProvider serviceProvider)
@@ -33,53 +150,11 @@ public static class DependencyInjection
         using var scope = serviceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<Persistence.NotificationDbContext>();
         var databaseSettings = scope.ServiceProvider.GetRequiredService<NotificationDatabaseSettings>();
+        var logger = scope.ServiceProvider
+            .GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>()
+            .CreateLogger("Notification.DatabaseMigration");
 
-        await EnsureDatabaseExistsAsync(databaseSettings.ConnectionString);
-        await context.Database.MigrateAsync();
-    }
-
-    private static async Task EnsureDatabaseExistsAsync(string connectionString)
-    {
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            throw new InvalidOperationException("Notification database connection string is missing.");
-        }
-
-        var builder = new NpgsqlConnectionStringBuilder(connectionString);
-        if (string.IsNullOrWhiteSpace(builder.Database))
-        {
-            throw new InvalidOperationException("Notification database name is missing.");
-        }
-
-        var targetDatabase = builder.Database;
-        var maintenanceBuilder = new NpgsqlConnectionStringBuilder(builder.ConnectionString)
-        {
-            Database = "postgres"
-        };
-
-        await using var connection = new NpgsqlConnection(maintenanceBuilder.ConnectionString);
-        await connection.OpenAsync();
-
-        await using (var checkCommand = connection.CreateCommand())
-        {
-            checkCommand.CommandText = "SELECT 1 FROM pg_database WHERE datname = @databaseName";
-            checkCommand.Parameters.AddWithValue("databaseName", targetDatabase);
-
-            var existingDatabase = await checkCommand.ExecuteScalarAsync();
-            if (existingDatabase is not null)
-            {
-                return;
-            }
-        }
-
-        var quotedDatabaseName = QuoteIdentifier(targetDatabase);
-        await using var createCommand = connection.CreateCommand();
-        createCommand.CommandText = $"CREATE DATABASE {quotedDatabaseName}";
-        await createCommand.ExecuteNonQueryAsync();
-    }
-
-    private static string QuoteIdentifier(string identifier)
-    {
-        return $"\"{identifier.Replace("\"", "\"\"")}\"";
+        await PostgresDatabaseMigrator.MigrateAsync(
+            context, databaseSettings.ConnectionString, logger);
     }
 }

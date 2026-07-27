@@ -7,14 +7,19 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="AspNetCore.HealthChecks.NpgSql" Version="9.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="Swashbuckle.AspNetCore" Version="7.2.0" />
+    <PackageReference Include="Grpc.AspNetCore" Version="2.80.0" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\..\BuildingBlocks\Contracts.Protos\Contracts.Protos.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\AspNetCore\AspNetCore.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\AwsS3\AwsS3.csproj" />
     <ProjectReference Include="..\ExamCatalogService.Application\ExamCatalogService.Application.csproj" />
     <ProjectReference Include="..\ExamCatalogService.Infrastructure\ExamCatalogService.Infrastructure.csproj" />
   </ItemGroup>

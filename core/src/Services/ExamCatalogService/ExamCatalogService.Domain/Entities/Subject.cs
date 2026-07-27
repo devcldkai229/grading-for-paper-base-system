@@ -13,17 +13,31 @@ public class Subject : Entity
 
     public decimal MaxScore { get; set; } = 10;
 
+    /// <summary>Minimum score (inclusive) to pass this subject. Null = not configured yet — pass/fail reporting excludes the subject until an admin sets it.</summary>
+    public decimal? PassScore { get; set; }
+
+    /// <summary>Admin-set marking/grading deadline for this subject. Null = not configured yet — reminders fall back to the exam's end date.</summary>
+    public DateOnly? GradingDeadline { get; set; }
+
     public string? ExamPaperS3Key { get; set; }
 
     public string? ExamPaperFileName { get; set; }
 
     public string? ExamPaperContentType { get; set; }
 
+    public string? ExamPaperPreviewS3Key { get; set; }
+
+    public string? ExamPaperPreviewContentType { get; set; }
+
     public string? RubricS3Key { get; set; }
 
     public string? RubricFileName { get; set; }
 
     public string? RubricContentType { get; set; }
+
+    public string? RubricPreviewS3Key { get; set; }
+
+    public string? RubricPreviewContentType { get; set; }
 
     public int RubricVersion { get; set; } = 1;
 

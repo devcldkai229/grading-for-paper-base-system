@@ -1,0 +1,12 @@
+# DEPRECATED — app + infra live in a single file now.
+#
+#   docker compose --env-file ../../.env up -d --build
+#
+# Observability profile:
+#   docker compose --env-file ../../.env --profile obs up -d
+#
+# This overlay is kept so older docs/scripts that still pass
+# `-f docker-compose.app.yml` do not fail the compose merge with an empty file.
+name: grading_system-containers
+
+services: {}

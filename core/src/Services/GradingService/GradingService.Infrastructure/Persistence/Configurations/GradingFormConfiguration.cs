@@ -34,6 +34,14 @@ public class GradingFormConfiguration : IEntityTypeConfiguration<GradingForm>
         builder.Property(x => x.InternalComment)
             .HasColumnName("internal_comment");
 
+        builder.Property(x => x.AiSuggestionsJson)
+            .HasColumnName("ai_suggestions_json")
+            .HasDefaultValue("[]")
+            .IsRequired();
+
+        builder.Property(x => x.AiPaperComment)
+            .HasColumnName("ai_paper_comment");
+
         builder.Property(x => x.SubmittedAt)
             .HasColumnName("submitted_at");
 
@@ -42,6 +50,14 @@ public class GradingFormConfiguration : IEntityTypeConfiguration<GradingForm>
             .HasDefaultValue(0)
             .IsConcurrencyToken()
             .IsRequired();
+
+        builder.Property(x => x.ActiveSecondsSpent)
+            .HasColumnName("active_seconds_spent")
+            .HasDefaultValue(0)
+            .IsRequired();
+
+        builder.Property(x => x.LastActiveAt)
+            .HasColumnName("last_active_at");
 
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")

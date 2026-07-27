@@ -1,5 +1,6 @@
 import api from "@/lib/api";
 import type { ApiResponse, AuthResult, JwtPayload } from "@/types/auth";
+import type { User } from "@/types/user";
 
 const TOKEN_KEY = "access_token";
 const REFRESH_KEY = "refresh_token";
@@ -58,6 +59,50 @@ export const authService = {
     this.clearTokens();
   },
 
+  async changePassword(currentPassword: string, newPassword: string): Promise<AuthResult> {
+    const response = await api.post<ApiResponse<AuthResult>>("/auth/change-password", {
+      currentPassword,
+      newPassword,
+    });
+    return response.data.data;
+  },
+
+  async forgotPassword(email: string): Promise<{ resetToken?: string }> {
+    const response = await api.post<ApiResponse<{ resetToken?: string }>>("/auth/forgot-password", {
+      email,
+    });
+    return response.data.data;
+  },
+
+  async resetPassword(token: string, newPassword: string): Promise<AuthResult> {
+    const response = await api.post<ApiResponse<AuthResult>>("/auth/reset-password", {
+      token,
+      newPassword,
+    });
+    return response.data.data;
+  },
+
+  async getProfile(): Promise<User> {
+    const response = await api.get<ApiResponse<User>>("/auth/profile");
+    return response.data.data;
+  },
+
+  async updateProfile(data: { fullName: string; phoneNumber?: string; avatarUrl?: string }): Promise<User> {
+    const response = await api.put<ApiResponse<User>>("/auth/profile", data);
+    return response.data.data;
+  },
+
+  async uploadAvatar(file: File): Promise<{ avatarUrl: string }> {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await api.post<ApiResponse<{ avatarUrl: string }>>("/auth/profile/avatar", formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    });
+    return response.data.data;
+  },
+
   // ---- Token management ----
 
   saveTokens(
@@ -114,7 +159,17 @@ export const authService = {
           .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
           .join("")
       );
-      return JSON.parse(jsonPayload) as JwtPayload;
+      const raw = JSON.parse(jsonPayload) as Record<string, unknown>;
+      return {
+        sub: String(raw.sub ?? ""),
+        email: String(raw.email ?? raw.Email ?? ""),
+        name: raw.name ? String(raw.name) : raw.Name ? String(raw.Name) : undefined,
+        role: String(raw.role ?? raw.Role ?? ""),
+        jti: String(raw.jti ?? ""),
+        exp: Number(raw.exp ?? 0),
+        iss: String(raw.iss ?? ""),
+        aud: String(raw.aud ?? ""),
+      };
     } catch {
       return null;
     }

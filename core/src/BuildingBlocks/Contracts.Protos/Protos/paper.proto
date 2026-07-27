@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package gradepaper.submission.v1;
+
+option csharp_namespace = "Gradepaper.Submission.V1";
+
+// Submission paper metadata + pre-signed file URLs — the synchronous east-west surface
+// GradingService needs. Files are never streamed as bytes; only metadata/URLs cross the wire.
+// Guid -> "D" string; nullable ints/strings -> proto3 optional.
+service PaperService {
+  // Streams the papers of a batch. The header (batch/subject/uploader) is always emitted first
+  // when the batch exists; a missing batch surfaces as RpcException(NotFound).
+  rpc StreamBatchPapers(BatchRef) returns (stream BatchPaperStreamItem);
+  rpc GetPaperSummary(PaperRef) returns (PaperSummary);
+  rpc GetPaperSummaries(PaperRefs) returns (PaperSummaries);
+  rpc GetSubjectPaperStats(SubjectRef) returns (SubjectPaperStats);
+  rpc GetPaperFileUrls(PaperRef) returns (PaperFileUrls);
+  // Papers in a subject whose AliasNumber falls within [alias_start, alias_end] (inclusive).
+  rpc ListPapersByAliasRange(AliasRangeRef) returns (stream PaperSummary);
+  // Bulk-flip ReadyToAssign papers to Assigned after GradingService materializes assignments.
+  rpc MarkPapersAssigned(MarkPapersAssignedRequest) returns (MarkPapersAssignedResponse);
+}
+
+message BatchRef {
+  string batch_id = 1;
+}
+
+message PaperRef {
+  string paper_id = 1;
+}
+
+message PaperRefs {
+  repeated string paper_ids = 1;
+}
+
+message SubjectRef {
+  string subject_id = 1;
+}
+
+message AliasRangeRef {
+  string subject_id = 1;
+  int32 alias_start = 2;
+  int32 alias_end = 3;
+  // Optional status filter (e.g. "ready_to_assign"). When empty, returns ReadyToAssign + Assigned.
+  optional string status_filter = 4;
+}
+
+message MarkPapersAssignedRequest {
+  repeated string paper_ids = 1;
+}
+
+message MarkPapersAssignedResponse {
+  int32 updated_count = 1;
+}
+
+message BatchHeader {
+  string batch_id = 1;
+  string subject_id = 2;
+  string uploaded_by = 3;
+}
+
+message BatchPaperItem {
+  string paper_id = 1;
+  string subject_id = 2;
+  optional int32 alias_number = 3;
+}
+
+message BatchPaperStreamItem {
+  oneof item {
+    BatchHeader header = 1;
+    BatchPaperItem paper = 2;
+  }
+}
+
+message PaperSummary {
+  string id = 1;
+  string batch_id = 2;
+  string subject_id = 3;
+  optional string student_alias = 4;
+  optional int32 alias_number = 5;
+  string uploaded_by = 6;
+}
+
+message PaperSummaries {
+  repeated PaperSummary papers = 1;
+}
+
+message SubjectPaperStats {
+  int32 total_papers = 1;
+  optional int32 max_alias_number = 2;
+}
+
+message PaperFileUrl {
+  string url = 1;
+  string content_type = 2;
+  optional string file_name = 3;
+}
+
+message PaperFileUrls {
+  repeated PaperFileUrl files = 1;
+}

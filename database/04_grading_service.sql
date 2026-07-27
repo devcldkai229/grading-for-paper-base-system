@@ -78,6 +78,9 @@ CREATE TABLE question_grade_details (
     id               UUID             PRIMARY KEY DEFAULT gen_random_uuid(),
     grading_form_id  UUID             NOT NULL REFERENCES grading_forms(id) ON DELETE CASCADE,
     question_number  VARCHAR(20)      NOT NULL,         -- map với câu hỏi của môn
+    group_label      VARCHAR(100),                     -- snapshot nhóm (denormalized)
+    label            VARCHAR(255),                     -- snapshot mô tả lá (denormalized)
+    order_index      INT              NOT NULL DEFAULT 0,
     score            NUMERIC(5,2)     NOT NULL DEFAULT 0,
     max_score        NUMERIC(5,2)     NOT NULL,         -- denormalized cho UI
     question_comment TEXT,
@@ -99,6 +102,16 @@ CREATE TABLE audit_logs (
     old_value   JSONB,
     new_value   JSONB,
     created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE grading_resume_pointers (
+    id              UUID PRIMARY KEY,
+    teacher_id      UUID NOT NULL,
+    batch_id        UUID NOT NULL,
+    assignment_id   UUID NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ,
+    UNIQUE (teacher_id, batch_id)
 );
 
 -- ── INDEXES ──────────────────────────────────────────────────

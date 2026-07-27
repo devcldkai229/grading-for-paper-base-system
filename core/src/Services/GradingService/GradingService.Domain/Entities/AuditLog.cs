@@ -15,4 +15,6 @@ public class AuditLog : Entity
     public string? OldValue { get; set; }
 
     public string? NewValue { get; set; }
+
+    public string? Reason { get; set; }
 }

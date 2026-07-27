@@ -44,6 +44,14 @@ public class SubjectConfiguration : IEntityTypeConfiguration<Subject>
             .IsRequired()
             .HasDefaultValue(10m);
 
+        builder.Property(subject => subject.PassScore)
+            .HasColumnName("pass_score")
+            .HasColumnType("numeric(5,2)");
+
+        builder.Property(subject => subject.GradingDeadline)
+            .HasColumnName("grading_deadline")
+            .HasColumnType("date");
+
         builder.Property(subject => subject.ExamPaperS3Key)
             .HasColumnName("exam_paper_s3_key");
 
@@ -55,6 +63,13 @@ public class SubjectConfiguration : IEntityTypeConfiguration<Subject>
             .HasColumnName("exam_paper_content_type")
             .HasMaxLength(120);
 
+        builder.Property(subject => subject.ExamPaperPreviewS3Key)
+            .HasColumnName("exam_paper_preview_s3_key");
+
+        builder.Property(subject => subject.ExamPaperPreviewContentType)
+            .HasColumnName("exam_paper_preview_content_type")
+            .HasMaxLength(120);
+
         builder.Property(subject => subject.RubricS3Key)
             .HasColumnName("rubric_s3_key");
 
@@ -64,6 +79,13 @@ public class SubjectConfiguration : IEntityTypeConfiguration<Subject>
 
         builder.Property(subject => subject.RubricContentType)
             .HasColumnName("rubric_content_type")
+            .HasMaxLength(120);
+
+        builder.Property(subject => subject.RubricPreviewS3Key)
+            .HasColumnName("rubric_preview_s3_key");
+
+        builder.Property(subject => subject.RubricPreviewContentType)
+            .HasColumnName("rubric_preview_content_type")
             .HasMaxLength(120);
 
         builder.Property(subject => subject.RubricVersion)

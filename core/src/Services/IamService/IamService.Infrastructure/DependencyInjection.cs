@@ -1,3 +1,6 @@
+using BuildingBlocks.AspNetCore.Observability;
+using BuildingBlocks.EfCore;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -25,6 +28,9 @@ public static class DependencyInjection
 
         services.AddSingleton(new IamDatabaseSettings(connectionString));
 
+        // outbox_pending_messages gauge (§9.1b) — surfaces outbox backlog for this service.
+        services.AddOutboxPendingMetric<Persistence.IamDbContext>();
+
         // Repositories
         services.AddScoped<IamService.Application.Interfaces.IUserRepository, Persistence.Repositories.UserRepository>();
         services.AddScoped<IamService.Application.Interfaces.IRefreshTokenRepository, Persistence.Repositories.RefreshTokenRepository>();
@@ -37,6 +43,10 @@ public static class DependencyInjection
         services.AddScoped<IamService.Application.Interfaces.ITokenService, Services.TokenService>();
         services.AddScoped<IamService.Application.Interfaces.IGoogleAuthService, Services.GoogleAuthService>();
         services.AddScoped<IamService.Application.Interfaces.IAuthService, IamService.Application.Services.AuthService>();
+        services.AddScoped<IamService.Application.Interfaces.IUserService, IamService.Application.Services.UserService>();
+        services.AddScoped<IamService.Application.Interfaces.IMessagePublisher, Messaging.MassTransitMessagePublisher>();
+
+        RegisterMessaging(services, configuration);
 
         // JWT Authentication middleware
         var jwtSettings = configuration.GetSection("JwtSettings").Get<Services.JwtSettings>();
@@ -52,7 +62,7 @@ public static class DependencyInjection
                 ValidateAudience = true,
                 ValidAudience = jwtSettings.Audience,
                 ValidateLifetime = true,
-                ClockSkew = System.TimeSpan.Zero
+                ClockSkew = System.TimeSpan.FromMinutes(1)
             };
 
             services.AddSingleton(tokenValidationParameters);
@@ -70,7 +80,44 @@ public static class DependencyInjection
             });
         }
 
+        services.AddAuthorization(options =>
+        {
+            options.AddPolicy("AdminOnly", policy =>
+                policy.RequireAssertion(ctx =>
+                    ctx.User.HasClaim(c => c.Type == "Role" && c.Value == "Admin")));
+        });
+
         return services;
+    }
+
+    private static void RegisterMessaging(IServiceCollection services, IConfiguration configuration)
+    {
+        var rabbitMq = configuration.GetSection("RabbitMq");
+        var rabbitHost = rabbitMq["Host"] ?? "localhost";
+        var rabbitPort = ushort.TryParse(rabbitMq["Port"], out var port) ? port : (ushort)5673;
+        var rabbitUser = rabbitMq["Username"] ?? "root";
+        var rabbitPass = rabbitMq["Password"] ?? "rootpassword";
+
+        services.AddMassTransit(x =>
+        {
+            // Publishes LecturerProfileChanged atomically with user changes (N7). Producer only.
+            x.AddEntityFrameworkOutbox<Persistence.IamDbContext>(o =>
+            {
+                o.UsePostgres();
+                o.UseBusOutbox();
+            });
+
+            x.UsingRabbitMq((ctx, cfg) =>
+            {
+                cfg.Host(rabbitHost, rabbitPort, "/", h =>
+                {
+                    h.Username(rabbitUser);
+                    h.Password(rabbitPass);
+                });
+
+                cfg.ConfigureEndpoints(ctx);
+            });
+        });
     }
 
     public static async Task MigrateIamDatabaseAsync(this IServiceProvider serviceProvider)
@@ -78,57 +125,14 @@ public static class DependencyInjection
         using var scope = serviceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<Persistence.IamDbContext>();
         var databaseSettings = scope.ServiceProvider.GetRequiredService<IamDatabaseSettings>();
-        var logger = scope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<IamService.Infrastructure.Seed.IamDbContextSeed>>();
+        var migrateLogger = scope.ServiceProvider
+            .GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>()
+            .CreateLogger("Iam.DatabaseMigration");
+        var seedLogger = scope.ServiceProvider
+            .GetRequiredService<Microsoft.Extensions.Logging.ILogger<IamService.Infrastructure.Seed.IamDbContextSeed>>();
 
-        await EnsureDatabaseExistsAsync(databaseSettings.ConnectionString);
-        await context.Database.MigrateAsync();
-
-        // Seed initial data
-        await IamService.Infrastructure.Seed.IamDbContextSeed.SeedAsync(context, logger);
-    }
-
-    private static async Task EnsureDatabaseExistsAsync(string connectionString)
-    {
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            throw new InvalidOperationException("IAM database connection string is missing.");
-        }
-
-        var builder = new NpgsqlConnectionStringBuilder(connectionString);
-        if (string.IsNullOrWhiteSpace(builder.Database))
-        {
-            throw new InvalidOperationException("IAM database name is missing.");
-        }
-
-        var targetDatabase = builder.Database;
-        var maintenanceBuilder = new NpgsqlConnectionStringBuilder(builder.ConnectionString)
-        {
-            Database = "postgres"
-        };
-
-        await using var connection = new NpgsqlConnection(maintenanceBuilder.ConnectionString);
-        await connection.OpenAsync();
-
-        await using (var checkCommand = connection.CreateCommand())
-        {
-            checkCommand.CommandText = "SELECT 1 FROM pg_database WHERE datname = @databaseName";
-            checkCommand.Parameters.AddWithValue("databaseName", targetDatabase);
-
-            var existingDatabase = await checkCommand.ExecuteScalarAsync();
-            if (existingDatabase is not null)
-            {
-                return;
-            }
-        }
-
-        var quotedDatabaseName = QuoteIdentifier(targetDatabase);
-        await using var createCommand = connection.CreateCommand();
-        createCommand.CommandText = $"CREATE DATABASE {quotedDatabaseName}";
-        await createCommand.ExecuteNonQueryAsync();
-    }
-
-    private static string QuoteIdentifier(string identifier)
-    {
-        return $"\"{identifier.Replace("\"", "\"\"") }\"";
+        await PostgresDatabaseMigrator.MigrateAsync(
+            context, databaseSettings.ConnectionString, migrateLogger);
+        await IamService.Infrastructure.Seed.IamDbContextSeed.SeedAsync(context, seedLogger);
     }
 }

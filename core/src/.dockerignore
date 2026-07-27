@@ -1,0 +1,37 @@
+**/bin/
+**/obj/
+**/.vs/
+**/*.user
+**/.git/
+**/.gitignore
+**/.dockerignore
+**/Dockerfile
+**/docker-compose*.yml
+**/.env
+**/.env.*
+**/*.md
+
+# Keep Docker-specific config; exclude local/secret appsettings from build context
+**/appsettings.json
+**/appsettings.Development.json
+**/appsettings.*.local.json
+!**/appsettings.Docker.json
+
+# Local Python venvs / caches must not inflate every .NET image build
+**/.venv/
+**/venv/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.mypy_cache/
+
+# Tests and tooling not needed at runtime
+**/*Tests/
+**/*UnitTests/
+**/Scripts/
+**/observability/
+
+# IDE / agent noise
+**/.idea/
+**/.cursor/
+**/agent-transcripts/

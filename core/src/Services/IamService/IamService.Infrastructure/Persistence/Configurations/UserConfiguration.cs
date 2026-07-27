@@ -69,6 +69,19 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(user => user.UpdatedAt)
             .HasColumnName("updated_at");
 
+        builder.Property(user => user.IsDeleted)
+            .HasColumnName("is_deleted")
+            .HasDefaultValue(false);
+
+        builder.Property(user => user.ResetToken)
+            .HasColumnName("reset_token")
+            .HasMaxLength(255);
+
+        builder.Property(user => user.ResetTokenExpiresAt)
+            .HasColumnName("reset_token_expires_at");
+
+        builder.HasQueryFilter(user => !user.IsDeleted);
+
         builder.HasIndex(user => user.Role)
             .HasDatabaseName("idx_users_role");
 

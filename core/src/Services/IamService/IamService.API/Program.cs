@@ -1,7 +1,12 @@
+using BuildingBlocks.AspNetCore.Extensions;
 using IamService.Infrastructure;
+using IamService.Infrastructure.Auth;
+using IamService.Infrastructure.Middleware;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.AddPlatformObservability("iam-service");
 
 // Add services to the container.
 builder.Services.AddControllers();
@@ -40,6 +45,21 @@ builder.Services.AddSwaggerGen(c =>
 });
 builder.Services.AddIamInfrastructure(builder.Configuration);
 
+builder.Services.Configure<InternalAuthSettings>(builder.Configuration.GetSection(InternalAuthSettings.SectionName));
+
+var internalApiKey = builder.Configuration.GetSection(InternalAuthSettings.SectionName)["ApiKey"];
+if (string.IsNullOrWhiteSpace(internalApiKey))
+{
+    throw new InvalidOperationException($"{InternalAuthSettings.SectionName}:ApiKey is required for internal endpoints.");
+}
+
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+if (!string.IsNullOrWhiteSpace(connectionString))
+{
+    builder.Services.AddHealthChecks()
+        .AddNpgSql(connectionString, name: "postgres", tags: ["ready"]);
+}
+
 var app = builder.Build();
 
 await app.Services.MigrateIamDatabaseAsync();
@@ -53,10 +73,17 @@ if (app.Environment.IsDevelopment())
 
 // Note: No UseHttpsRedirection() — this service sits behind the API Gateway which handles HTTPS
 
+app.UseGlobalExceptionHandling();
+app.UseCorrelationId();
+app.UseMiddleware<InternalApiKeyMiddleware>();
+
 app.UseAuthentication();
 app.UseAuthorization();
+
+app.MapPlatformHealthChecks();
 
 app.MapControllers();
 
 
+app.LogPlatformStartupBanner("iam-service");
 app.Run();

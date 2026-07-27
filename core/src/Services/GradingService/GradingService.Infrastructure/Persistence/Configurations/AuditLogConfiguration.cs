@@ -43,6 +43,10 @@ public class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
             .HasColumnName("new_value")
             .HasColumnType("jsonb");
 
+        builder.Property(x => x.Reason)
+            .HasColumnName("reason")
+            .HasMaxLength(1000);
+
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .IsRequired();

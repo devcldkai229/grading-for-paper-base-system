@@ -13,7 +13,7 @@ namespace IamService.Infrastructure.Services;
 public class JwtSettings
 {
     public string Secret { get; set; } = string.Empty;
-    public int AccessTokenExpirationMinutes { get; set; } = 15;
+    public int AccessTokenExpirationMinutes { get; set; } = 60;
     public int RefreshTokenExpirationDays { get; set; } = 7;
     public string Issuer { get; set; } = string.Empty;
     public string Audience { get; set; } = string.Empty;
@@ -158,6 +158,11 @@ public class TokenService : ITokenService
             if (user == null)
             {
                 return new AuthResult { Success = false, Errors = ["User not found"] };
+            }
+
+            if (user.Status != IamService.Domain.Enums.UserStatus.Active)
+            {
+                return new AuthResult { Success = false, Errors = ["Account is not active"] };
             }
 
             return await GenerateTokensAsync(user);

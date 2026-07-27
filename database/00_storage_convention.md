@@ -3,12 +3,12 @@
 ## Nguyên tắc
 - **DB không lưu nội dung file.** DB chỉ lưu **con trỏ tới object trên S3** (`s3_key`) + vài metadata tối thiểu
   (`file_name`, `content_type`, `size_bytes`).
-- **Hiển thị (xem file):** backend tạo **pre-signed GET URL** từ `s3_key`, frontend mở trực tiếp:
-  - `application/pdf` → PDF.js
-  - `image/png`, `image/jpeg` → thẻ `<img>` (zoom)
-  - `application/vnd.openxmlformats-officedocument.wordprocessingml.document` (DOCX) → mở bằng trình xem Office / tải về
+- **Hiển thị (xem file):** backend tạo **pre-signed GET URL** từ preview key (`inline`), frontend xem trực tiếp:
+  - `application/pdf` → iframe (preview; DOCX được convert sang PDF lúc upload qua Gotenberg)
+  - `image/png`, `image/jpeg`, `image/webp` → thẻ `<img>` (zoom)
   - `text/plain` → render text
-- **Không lưu bản convert/OCR trong DB.** Đề thi & barem chỉ cần 1 file gốc để giáo viên click xem là đủ.
+- **Bản gốc DOCX:** lưu riêng trên S3; chỉ tải về qua endpoint `/original` (attachment), không dùng làm luồng xem chính.
+- **Preview path:** `exam-papers/{subjectId}/preview.pdf`, `rubrics/{subjectId}/v{n}/preview.pdf` (khi upload DOCX).
 - **Thông tin cho AI** (nội dung barem, đề, đoạn trích bài làm) được **embed sẵn vào Qdrant** để AI truy hồi nhanh,
   không cần đọc lại file từ S3 mỗi lần chấm.
 
