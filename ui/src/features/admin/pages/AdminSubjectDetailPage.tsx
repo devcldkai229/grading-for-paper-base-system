@@ -56,6 +56,7 @@ export function AdminSubjectDetailPage() {
 
   const [uploadingPaper, setUploadingPaper] = useState(false);
   const [uploadingRubric, setUploadingRubric] = useState(false);
+  const [compilingContract, setCompilingContract] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [advancingStatus, setAdvancingStatus] = useState(false);
@@ -188,6 +189,30 @@ export function AdminSubjectDetailPage() {
     }
   };
 
+  const compileGradingContract = async (rubricVersionHint?: number) => {
+    if (!subjectId) return;
+    setCompilingContract(true);
+    setActionError(null);
+    try {
+      await adminCatalogService.recompileGradingContract(subjectId);
+      const contract = await adminCatalogService.getLatestGradingContract(subjectId);
+      setActionSuccess(
+        contract
+          ? `Đã tạo grading contract v${contract.rubricVersion} (${contract.status}, coverage=${contract.coverageOk ? "ok" : "cần xem"}).`
+          : rubricVersionHint != null
+            ? `Đã biên soạn grading contract cho barem v${rubricVersionHint}.`
+            : "Đã biên soạn grading contract xong."
+      );
+    } catch {
+      setActionError(
+        "Biên soạn grading contract thất bại. Kiểm tra AI Grading / Gotenberg rồi thử «Biên soạn lại contract»."
+      );
+      throw new Error("compile failed");
+    } finally {
+      setCompilingContract(false);
+    }
+  };
+
   const handleUploadRubric = async (file: File) => {
     if (!subjectId) return;
     setUploadingRubric(true);
@@ -196,14 +221,17 @@ export function AdminSubjectDetailPage() {
     try {
       const result = await adminCatalogService.uploadRubric(subjectId, file);
       urlCacheRef.current = {};
-      // Compile can take minutes (LLM). Don't block upload UI — fire-and-forget; MQ + lazy ingest
-      // on Đề xuất AI still cover failures.
-      void adminCatalogService.recompileGradingContract(subjectId).catch(() => {
-        /* best-effort */
-      });
       setActionSuccess(
-        `Đã upload barem (v${result.rubricVersion}). Đang biên soạn hợp đồng chấm nền (có thể vài phút). Gợi ý trích lưới AI và lưu lại.`
+        `Đã upload barem (v${result.rubricVersion}). Đang biên soạn grading contract (có thể 1–2 phút)…`
       );
+      await loadSubject();
+      setUploadingRubric(false);
+      // Await compile so failures surface (MQ also runs in parallel; recompile is idempotent).
+      try {
+        await compileGradingContract(result.rubricVersion);
+      } catch {
+        /* error already set */
+      }
       await loadSubject();
     } catch (err) {
       setActionError(
@@ -211,7 +239,6 @@ export function AdminSubjectDetailPage() {
           ? err.response?.data?.message ?? "Upload barem thất bại."
           : "Upload barem thất bại."
       );
-    } finally {
       setUploadingRubric(false);
     }
   };
@@ -538,11 +565,15 @@ export function AdminSubjectDetailPage() {
               />
               <button
                 type="button"
-                disabled={uploadingRubric}
+                disabled={uploadingRubric || compilingContract}
                 onClick={() => rubricInputRef.current?.click()}
                 className="px-4 py-2 rounded-lg text-sm font-medium bg-brand-orange text-white hover:opacity-90 disabled:opacity-50"
               >
-                {uploadingRubric ? "Đang upload…" : "Upload barem"}
+                {uploadingRubric
+                  ? "Đang upload…"
+                  : compilingContract
+                    ? "Đang biên soạn contract…"
+                    : "Upload barem"}
               </button>
               <button
                 type="button"
@@ -551,6 +582,17 @@ export function AdminSubjectDetailPage() {
                 className="px-4 py-2 rounded-lg text-sm font-medium border border-brand-orange text-brand-orange hover:bg-brand-orange/5 disabled:opacity-50"
               >
                 Xem barem
+              </button>
+              <button
+                type="button"
+                disabled={!subject.hasRubric || compilingContract || uploadingRubric}
+                onClick={() => {
+                  setActionError(null);
+                  void compileGradingContract().catch(() => undefined);
+                }}
+                className="px-4 py-2 rounded-lg text-sm font-medium border border-line text-ink hover:bg-secondary disabled:opacity-50"
+              >
+                {compilingContract ? "Đang biên soạn…" : "Biên soạn lại contract"}
               </button>
               <button
                 type="button"

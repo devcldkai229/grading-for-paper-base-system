@@ -1,6 +1,41 @@
+# GradePaper — full demo stack (infra + apps + UI).
+#
+#   cd core/src
+#   docker compose --env-file ../../.env up -d --build
+#
+# Observability (otel / Jaeger / Prometheus / Grafana):
+#   docker compose --env-file ../../.env --profile obs up -d
+#
 name: grading_system-containers
 
+x-dotnet-common: &dotnet-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  restart: unless-stopped
+
+x-dotnet-env: &dotnet-env
+  ASPNETCORE_ENVIRONMENT: Docker
+  RabbitMq__Host: rabbitmq
+  RabbitMq__Port: "5672"
+  RabbitMq__Username: root
+  RabbitMq__Password: rootpassword
+  Redis__ConnectionString: "redis:6379,password=rootpassword"
+  JwtSettings__Secret: "${JwtSettings__Secret:-uRmu2hnejG8XxVMCr8QMsU3NiQf2yOv7v1Xy9p2aglP}"
+  JwtSettings__Issuer: IamService
+  JwtSettings__Audience: GradingSystem
+  JwtSettings__AccessTokenExpirationMinutes: "${JwtSettings__AccessTokenExpirationMinutes:-60}"
+  InternalAuth__ApiKey: "${INTERNAL_API_KEY:-duN6gR1GLWwprRnNH4tWxKLZLqM9zDYWQM2x0S0tYfC}"
+  INTERNAL_API_KEY: "${INTERNAL_API_KEY:-duN6gR1GLWwprRnNH4tWxKLZLqM9zDYWQM2x0S0tYfC}"
+  AwsS3__Region: "${AwsS3__Region:-ap-southeast-1}"
+  AwsS3__BucketName: "${AwsS3__BucketName:-}"
+  AwsS3__AccessKey: "${AwsS3__AccessKey:-}"
+  AwsS3__SecretKey: "${AwsS3__SecretKey:-}"
+  AwsS3__ForcePathStyle: "${AwsS3__ForcePathStyle:-false}"
+  AwsS3__PresignedUrlTtlMinutes: "${AwsS3__PresignedUrlTtlMinutes:-10}"
+
 services:
+  # ── Infrastructure ──────────────────────────────────────────────────────────
   postgres:
     image: postgres:17.6
     container_name: grading_postgres
@@ -13,14 +48,20 @@ services:
       - "5433:5432"
     volumes:
       - grading_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   mongodb:
-      image: mongo:8.0
-      container_name: grading-mongodb
-      ports:
-        - "27018:27017"
-      volumes:
-        - grading_mongodb_data:/data/db
+    image: mongo:8.0
+    container_name: grading-mongodb
+    restart: unless-stopped
+    ports:
+      - "27018:27017"
+    volumes:
+      - grading_mongodb_data:/data/db
 
   redis:
     image: redis:7-alpine
@@ -44,16 +85,11 @@ services:
       - "15673:15672"
     volumes:
       - grading_rabbitmq_data:/var/lib/rabbitmq
-
-  qdrant:
-    image: qdrant/qdrant:v1.13.2
-    container_name: grading_qdrant
-    restart: always
-    ports:
-      - "6333:6333"
-      - "6334:6334"
-    volumes:
-      - grading_qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   gotenberg:
     image: gotenberg/gotenberg:8
@@ -65,9 +101,284 @@ services:
       - "gotenberg"
       - "--api-timeout=120s"
 
+  # ── Observability (opt-in: --profile obs) ───────────────────────────────────
+  otel-collector:
+    profiles: ["obs"]
+    image: otel/opentelemetry-collector-contrib:0.115.0
+    container_name: grading_otel_collector
+    restart: unless-stopped
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./observability/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    depends_on:
+      - jaeger
+
+  jaeger:
+    profiles: ["obs"]
+    image: jaegertracing/all-in-one:1.60
+    container_name: grading_jaeger
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+
+  prometheus:
+    profiles: ["obs"]
+    image: prom/prometheus:v2.55.1
+    container_name: grading_prometheus
+    restart: unless-stopped
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    profiles: ["obs"]
+    image: grafana/grafana:11.3.1
+    container_name: grading_grafana
+    restart: unless-stopped
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./observability/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+      - jaeger
+
+  # ── Application services ────────────────────────────────────────────────────
+  iam-service:
+    <<: *dotnet-common
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PROJECT_PATH: Services/IamService/IamService.API/IamService.API.csproj
+        APP_DLL: IamService.API.dll
+    container_name: grading_iam_service
+    environment:
+      <<: *dotnet-env
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=gradepaper_identity;Username=postgres;Password=12345"
+      GoogleAuth__ClientId: "${GoogleAuth__ClientId:-}"
+    ports:
+      - "5055:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  exam-catalog-service:
+    <<: *dotnet-common
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PROJECT_PATH: Services/ExamCatalogService/ExamCatalogService.API/ExamCatalogService.API.csproj
+        APP_DLL: ExamCatalogService.API.dll
+    container_name: grading_exam_catalog_service
+    environment:
+      <<: *dotnet-env
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=gradepaper_examcatalog;Username=postgres;Password=12345"
+      AiParseQuestionServiceUrl: "http://ai-parse-question-service:8080"
+      AiGradingServiceUrl: "http://ai-grading-service:8081"
+      GotenbergUrl: "http://gotenberg:3000"
+    ports:
+      - "5056:8080"
+      - "5066:5066"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      gotenberg:
+        condition: service_started
+      ai-parse-question-service:
+        condition: service_started
+      ai-grading-service:
+        condition: service_started
+
+  submission-service:
+    <<: *dotnet-common
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PROJECT_PATH: Services/SubmissionService/SubmissionService.API/SubmissionService.API.csproj
+        APP_DLL: SubmissionService.API.dll
+    container_name: grading_submission_service
+    environment:
+      <<: *dotnet-env
+      SubmissionDatabase__ConnectionString: "mongodb://mongodb:27017"
+      SubmissionDatabase__DatabaseName: gradepaper_submission
+    ports:
+      - "5057:8080"
+      - "5067:5067"
+    depends_on:
+      - mongodb
+      - rabbitmq
+
+  grading-service:
+    <<: *dotnet-common
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PROJECT_PATH: Services/GradingService/GradingService.API/GradingService.API.csproj
+        APP_DLL: GradingService.API.dll
+    container_name: grading_grading_service
+    environment:
+      <<: *dotnet-env
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=gradepaper_grading;Username=postgres;Password=12345"
+      ExamCatalogGrpcUrl: "http://exam-catalog-service:5066"
+      SubmissionGrpcUrl: "http://submission-service:5067"
+    ports:
+      - "5058:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      exam-catalog-service:
+        condition: service_started
+      submission-service:
+        condition: service_started
+
+  reporting-service:
+    <<: *dotnet-common
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PROJECT_PATH: Services/ReportingService/ReportingService.API/ReportingService.API.csproj
+        APP_DLL: ReportingService.API.dll
+    container_name: grading_reporting_service
+    environment:
+      <<: *dotnet-env
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=gradepaper_reporting;Username=postgres;Password=12345"
+      ExamCatalogServiceUrl: "http://exam-catalog-service:8080"
+      SubmissionServiceUrl: "http://submission-service:8080"
+    ports:
+      - "5059:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      exam-catalog-service:
+        condition: service_started
+      submission-service:
+        condition: service_started
+
+  notification-service:
+    <<: *dotnet-common
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PROJECT_PATH: Services/NotificationService/NotificationService.API/NotificationService.API.csproj
+        APP_DLL: NotificationService.API.dll
+    container_name: grading_notification_service
+    environment:
+      <<: *dotnet-env
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=gradepaper_notification;Username=postgres;Password=12345"
+    ports:
+      - "5060:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  api-gateway:
+    <<: *dotnet-common
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PROJECT_PATH: ApiGateway/ApiGateway.csproj
+        APP_DLL: ApiGateway.dll
+    container_name: grading_api_gateway
+    environment:
+      <<: *dotnet-env
+      Cors__AllowedOrigins__0: "http://localhost:5173"
+      Cors__AllowedOrigins__1: "http://127.0.0.1:5173"
+      Cors__AllowedOrigins__2: "http://localhost:3000"
+      RateLimiting__PermitLimit: "${RateLimiting__PermitLimit:-100}"
+      RateLimiting__WindowSeconds: "${RateLimiting__WindowSeconds:-60}"
+    ports:
+      - "5016:8080"
+    depends_on:
+      - iam-service
+      - exam-catalog-service
+      - submission-service
+      - grading-service
+      - reporting-service
+      - notification-service
+
+  ai-parse-question-service:
+    build:
+      context: ./Services/AIParseQuestionService
+      dockerfile: Dockerfile
+    container_name: grading_ai_parse_question_service
+    restart: unless-stopped
+    environment:
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_MODEL: "${OPENAI_MODEL:-gpt-4o-mini}"
+      INTERNAL_API_KEY: "${INTERNAL_API_KEY:-duN6gR1GLWwprRnNH4tWxKLZLqM9zDYWQM2x0S0tYfC}"
+    # Host 18080 avoids clash with leftover local uvicorn; container still listens on 8080.
+    ports:
+      - "18080:8080"
+
+  ai-grading-service:
+    build:
+      context: ./Services/AIGradingService
+      dockerfile: Dockerfile
+    container_name: grading_ai_grading_service
+    restart: unless-stopped
+    environment:
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_MODEL_T1: "${OPENAI_MODEL_T1:-gpt-4o-mini}"
+      OPENAI_MODEL_T2: "${OPENAI_MODEL_T2:-gpt-4o}"
+      INTERNAL_API_KEY: "${INTERNAL_API_KEY:-duN6gR1GLWwprRnNH4tWxKLZLqM9zDYWQM2x0S0tYfC}"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USERNAME: root
+      RABBITMQ_PASSWORD: rootpassword
+      REDIS_URL: "redis://:rootpassword@redis:6379/1"
+      # DOCX→PDF for rubric ingest (must use compose DNS, not localhost)
+      GOTENBERG_URL: "http://gotenberg:3000"
+    ports:
+      - "18081:8081"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      gotenberg:
+        condition: service_started
+
+  ui:
+    build:
+      context: ../../ui
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: "${VITE_API_BASE_URL:-http://localhost:5016/api}"
+    container_name: grading_ui
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - api-gateway
+
 volumes:
   grading_postgres_data:
   grading_redis_data:
   grading_rabbitmq_data:
   grading_mongodb_data:
-  grading_qdrant_data:

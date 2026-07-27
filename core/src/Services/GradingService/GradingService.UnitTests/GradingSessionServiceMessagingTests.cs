@@ -235,9 +235,10 @@ namespace GradingService.UnitTests
             var requestedBy = Guid.NewGuid();
             SeedSubmittedAssignment(db, Guid.NewGuid(), subjectId);
 
-            var bytes = await service.ExportGradesAsync(subjectId, requestedBy, CancellationToken.None);
+            var (bytes, fileName) = await service.ExportGradesAsync(subjectId, requestedBy, CancellationToken.None);
 
             Assert.NotNull(bytes);
+            Assert.EndsWith(".csv", fileName, StringComparison.OrdinalIgnoreCase);
             await publisher.Received(1).PublishAsync(
                 Arg.Is<ExportReadyEvent>(e => e.RequestedBy == requestedBy && e.SubjectId == subjectId),
                 Arg.Any<CancellationToken>());
@@ -250,7 +251,7 @@ namespace GradingService.UnitTests
             var publisher = Substitute.For<IMessagePublisher>();
             var service = NewService(db, publisher);
 
-            var bytes = await service.ExportGradesAsync(Guid.NewGuid(), Guid.NewGuid(), CancellationToken.None);
+            var (bytes, _) = await service.ExportGradesAsync(Guid.NewGuid(), Guid.NewGuid(), CancellationToken.None);
 
             Assert.Null(bytes);
             await publisher.DidNotReceive().PublishAsync(

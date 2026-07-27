@@ -142,7 +142,7 @@ fi
 
 if [[ "$SKIP_DOCKER" == false ]]; then
   echo "Starting infrastructure (docker compose)..."
-  docker compose -f "$COMPOSE_PATH" up -d postgres mongodb redis rabbitmq qdrant gotenberg
+  docker compose -f "$COMPOSE_PATH" up -d postgres mongodb redis rabbitmq gotenberg
   echo "Infrastructure is up."
   echo
 fi

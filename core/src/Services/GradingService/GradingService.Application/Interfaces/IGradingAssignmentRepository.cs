@@ -31,6 +31,10 @@ public interface IGradingAssignmentRepository
     Task<IReadOnlyList<GradingAssignment>> ListBySubjectWithFormsAsync(
         Guid subjectId, bool submittedOnly, CancellationToken ct = default);
 
+    /// <summary>Lists (untracked, with form + details) all assignments owned by a teacher.</summary>
+    Task<IReadOnlyList<GradingAssignment>> ListByTeacherWithFormsAsync(
+        Guid teacherId, CancellationToken ct = default);
+
     Task<IReadOnlyList<AssignmentProgressRow>> ListProgressByTeacherAsync(
         Guid teacherId, CancellationToken ct = default);
 

@@ -417,6 +417,31 @@ public class GradingController : ControllerBase
     }
 
     /// <summary>
+    /// CSV export of the caller's queue grades. Optional <paramref name="batchId"/> scopes to one
+    /// admin-assigned folder; omit for all folders assigned to the caller.
+    /// </summary>
+    [HttpGet("queue/export")]
+    public async Task<IActionResult> ExportQueueGrades(
+        [FromQuery] Guid? batchId,
+        CancellationToken ct = default)
+    {
+        var teacherId = GetUserId();
+        var (bytes, fileName) = await _gradingSessionService.ExportQueueGradesAsync(teacherId, batchId, ct);
+        if (bytes is null)
+        {
+            return NotFound(new ApiResponse<object>
+            {
+                StatusCode = 404,
+                Message = "No grades found for the selected scope",
+                Data = null,
+                ResponsedAt = DateTime.UtcNow
+            });
+        }
+
+        return File(bytes, "text/csv", fileName);
+    }
+
+    /// <summary>
     /// Sets or clears the caller's own "needs review" flag on an assignment. Independent of the
     /// assignment's grading Status.
     /// </summary>
@@ -449,10 +474,13 @@ public class GradingController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// CSV export of grades for one subject (Bài đã nộp tab).
+    /// </summary>
     [HttpGet("subjects/{subjectId:guid}/export")]
     public async Task<IActionResult> ExportGrades(Guid subjectId, CancellationToken ct = default)
     {
-        var bytes = await _gradingSessionService.ExportGradesAsync(subjectId, GetUserId(), ct);
+        var (bytes, fileName) = await _gradingSessionService.ExportGradesAsync(subjectId, GetUserId(), ct);
         if (bytes is null)
         {
             return NotFound(new ApiResponse<object>
@@ -464,7 +492,7 @@ public class GradingController : ControllerBase
             });
         }
 
-        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"Subject_Grades_{subjectId}.xlsx");
+        return File(bytes, "text/csv", fileName);
     }
 
     /// <summary>

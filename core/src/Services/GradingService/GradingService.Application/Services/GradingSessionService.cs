@@ -438,20 +438,34 @@ public class GradingSessionService : IGradingSessionService
         var totalCount = ordered.Count;
         var totalPages = totalCount == 0 ? 0 : (int)Math.Ceiling(totalCount / (double)pageSize);
 
+        var subjectIds = ordered
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(j => j.Row.SubjectId)
+            .Distinct()
+            .ToList();
+        var subjectInfo = await ResolveSubjectLabelsAsync(subjectIds, ct);
+
         var items = ordered
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(j => new GradingQueueRowDto(
-                j.Row.AssignmentId,
-                j.StudentAlias,
-                j.AliasNumber,
-                j.Row.SubjectId,
-                ToStatusLabel(j.Row.Status),
-                j.Row.IsFlagged,
-                j.Row.TotalScore,
-                j.Row.SubmittedAt,
-                j.BatchId,
-                j.ZipFileName))
+            .Select(j =>
+            {
+                subjectInfo.TryGetValue(j.Row.SubjectId, out var label);
+                return new GradingQueueRowDto(
+                    j.Row.AssignmentId,
+                    j.StudentAlias,
+                    j.AliasNumber,
+                    j.Row.SubjectId,
+                    ToStatusLabel(j.Row.Status),
+                    j.Row.IsFlagged,
+                    j.Row.TotalScore,
+                    j.Row.SubmittedAt,
+                    j.BatchId,
+                    j.ZipFileName,
+                    label.Code,
+                    label.Name);
+            })
             .ToList();
 
         return new GradingQueuePageDto(items, page, pageSize, totalCount, totalPages);
@@ -465,6 +479,9 @@ public class GradingSessionService : IGradingSessionService
         {
             return Array.Empty<GradingQueueFolderDto>();
         }
+
+        var subjectInfo = await ResolveSubjectLabelsAsync(
+            folderAssignments.Select(m => m.SubjectId).Distinct().ToList(), ct);
 
         var results = new List<GradingQueueFolderDto>();
         foreach (var marker in folderAssignments)
@@ -481,6 +498,7 @@ public class GradingSessionService : IGradingSessionService
             var drafting = gradingRows.Count(a => a.Status == GradingProgressStatus.Drafting);
             var submitted = gradingRows.Count(a => a.Status == GradingProgressStatus.Submitted);
 
+            subjectInfo.TryGetValue(marker.SubjectId, out var label);
             results.Add(new GradingQueueFolderDto(
                 batchId,
                 marker.ZipFileName,
@@ -489,7 +507,9 @@ public class GradingSessionService : IGradingSessionService
                 notStarted,
                 drafting,
                 submitted,
-                marker.AssignedAt));
+                marker.AssignedAt,
+                label.Code,
+                label.Name));
         }
 
         return results;
@@ -827,6 +847,20 @@ public class GradingSessionService : IGradingSessionService
             _ => "NotRequested"
         };
 
+    private async Task<Dictionary<Guid, (string? Code, string? Name)>> ResolveSubjectLabelsAsync(
+        IReadOnlyList<Guid> subjectIds, CancellationToken ct)
+    {
+        var map = new Dictionary<Guid, (string? Code, string? Name)>();
+        foreach (var id in subjectIds.Distinct())
+        {
+            var info = await _catalogClient.GetExamInfoAsync(id, ct);
+            map[id] = info is null
+                ? (null, null)
+                : (info.SubjectCode, info.ExamName);
+        }
+        return map;
+    }
+
     private static string ToAiReviewStatusLabel(AiReviewStatus status) =>
         status switch
         {
@@ -851,10 +885,15 @@ public class GradingSessionService : IGradingSessionService
             })
         });
 
-    public async Task<byte[]?> ExportGradesAsync(Guid subjectId, Guid requestedBy, CancellationToken ct = default)
+    public async Task<(byte[]? Bytes, string FileName)> ExportGradesAsync(
+        Guid subjectId, Guid requestedBy, CancellationToken ct = default)
     {
+        var fallbackName = $"grades-{subjectId.ToString("N")[..8]}.csv";
         var assignments = await _assignments.ListBySubjectWithFormsAsync(subjectId, submittedOnly: false, ct);
-        if (assignments.Count == 0) return null;
+        if (assignments.Count == 0)
+        {
+            return (null, fallbackName);
+        }
 
         // Fetch lecturer marker codes from the local projection (replicated from IamService — N5).
         Dictionary<Guid, string> teacherMarkerCodes = new();
@@ -948,7 +987,20 @@ public class GradingSessionService : IGradingSessionService
             rows.Add(studentRow);
         }
 
-        var bytes = _exportBuilder.Build(rows, printHeader: false);
+        var bytes = _exportBuilder.BuildCsv(rows, printHeader: false);
+
+        var subjectLabels = await ResolveSubjectLabelsAsync(new[] { subjectId }, ct);
+        subjectLabels.TryGetValue(subjectId, out var label);
+        var nameStem = !string.IsNullOrWhiteSpace(label.Code)
+            ? label.Code!
+            : !string.IsNullOrWhiteSpace(label.Name)
+                ? label.Name!
+                : subjectId.ToString("N")[..8];
+        var fileName = SanitizeCsvFileName(nameStem);
+        if (!fileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+        {
+            fileName += ".csv";
+        }
 
         await _messagePublisher.PublishAsync(new ExportReadyEvent(
             Guid.NewGuid(), requestedBy, subjectId, DateTime.UtcNow), ct);
@@ -956,7 +1008,168 @@ public class GradingSessionService : IGradingSessionService
         // Flush the bus outbox (this method otherwise only reads) so the event is actually delivered.
         await _uow.SaveChangesAsync(ct);
 
-        return bytes;
+        return (bytes, fileName);
+    }
+
+    public async Task<(byte[]? Bytes, string FileName)> ExportQueueGradesAsync(
+        Guid teacherId, Guid? batchId, CancellationToken ct = default)
+    {
+        var assignments = await _assignments.ListByTeacherWithFormsAsync(teacherId, ct);
+        if (assignments.Count == 0)
+        {
+            return (null, "grades-empty.csv");
+        }
+
+        var paperIds = assignments.Select(a => a.StudentPaperId).Distinct().ToList();
+        var papers = await _submissionClient.GetPaperSummariesAsync(paperIds, ct)
+            ?? Array.Empty<InternalPaperSummaryClientDto>();
+        var paperMap = papers.ToDictionary(p => p.Id);
+
+        var folderAssignments = await _markerAssignments.ListForTeacherWithBatchAsync(teacherId, ct);
+        var zipByBatchId = folderAssignments
+            .Where(m => m.BatchId.HasValue)
+            .ToDictionary(m => m.BatchId!.Value, m => m.ZipFileName);
+
+        var scoped = assignments
+            .Select(a =>
+            {
+                paperMap.TryGetValue(a.StudentPaperId, out var paper);
+                string? zip = null;
+                if (paper is not null && zipByBatchId.TryGetValue(paper.BatchId, out var name))
+                {
+                    zip = name;
+                }
+                return (Assignment: a, Paper: paper, ZipFileName: zip);
+            })
+            .Where(x => x.Paper is not null)
+            .Where(x => !batchId.HasValue || x.Paper!.BatchId == batchId.Value)
+            .OrderBy(x => x.Paper!.AliasNumber ?? int.MaxValue)
+            .ThenBy(x => x.Assignment.CreatedAt)
+            .ToList();
+
+        if (scoped.Count == 0)
+        {
+            return (null, "grades-empty.csv");
+        }
+
+        Dictionary<Guid, string> teacherMarkerCodes = new();
+        if (_markerCodes != null)
+        {
+            teacherMarkerCodes = await _markerCodes.GetAllMarkerCodesAsync(ct);
+        }
+        teacherMarkerCodes.TryGetValue(teacherId, out var markerCode);
+        if (string.IsNullOrEmpty(markerCode))
+        {
+            markerCode = "Lecturer";
+        }
+
+        var subjectIds = scoped.Select(x => x.Assignment.SubjectId).Distinct().ToList();
+        var subjectLabels = await ResolveSubjectLabelsAsync(subjectIds, ct);
+
+        var questionDetails = scoped
+            .SelectMany(x => x.Assignment.GradingForm?.QuestionGradeDetails ?? Enumerable.Empty<QuestionGradeDetail>())
+            .GroupBy(q => q.QuestionNumber)
+            .Select(g => new
+            {
+                QuestionNumber = g.Key,
+                OrderIndex = g.Min(q => q.OrderIndex),
+                MaxScore = g.Max(q => q.MaxScore)
+            })
+            .OrderBy(x => x.OrderIndex)
+            .ThenBy(x => x.QuestionNumber)
+            .ToList();
+
+        var rows = new List<Dictionary<string, object>>();
+
+        // Header row 1: labels for meta + "Question X" + Total + Comment
+        var header1 = new Dictionary<string, object>
+        {
+            ["Col0"] = "Subject",
+            ["Col1"] = "Folder",
+            ["Col2"] = "",
+            ["Col3"] = ""
+        };
+        for (var i = 0; i < questionDetails.Count; i++)
+        {
+            header1[$"Col{i + 4}"] = "Question " + questionDetails[i].QuestionNumber;
+        }
+        header1[$"Col{questionDetails.Count + 4}"] = "Total";
+        header1[$"Col{questionDetails.Count + 5}"] = "";
+        rows.Add(header1);
+
+        // Header row 2: max scores under question columns
+        var header2 = new Dictionary<string, object>
+        {
+            ["Col0"] = "",
+            ["Col1"] = "",
+            ["Col2"] = "Alias",
+            ["Col3"] = "Marker"
+        };
+        for (var i = 0; i < questionDetails.Count; i++)
+        {
+            header2[$"Col{i + 4}"] = questionDetails[i].MaxScore;
+        }
+        header2[$"Col{questionDetails.Count + 4}"] = questionDetails.Sum(x => x.MaxScore);
+        header2[$"Col{questionDetails.Count + 5}"] = "Comment";
+        rows.Add(header2);
+
+        foreach (var item in scoped)
+        {
+            subjectLabels.TryGetValue(item.Assignment.SubjectId, out var label);
+            var subjectDisplay = label.Code is null
+                ? (label.Name ?? item.Assignment.SubjectId.ToString("D")[..8])
+                : label.Name is null
+                    ? label.Code
+                    : $"[{label.Code}] {label.Name}";
+
+            var studentRow = new Dictionary<string, object>
+            {
+                ["Col0"] = subjectDisplay,
+                ["Col1"] = item.ZipFileName ?? "",
+                ["Col2"] = item.Paper!.AliasNumber != null ? (object)item.Paper.AliasNumber.Value : "",
+                ["Col3"] = markerCode
+            };
+
+            for (var i = 0; i < questionDetails.Count; i++)
+            {
+                var q = questionDetails[i];
+                var scoreDetail = item.Assignment.GradingForm?.QuestionGradeDetails
+                    .FirstOrDefault(x => x.QuestionNumber == q.QuestionNumber);
+                studentRow[$"Col{i + 4}"] = scoreDetail != null ? (object)scoreDetail.Score : "";
+            }
+
+            studentRow[$"Col{questionDetails.Count + 4}"] = item.Assignment.GradingForm?.TotalScore ?? 0;
+            studentRow[$"Col{questionDetails.Count + 5}"] = item.Assignment.GradingForm?.PaperComment ?? "";
+            rows.Add(studentRow);
+        }
+
+        var bytes = _exportBuilder.BuildCsv(rows, printHeader: false);
+        var fileName = batchId.HasValue
+            ? SanitizeCsvFileName(
+                zipByBatchId.TryGetValue(batchId.Value, out var zip) && !string.IsNullOrWhiteSpace(zip)
+                    ? zip!
+                    : $"folder-{batchId.Value.ToString("N")[..8]}")
+            : "grades-all.csv";
+
+        if (!fileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+        {
+            fileName += ".csv";
+        }
+
+        return (bytes, fileName);
+    }
+
+    private static string SanitizeCsvFileName(string raw)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var cleaned = new string(raw.Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim();
+        if (string.IsNullOrWhiteSpace(cleaned))
+        {
+            cleaned = "grades";
+        }
+        return cleaned.StartsWith("grades", StringComparison.OrdinalIgnoreCase)
+            ? cleaned
+            : $"grades-{cleaned}";
     }
 
     public async Task<MyProgressDto> GetMyProgressAsync(Guid teacherId, CancellationToken ct = default)

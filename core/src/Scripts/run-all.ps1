@@ -4,7 +4,7 @@
   Start Docker infrastructure and run all GradePaper microservices + API Gateway + AI services.
 
 .PARAMETER SkipDocker
-  Do not start docker-compose (postgres, mongodb, redis, rabbitmq, qdrant).
+  Do not start docker-compose (postgres, mongodb, redis, rabbitmq, gotenberg).
 
 .PARAMETER SkipBuild
   Skip dotnet build before launching services.
@@ -38,7 +38,7 @@ $AiParseRoot = Join-Path $SrcRoot "Services\AIParseQuestionService"
 $AiGradingRoot = Join-Path $SrcRoot "Services\AIGradingService"
 $PidDir = Join-Path $ScriptRoot ".pids"
 
-$DockerServices = @("postgres", "mongodb", "redis", "rabbitmq", "qdrant", "gotenberg")
+$DockerServices = @("postgres", "mongodb", "redis", "rabbitmq", "gotenberg")
 
 $Services = @(
     @{ Name = "IamService";           Project = "Services\IamService\IamService.API\IamService.API.csproj";           Port = 5055; Url = "http://localhost:5055/swagger" }
@@ -151,7 +151,19 @@ function Start-PythonAiService {
     )
 
     if (Test-PortInUse -Port $Port) {
-        Write-Warning "[$Name] Port $Port is already in use - skipping."
+        $probePath = if ($Port -eq 8080) { "/ai/rubric/extract" } else { "/ai/ingest/rubric" }
+        try {
+            $openApi = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/openapi.json" -TimeoutSec 2
+            $paths = @($openApi.paths.PSObject.Properties.Name)
+            if ($paths -contains $probePath) {
+                Write-Host "[$Name] Already running on port $Port ($($openApi.info.title))." -ForegroundColor Green
+                return
+            }
+            Write-Warning "[$Name] Port $Port is in use by another app (title='$($openApi.info.title)') - not starting."
+        }
+        catch {
+            Write-Warning "[$Name] Port $Port is already in use - skipping."
+        }
         return
     }
 
@@ -176,7 +188,7 @@ function Start-PythonAiService {
 
     if ($NoNewWindow) {
         $errFile = Join-Path $PidDir "$Name.err.log"
-        Write-Host "[$Name] Starting on port $Port (background, log: $logFile)..."
+        Write-Host "[$Name] Starting on port $Port (background process, log=$logFile)..."
         # The child process inherits our environment; set the RabbitMQ vars the Python services expect
         # (same values the new-window branch hardcodes) so background mode reaches the broker too.
         $env:RABBITMQ_HOST = "localhost"

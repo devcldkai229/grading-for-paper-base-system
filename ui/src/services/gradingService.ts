@@ -95,11 +95,35 @@ export const gradingService = {
     return res.data.data;
   },
 
-  async exportGrades(subjectId: string): Promise<Blob> {
+  async exportGrades(subjectId: string): Promise<{ blob: Blob; fileName: string }> {
     const res = await api.get(`/grading/subjects/${subjectId}/export`, {
       responseType: "blob",
     });
-    return res.data;
+    const disposition = res.headers["content-disposition"] as string | undefined;
+    let fileName = `grades-${subjectId.slice(0, 8)}.csv`;
+    if (disposition) {
+      const match = /filename\*?=(?:UTF-8''|")?([^\";]+)/i.exec(disposition);
+      if (match?.[1]) {
+        fileName = decodeURIComponent(match[1].replace(/"/g, "").trim());
+      }
+    }
+    return { blob: res.data as Blob, fileName };
+  },
+
+  async exportQueueCsv(batchId?: string): Promise<{ blob: Blob; fileName: string }> {
+    const res = await api.get(`/grading/queue/export`, {
+      params: batchId ? { batchId } : undefined,
+      responseType: "blob",
+    });
+    const disposition = res.headers["content-disposition"] as string | undefined;
+    let fileName = batchId ? `grades-folder.csv` : "grades-all.csv";
+    if (disposition) {
+      const match = /filename\*?=(?:UTF-8''|")?([^\";]+)/i.exec(disposition);
+      if (match?.[1]) {
+        fileName = decodeURIComponent(match[1].replace(/"/g, "").trim());
+      }
+    }
+    return { blob: res.data as Blob, fileName };
   },
 
   async listMarkerAssignments(subjectId: string): Promise<MarkerAssignment[]> {

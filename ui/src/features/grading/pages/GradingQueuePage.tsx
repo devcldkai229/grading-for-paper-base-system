@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { isAxiosError } from "axios";
-import { FolderOpen } from "lucide-react";
+import { Download, FolderOpen } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { LecturerPageShell } from "@/components/layout/LecturerPageShell";
 import {
@@ -11,6 +11,7 @@ import {
 } from "@/components/catalog/CatalogPageShell";
 import { FilterBar, ContentBlockButton } from "@/components/ui/content-block";
 import { ListPagination } from "@/components/catalog/ListPagination";
+import { Button } from "@/components/ui/button";
 import { gradingService } from "@/services/gradingService";
 import type { GradingQueueFolder, GradingQueueRow } from "@/types/grading";
 
@@ -59,6 +60,8 @@ export function GradingQueuePage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedAlias(aliasInput.trim()), DEBOUNCE_MS);
@@ -133,12 +136,61 @@ export function GradingQueuePage() {
   const folderLabel = (f: GradingQueueFolder) =>
     f.zipFileName ?? `Folder ${f.batchId.slice(0, 8)}…`;
 
+  const subjectLabel = (code?: string | null, name?: string | null) => {
+    if (code && name) return `[${code}] ${name}`;
+    return code || name || null;
+  };
+
+  const handleExportCsv = async () => {
+    setExporting(true);
+    setExportError(null);
+    try {
+      const { blob, fileName } = await gradingService.exportQueueCsv(
+        selectedBatchId ?? undefined
+      );
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setExportError(
+        isAxiosError(err)
+          ? err.response?.status === 404
+            ? "Không có điểm để xuất trong phạm vi đang chọn."
+            : err.response?.data?.message ?? "Xuất CSV thất bại."
+          : "Xuất CSV thất bại."
+      );
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <LecturerPageShell>
-      <PageHeader
-        title="Hàng chờ chấm bài"
-        subtitle="Folder được admin giao và danh sách bài trong từng folder."
-      />
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
+        <PageHeader
+          title="Hàng chờ chấm bài"
+          subtitle="Folder được admin giao và danh sách bài trong từng folder."
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => void handleExportCsv()}
+          disabled={exporting || foldersLoading}
+          className="gap-1.5"
+        >
+          <Download className="h-4 w-4" />
+          {exporting ? "Đang xuất..." : "Xuất CSV"}
+        </Button>
+      </div>
+      {exportError && (
+        <p className="mb-4 text-sm text-brand-red">{exportError}</p>
+      )}
 
       <section className="mb-8">
         <h2 className="text-sm font-semibold text-ink mb-3 flex items-center gap-2">
@@ -175,6 +227,11 @@ export function GradingQueuePage() {
                 }`}
               >
                 <p className="font-medium text-ink truncate">{folderLabel(f)}</p>
+                {subjectLabel(f.subjectCode, f.subjectName) && (
+                  <p className="text-xs text-ink mt-0.5 truncate">
+                    {subjectLabel(f.subjectCode, f.subjectName)}
+                  </p>
+                )}
                 <p className="text-xs text-ink-soft mt-1">
                   {f.totalPapers} bài · Chờ {f.notStarted} · Đang {f.drafting} · Đã {f.submitted}
                 </p>
@@ -232,6 +289,11 @@ export function GradingQueuePage() {
                   <h3 className="font-medium text-ink">
                     {row.studentAlias ?? `Paper #${row.aliasNumber ?? "?"}`}
                   </h3>
+                  {subjectLabel(row.subjectCode, row.subjectName) && (
+                    <p className="text-xs text-ink-soft">
+                      {subjectLabel(row.subjectCode, row.subjectName)}
+                    </p>
+                  )}
                   {row.zipFileName && (
                     <p className="text-xs text-ink-soft">{row.zipFileName}</p>
                   )}
