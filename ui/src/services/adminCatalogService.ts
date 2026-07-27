@@ -116,9 +116,36 @@ export const adminCatalogService = {
     return res.data.data;
   },
 
-  /** Best-effort compile of barem → grading contract (auto-approved). */
+  /** Compile barem → grading contract (auto-approved). Can take several minutes. */
   async recompileGradingContract(subjectId: string): Promise<void> {
-    await api.post(`/admin/subjects/${subjectId}/grading-contracts/recompile`);
+    await api.post(`/admin/subjects/${subjectId}/grading-contracts/recompile`, null, {
+      timeout: 900_000,
+    });
+  },
+
+  async getLatestGradingContract(
+    subjectId: string
+  ): Promise<{
+    id: string;
+    subjectId: string;
+    rubricVersion: number;
+    status: string;
+    coverageOk: boolean;
+  } | null> {
+    try {
+      const res = await api.get<
+        ApiResponse<{
+          id: string;
+          subjectId: string;
+          rubricVersion: number;
+          status: string;
+          coverageOk: boolean;
+        }>
+      >(`/admin/subjects/${subjectId}/grading-contracts/latest`);
+      return res.data.data;
+    } catch {
+      return null;
+    }
   },
 
   async extractRubricGrid(subjectId: string): Promise<ExtractGridResult> {

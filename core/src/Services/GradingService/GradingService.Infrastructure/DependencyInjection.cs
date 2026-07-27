@@ -171,6 +171,8 @@ public static class DependencyInjection
         services.AddGrpcClient<RubricService.RubricServiceClient>(o => o.Address = new Uri(examCatalogGrpcUrl))
             .AddInterceptor<GrpcClientAuthInterceptor>()
             .ConfigureChannel(ch => ch.ServiceConfig = retryServiceConfig)
+            // HttpClient.Timeout must exceed GetCompiledRubric's 15m gRPC deadline (lazy AI ingest).
+            .ConfigureHttpClient(c => c.Timeout = TimeSpan.FromMinutes(16))
             .RemoveAllResilienceHandlers();
 
         services.AddGrpcClient<PaperService.PaperServiceClient>(o => o.Address = new Uri(submissionGrpcUrl))

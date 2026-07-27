@@ -120,10 +120,31 @@ public class AdminGradingContractsController : ControllerBase
     [HttpPost("/api/admin/subjects/{subjectId:guid}/grading-contracts/recompile")]
     public async Task<IActionResult> Recompile(Guid subjectId, CancellationToken ct = default)
     {
-        var ok = await _contractService.IngestAsync(subjectId, ct);
+        // Ingest can take several minutes (Gotenberg + LLM). Do not bind to the request abort
+        // token — browsers/gateways cancel long POSTs and leave no persisted contract.
+        var ok = await _contractService.IngestAsync(subjectId, CancellationToken.None);
         return ok
             ? Ok(Success("Recompiled"))
             : StatusCode(502, Fail(502, "Recompile failed (no rubric or AI unreachable)"));
+    }
+
+    /// <summary>Latest compiled contract for a subject (any non-rejected), or 404.</summary>
+    [HttpGet("/api/admin/subjects/{subjectId:guid}/grading-contracts/latest")]
+    public async Task<IActionResult> GetLatestForSubject(Guid subjectId, CancellationToken ct = default)
+    {
+        var contract = await _repository.GetApprovedGradingContractAsync(subjectId, null, ct);
+        if (contract is null)
+        {
+            return NotFound(Fail(404, "No grading contract for this subject yet"));
+        }
+
+        return Ok(new ApiResponse<GradingContractSummaryDto>
+        {
+            StatusCode = 200,
+            Message = "Latest grading contract",
+            Data = ToSummary(contract),
+            ResponsedAt = DateTime.UtcNow
+        });
     }
 
     private static GradingContractSummaryDto ToSummary(GradingContract c)

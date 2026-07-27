@@ -62,7 +62,7 @@ public static class DependencyInjection
                 ValidateAudience = true,
                 ValidAudience = jwtSettings.Audience,
                 ValidateLifetime = true,
-                ClockSkew = System.TimeSpan.Zero
+                ClockSkew = System.TimeSpan.FromMinutes(1)
             };
 
             services.AddSingleton(tokenValidationParameters);

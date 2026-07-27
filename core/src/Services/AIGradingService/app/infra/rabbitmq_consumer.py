@@ -81,42 +81,64 @@ async def stop_consumer() -> None:
 
 
 async def _connect_and_consume() -> None:
+    """Connect (with retry) and keep consuming until cancelled.
+
+    Initial connect can race RabbitMQ readiness even with compose healthchecks.
+    ``connect_robust`` only auto-reconnects *after* the first successful connect,
+    so we must retry the bootstrap ourselves.
+    """
     global _connection, _channel, _completed_exchange, _failed_exchange
-    try:
-        _connection = await aio_pika.connect_robust(
-            host=settings.rabbitmq_host,
-            port=settings.rabbitmq_port,
-            login=settings.rabbitmq_username,
-            password=settings.rabbitmq_password,
-            virtualhost=settings.rabbitmq_vhost,
-        )
-        _channel = await _connection.channel()
-        await _channel.set_qos(prefetch_count=max(1, settings.max_concurrent_llm))
+    delay = 1.0
+    max_delay = 30.0
+    while True:
+        try:
+            _connection = await aio_pika.connect_robust(
+                host=settings.rabbitmq_host,
+                port=settings.rabbitmq_port,
+                login=settings.rabbitmq_username,
+                password=settings.rabbitmq_password,
+                virtualhost=settings.rabbitmq_vhost,
+            )
+            _channel = await _connection.channel()
+            await _channel.set_qos(prefetch_count=max(1, settings.max_concurrent_llm))
 
-        _completed_exchange = await _channel.declare_exchange(
-            exchange_name(_COMPLETED_EVENT), aio_pika.ExchangeType.FANOUT, durable=True)
-        _failed_exchange = await _channel.declare_exchange(
-            exchange_name(_FAILED_EVENT), aio_pika.ExchangeType.FANOUT, durable=True)
+            _completed_exchange = await _channel.declare_exchange(
+                exchange_name(_COMPLETED_EVENT), aio_pika.ExchangeType.FANOUT, durable=True)
+            _failed_exchange = await _channel.declare_exchange(
+                exchange_name(_FAILED_EVENT), aio_pika.ExchangeType.FANOUT, durable=True)
 
-        request_exchange = await _channel.declare_exchange(
-            exchange_name(_REQUEST_EVENT), aio_pika.ExchangeType.FANOUT, durable=True)
-        queue = await _channel.declare_queue(_REQUEST_QUEUE, durable=True)
-        await queue.bind(request_exchange)
-        await queue.consume(_on_message)
+            request_exchange = await _channel.declare_exchange(
+                exchange_name(_REQUEST_EVENT), aio_pika.ExchangeType.FANOUT, durable=True)
+            queue = await _channel.declare_queue(_REQUEST_QUEUE, durable=True)
+            await queue.bind(request_exchange)
+            await queue.consume(_on_message)
 
-        # Cache-invalidation listener for rubric recompiles.
-        rubric_exchange = await _channel.declare_exchange(
-            exchange_name(_RUBRIC_COMPILED_EVENT), aio_pika.ExchangeType.FANOUT, durable=True)
-        rubric_queue = await _channel.declare_queue(_RUBRIC_COMPILED_QUEUE, durable=True)
-        await rubric_queue.bind(rubric_exchange)
-        await rubric_queue.consume(_on_rubric_compiled)
+            # Cache-invalidation listener for rubric recompiles.
+            rubric_exchange = await _channel.declare_exchange(
+                exchange_name(_RUBRIC_COMPILED_EVENT), aio_pika.ExchangeType.FANOUT, durable=True)
+            rubric_queue = await _channel.declare_queue(_RUBRIC_COMPILED_QUEUE, durable=True)
+            await rubric_queue.bind(rubric_exchange)
+            await rubric_queue.consume(_on_rubric_compiled)
 
-        logger.info("AI grading RabbitMQ consumer started (queue=%s)", _REQUEST_QUEUE)
-    except asyncio.CancelledError:
-        raise
-    except Exception:
-        logger.exception("Failed to start RabbitMQ consumer")
-        raise
+            logger.info(
+                "AI grading RabbitMQ consumer started (host=%s:%s queue=%s)",
+                settings.rabbitmq_host,
+                settings.rabbitmq_port,
+                _REQUEST_QUEUE,
+            )
+            # Stay alive so cancellation propagates; reconnect is handled by connect_robust.
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception(
+                "Failed to start RabbitMQ consumer (host=%s:%s); retrying in %.1fs",
+                settings.rabbitmq_host,
+                settings.rabbitmq_port,
+                delay,
+            )
+            await asyncio.sleep(delay)
+            delay = min(max_delay, delay * 2)
 
 
 async def _on_message(message: AbstractIncomingMessage) -> None:

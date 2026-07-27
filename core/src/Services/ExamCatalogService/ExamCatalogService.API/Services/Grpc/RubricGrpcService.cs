@@ -157,10 +157,13 @@ public sealed class RubricGrpcService : RubricService.RubricServiceBase
         {
             // Lazy compile: subjects with barem uploaded before the pipeline, or when the async
             // RabbitMQ consumer never produced a row, still get a contract on first AI request.
-            var ingested = await _contractService.IngestAsync(subjectId, ct);
+            // Do not tie ingest to the gRPC call token — client deadlines (~10s historically) cancel
+            // mid PersistAssetsAsync after AI already returned, leaving no approved contract.
+            var ingested = await _contractService.IngestAsync(subjectId, CancellationToken.None);
             if (ingested)
             {
-                contract = await _repository.GetApprovedGradingContractAsync(subjectId, versionFilter, ct);
+                contract = await _repository.GetApprovedGradingContractAsync(
+                    subjectId, versionFilter, CancellationToken.None);
             }
         }
 

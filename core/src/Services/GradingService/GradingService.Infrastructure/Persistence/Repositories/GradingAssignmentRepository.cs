@@ -89,6 +89,15 @@ public class GradingAssignmentRepository : IGradingAssignmentRepository
         return await query.ToListAsync(ct);
     }
 
+    public async Task<IReadOnlyList<GradingAssignment>> ListByTeacherWithFormsAsync(
+        Guid teacherId, CancellationToken ct = default) =>
+        await _db.GradingAssignments
+            .AsNoTracking()
+            .Include(a => a.GradingForm!)
+                .ThenInclude(f => f.QuestionGradeDetails)
+            .Where(a => a.TeacherId == teacherId)
+            .ToListAsync(ct);
+
     public async Task<IReadOnlyList<AssignmentProgressRow>> ListProgressByTeacherAsync(
         Guid teacherId, CancellationToken ct = default) =>
         await _db.GradingAssignments

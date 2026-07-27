@@ -30,7 +30,12 @@ public interface IGradingSessionService
     Task<(SubmitResultDto? Result, bool Forbidden, bool NotFound)> SubmitAsync(
         Guid assignmentId, Guid teacherId, CancellationToken ct = default);
 
-    Task<byte[]?> ExportGradesAsync(Guid subjectId, Guid requestedBy, CancellationToken ct = default);
+    /// <summary>
+    /// CSV export of all grading assignments for a subject (Bài đã nộp). Returns null bytes when
+    /// the subject has no assignments.
+    /// </summary>
+    Task<(byte[]? Bytes, string FileName)> ExportGradesAsync(
+        Guid subjectId, Guid requestedBy, CancellationToken ct = default);
 
     /// <summary>
     /// Adds a heartbeat "tick" of active grading time (seconds, clamped) to the assignment's
@@ -172,6 +177,13 @@ public interface IGradingSessionService
 
     Task<IReadOnlyList<GradingQueueFolderDto>> GetGradingQueueFoldersAsync(
         Guid teacherId, CancellationToken ct = default);
+
+    /// <summary>
+    /// CSV export of the caller's queue grades. When <paramref name="batchId"/> is set, only that
+    /// folder's papers are included; otherwise every folder assigned to the teacher.
+    /// </summary>
+    Task<(byte[]? Bytes, string FileName)> ExportQueueGradesAsync(
+        Guid teacherId, Guid? batchId, CancellationToken ct = default);
 
     /// <summary>
     /// Sets or clears the lecturer's own "needs review" flag on an assignment. Independent of

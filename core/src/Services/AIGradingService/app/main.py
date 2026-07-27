@@ -39,3 +39,9 @@ configure_telemetry(app)
 app.include_router(health.router)
 app.include_router(grading.router)
 app.include_router(ingestion.router)
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8081, reload=True)

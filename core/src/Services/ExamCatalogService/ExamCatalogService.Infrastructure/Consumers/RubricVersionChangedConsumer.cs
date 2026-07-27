@@ -30,7 +30,7 @@ public class RubricVersionChangedConsumer : IConsumer<RubricVersionChangedEvent>
             "Recompiling grading contract for subject {SubjectId} v{Version}",
             msg.SubjectId, msg.RubricVersion);
 
-        var ok = await _contractService.IngestAsync(msg.SubjectId, context.CancellationToken);
+        var ok = await _contractService.IngestAsync(msg.SubjectId, CancellationToken.None);
         if (!ok)
         {
             _logger.LogWarning(

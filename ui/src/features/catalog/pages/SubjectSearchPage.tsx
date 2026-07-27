@@ -87,6 +87,7 @@ export function SubjectSearchPage() {
         status: status || undefined,
         page,
         pageSize: PAGE_SIZE,
+        all: true,
       });
       setSubjects(result.items);
       setTotalPages(result.totalPages);

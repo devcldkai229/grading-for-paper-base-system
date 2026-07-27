@@ -93,16 +93,16 @@ export function SubmissionsPage() {
   const handleExport = async () => {
     setExporting(true);
     try {
-      const blob = await gradingService.exportGrades(subjectId);
+      const { blob, fileName } = await gradingService.exportGrades(subjectId);
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.setAttribute("download", `Subject_Grades_${subjectId}.xlsx`);
+      link.setAttribute("download", fileName);
       document.body.appendChild(link);
       link.click();
       link.parentNode?.removeChild(link);
     } catch {
-      alert("Xuất điểm Excel thất bại.");
+      alert("Xuất điểm CSV thất bại.");
     } finally {
       setExporting(false);
     }
@@ -215,7 +215,7 @@ export function SubmissionsPage() {
             disabled={exporting}
             className="px-5 py-2.5 bg-secondary text-ink border border-line hover:bg-paper/80 disabled:opacity-50 rounded-lg text-sm font-medium"
           >
-            {exporting ? "Đang xuất..." : "Xuất điểm Excel"}
+            {exporting ? "Đang xuất..." : "Xuất CSV"}
           </button>
           {gradingError && (
             <span className="text-sm text-destructive">{gradingError}</span>

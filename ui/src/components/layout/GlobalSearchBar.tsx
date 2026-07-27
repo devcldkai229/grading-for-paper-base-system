@@ -30,7 +30,7 @@ export function GlobalSearchBar() {
     async (keyword: string) => {
       setLoading(true);
       const [subjectsResult, papersResult, usersResult] = await Promise.allSettled([
-        catalogService.searchSubjects({ code: keyword, pageSize: GROUP_LIMIT }),
+        catalogService.searchSubjects({ code: keyword, pageSize: GROUP_LIMIT, all: true }),
         submissionService.searchPapers(keyword, 1, GROUP_LIMIT),
         isAdmin ? userService.getUsers(1, GROUP_LIMIT, keyword) : Promise.resolve(null),
       ]);

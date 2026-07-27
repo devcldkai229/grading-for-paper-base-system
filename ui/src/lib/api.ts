@@ -11,6 +11,48 @@ const api = axios.create({
   },
 });
 
+// Single-flight refresh: concurrent 401s share one refresh call (refresh tokens are one-use).
+let refreshPromise: Promise<string> | null = null;
+
+async function refreshAccessToken(): Promise<string> {
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      const accessToken = authService.getAccessToken();
+      const refreshToken = authService.getRefreshToken();
+      if (!accessToken || !refreshToken) {
+        throw new Error("No tokens available");
+      }
+
+      const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
+        accessToken,
+        refreshToken,
+      });
+
+      const result = response.data.data;
+      if (!result?.success || !result.accessToken || !result.refreshToken) {
+        throw new Error(result?.errors?.join?.(", ") ?? "Refresh failed");
+      }
+
+      authService.saveTokens(
+        result.accessToken,
+        result.refreshToken,
+        result.expiresAt
+      );
+      return result.accessToken as string;
+    })().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
+function redirectToLogin() {
+  authService.clearTokens();
+  if (!window.location.pathname.startsWith("/login")) {
+    window.location.href = "/login";
+  }
+}
+
 // Request interceptor: attach Bearer token
 api.interceptors.request.use(
   (config) => {
@@ -31,47 +73,24 @@ api.interceptors.response.use(
 
     if (
       error.response?.status === 401 &&
+      originalRequest &&
       !originalRequest._retry &&
       authService.getRefreshToken()
     ) {
       originalRequest._retry = true;
 
       try {
-        const accessToken = authService.getAccessToken();
-        const refreshToken = authService.getRefreshToken();
-
-        if (!accessToken || !refreshToken) {
-          throw new Error("No tokens available");
-        }
-
-        const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
-          accessToken,
-          refreshToken,
-        });
-
-        const result = response.data.data;
-        if (result.success && result.accessToken && result.refreshToken) {
-          authService.saveTokens(
-            result.accessToken,
-            result.refreshToken,
-            result.expiresAt
-          );
-          originalRequest.headers.Authorization = `Bearer ${result.accessToken}`;
-          return api(originalRequest);
-        }
+        const newAccessToken = await refreshAccessToken();
+        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+        return api(originalRequest);
       } catch {
-        authService.clearTokens();
-        if (!window.location.pathname.startsWith("/login")) {
-          window.location.href = "/login";
-        }
+        redirectToLogin();
+        return Promise.reject(error);
       }
     }
 
     if (error.response?.status === 401 && !authService.getRefreshToken()) {
-      authService.clearTokens();
-      if (!window.location.pathname.startsWith("/login")) {
-        window.location.href = "/login";
-      }
+      redirectToLogin();
     }
 
     return Promise.reject(error);

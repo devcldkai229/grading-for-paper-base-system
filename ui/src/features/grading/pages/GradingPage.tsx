@@ -693,25 +693,19 @@ export function GradingPage() {
   };
 
   const handleSubmitRef = useRef(handleSubmit);
-  const persistMarksRef = useRef(persistMarks);
   const jumpToQuestionRef = useRef(jumpToQuestion);
   const orderedQuestionsRef = useRef(orderedQuestions);
   const activeQuestionNumberRef = useRef(activeQuestionNumber);
 
   useEffect(() => {
     handleSubmitRef.current = handleSubmit;
-    persistMarksRef.current = persistMarks;
     jumpToQuestionRef.current = jumpToQuestion;
     orderedQuestionsRef.current = orderedQuestions;
     activeQuestionNumberRef.current = activeQuestionNumber;
-  }, [handleSubmit, persistMarks, jumpToQuestion, orderedQuestions, activeQuestionNumber]);
+  }, [handleSubmit, jumpToQuestion, orderedQuestions, activeQuestionNumber]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key.toLowerCase() === "s") {
-        e.preventDefault();
-        void persistMarksRef.current(false);
-      }
       if (e.altKey && e.key === "ArrowRight") {
         e.preventDefault();
         void handleSubmitRef.current();
@@ -1164,13 +1158,6 @@ export function GradingPage() {
 
             {!isReadOnly && (
               <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={() => void persistMarks(false)}
-                  className="px-4 py-2.5 border border-line hover:bg-secondary rounded-lg text-sm font-medium text-ink"
-                >
-                  Lưu nháp
-                </button>
                 <button
                   type="button"
                   onClick={() => void handleSubmit()}

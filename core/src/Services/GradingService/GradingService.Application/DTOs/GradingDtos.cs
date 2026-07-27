@@ -84,7 +84,9 @@ public record GradingQueueRowDto(
     decimal? TotalScore,
     DateTime? SubmittedAt,
     Guid? BatchId = null,
-    string? ZipFileName = null
+    string? ZipFileName = null,
+    string? SubjectCode = null,
+    string? SubjectName = null
 );
 
 public record GradingQueueFolderDto(
@@ -95,7 +97,9 @@ public record GradingQueueFolderDto(
     int NotStarted,
     int Drafting,
     int Submitted,
-    DateTime AssignedAt
+    DateTime AssignedAt,
+    string? SubjectCode = null,
+    string? SubjectName = null
 );
 
 public record GradingQueuePageDto(

@@ -166,6 +166,8 @@ export interface GradingQueueRow {
   submittedAt: string | null;
   batchId?: string | null;
   zipFileName?: string | null;
+  subjectCode?: string | null;
+  subjectName?: string | null;
 }
 
 export interface GradingQueueFolder {
@@ -177,6 +179,8 @@ export interface GradingQueueFolder {
   drafting: number;
   submitted: number;
   assignedAt: string;
+  subjectCode?: string | null;
+  subjectName?: string | null;
 }
 
 export interface GradingQueuePage {

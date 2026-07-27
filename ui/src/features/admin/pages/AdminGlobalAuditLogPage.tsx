@@ -14,33 +14,182 @@ import { Download } from "lucide-react";
 import { reportingService } from "@/services/reportingService";
 import type { AuditLogEntry } from "@/types/reporting";
 
-// Parse a JSON `details` payload into a compact, human-readable summary (ported from the former
-// account-only audit page). Falls back to the raw string when it isn't JSON.
-function formatDetails(value?: string | null): string {
-  if (!value) return "—";
+const actionLabels: Record<string, string> = {
+  LoginSuccess: "Đăng nhập thành công",
+  LoginFailed: "Đăng nhập thất bại",
+  Logout: "Đăng xuất",
+  Create: "Tạo mới",
+  Update: "Cập nhật",
+  Delete: "Xóa",
+  DeleteBatch: "Xóa batch",
+  DeletePaper: "Xóa bài",
+  ScoreUpdated: "Cập nhật điểm",
+  ScoreOverridden: "Ghi đè điểm",
+  FormSubmitted: "Nộp phiếu chấm",
+  AiSuggested: "Gợi ý AI",
+  ForgotPassword: "Quên mật khẩu",
+  ResetPassword: "Đặt lại mật khẩu",
+  UpdateProfile: "Cập nhật hồ sơ",
+};
+
+const fieldLabels: Record<string, string> = {
+  Email: "Email",
+  IP: "IP",
+  Device: "Thiết bị",
+  Reason: "Lý do",
+  ExpiresAt: "Hết hạn",
+  FullName: "Họ tên",
+  PhoneNumber: "SĐT",
+  MarkerCode: "Mã GV",
+  Role: "Vai trò",
+  Status: "Trạng thái",
+  AvatarUrl: "Avatar",
+  TotalScore: "Tổng điểm",
+  PaperComment: "Nhận xét bài",
+  InternalComment: "Ghi chú nội bộ",
+  RowVersion: "Phiên bản",
+  Questions: "Câu hỏi",
+  QuestionNumber: "Câu",
+  Score: "Điểm",
+  QuestionComment: "Nhận xét câu",
+  ModelUsed: "Model",
+  PromptVersion: "Prompt",
+  SuggestionCount: "Số gợi ý",
+};
+
+function simplifyDevice(ua: string): string {
+  if (ua.includes("Chrome")) return "Chrome";
+  if (ua.includes("Firefox")) return "Firefox";
+  if (ua.includes("Safari")) return "Safari";
+  if (ua.includes("Edge")) return "Edge";
+  return ua.length > 40 ? `${ua.slice(0, 37)}…` : ua;
+}
+
+function formatJsonObject(obj: Record<string, unknown>): string {
+  const parts: string[] = [];
+
+  if (typeof obj.Email === "string") parts.push(`Email: ${obj.Email}`);
+  if (typeof obj.IP === "string") parts.push(`IP: ${obj.IP}`);
+  if (typeof obj.Device === "string") parts.push(`Thiết bị: ${simplifyDevice(obj.Device)}`);
+  if (typeof obj.Reason === "string" && obj.Reason) parts.push(`Lý do: ${obj.Reason}`);
+  if (typeof obj.ExpiresAt === "string") {
+    parts.push(`Hết hạn: ${new Date(obj.ExpiresAt).toLocaleString("vi-VN")}`);
+  }
+  if (typeof obj.FullName === "string") parts.push(`Họ tên: ${obj.FullName}`);
+  if (typeof obj.PhoneNumber === "string") parts.push(`SĐT: ${obj.PhoneNumber}`);
+  if (typeof obj.MarkerCode === "string") parts.push(`Mã GV: ${obj.MarkerCode}`);
+  if (typeof obj.Role === "string") parts.push(`Vai trò: ${obj.Role}`);
+  if (typeof obj.Status === "string") parts.push(`Trạng thái: ${obj.Status}`);
+  if (typeof obj.TotalScore === "number") parts.push(`Tổng điểm: ${obj.TotalScore}`);
+  if (typeof obj.PaperComment === "string" && obj.PaperComment) {
+    parts.push(`Nhận xét: ${obj.PaperComment}`);
+  }
+  if (typeof obj.InternalComment === "string" && obj.InternalComment) {
+    parts.push(`Ghi chú nội bộ: ${obj.InternalComment}`);
+  }
+  if (typeof obj.ModelUsed === "string") parts.push(`Model: ${obj.ModelUsed}`);
+  if (typeof obj.SuggestionCount === "number") {
+    parts.push(`Số gợi ý: ${obj.SuggestionCount}`);
+  }
+  if (Array.isArray(obj.Questions)) {
+    const qParts = (obj.Questions as Record<string, unknown>[])
+      .map((q) => {
+        const num = String(q.QuestionNumber ?? q.questionNumber ?? "?");
+        const rawScore = q.Score ?? q.score;
+        const score =
+          typeof rawScore === "number" || typeof rawScore === "string"
+            ? String(rawScore)
+            : null;
+        return score !== null ? `Câu ${num}: ${score}` : `Câu ${num}`;
+      })
+      .filter(Boolean);
+    if (qParts.length) parts.push(qParts.join("; "));
+  }
+
+  if (parts.length === 0) {
+    for (const [key, val] of Object.entries(obj)) {
+      if (val === null || val === undefined || typeof val === "object") continue;
+      const label = fieldLabels[key] ?? key;
+      parts.push(`${label}: ${String(val)}`);
+    }
+  }
+
+  return parts.join(" · ");
+}
+
+function tryParseJsonObject(raw: string): Record<string, unknown> | null {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null;
   try {
-    const parsed = JSON.parse(value);
-    if (typeof parsed === "object" && parsed !== null) {
-      const parts: string[] = [];
-      if (parsed.Email) parts.push(`Email: ${parsed.Email}`);
-      if (parsed.IP) parts.push(`IP: ${parsed.IP}`);
-      if (parsed.Device) {
-        const ua: string = parsed.Device;
-        let simpleUa = ua;
-        if (ua.includes("Chrome")) simpleUa = "Chrome Browser";
-        else if (ua.includes("Firefox")) simpleUa = "Firefox Browser";
-        else if (ua.includes("Safari")) simpleUa = "Safari Browser";
-        parts.push(`Device: ${simpleUa}`);
-      }
-      if (parsed.Reason) parts.push(`Lý do: ${parsed.Reason}`);
-      if (parsed.ExpiresAt)
-        parts.push(`Hết hạn: ${new Date(parsed.ExpiresAt).toLocaleTimeString("vi-VN")}`);
-      return parts.length > 0 ? parts.join(" | ") : value;
+    const parsed = JSON.parse(trimmed);
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
     }
   } catch {
-    /* not JSON — return raw */
+    /* ignore */
   }
-  return value;
+  return null;
+}
+
+function formatValueSide(raw: string): string {
+  const cleaned = raw.trim();
+  if (!cleaned || cleaned === "—" || cleaned === "null") return "—";
+  const obj = tryParseJsonObject(cleaned);
+  if (obj) {
+    const formatted = formatJsonObject(obj);
+    return formatted || "—";
+  }
+  return cleaned;
+}
+
+/** Turn backend `old → new | Reason: …` (often with JSON blobs) into Vietnamese text. */
+function formatDetails(value?: string | null, action?: string): string {
+  if (!value) return "—";
+
+  let reasonSuffix = "";
+  let body = value;
+  const reasonMatch = body.match(/\s*\|\s*Reason:\s*(.+)$/i);
+  if (reasonMatch) {
+    reasonSuffix = reasonMatch[1].trim();
+    body = body.slice(0, reasonMatch.index).trim();
+  }
+
+  const arrowIdx = body.indexOf(" → ");
+  let summary: string;
+  if (arrowIdx >= 0) {
+    const before = formatValueSide(body.slice(0, arrowIdx));
+    const after = formatValueSide(body.slice(arrowIdx + 3));
+    if (before === "—" && after !== "—") {
+      summary = after;
+    } else if (before !== "—" && after === "—") {
+      summary = before;
+    } else if (before === after) {
+      summary = after;
+    } else {
+      summary = `${before} → ${after}`;
+    }
+  } else {
+    summary = formatValueSide(body);
+  }
+
+  if (reasonSuffix) {
+    summary = summary === "—" ? `Lý do: ${reasonSuffix}` : `${summary} · Lý do: ${reasonSuffix}`;
+  }
+
+  if (summary.startsWith("{") || summary.includes('{"')) {
+    const obj = tryParseJsonObject(value);
+    if (obj) summary = formatJsonObject(obj) || summary;
+  }
+
+  if (action && summary === "—" && actionLabels[action]) {
+    return actionLabels[action];
+  }
+
+  return summary || "—";
+}
+
+function formatAction(action: string): string {
+  return actionLabels[action] ?? action;
 }
 
 const sourceLabels: Record<string, string> = {
@@ -119,11 +268,11 @@ export function AdminGlobalAuditLogPage() {
     const rows = items.map((entry) => [
       new Date(entry.performedAt).toLocaleString("vi-VN"),
       sourceLabels[entry.source] ?? entry.source,
-      entry.action,
+      formatAction(entry.action),
       entry.entityType,
       entry.entityId ?? "",
       entry.userId ?? "",
-      (entry.details ?? "").replace(/"/g, '""'),
+      formatDetails(entry.details, entry.action).replace(/"/g, '""'),
     ]);
     const csvContent =
       "\uFEFF" +
@@ -210,40 +359,43 @@ export function AdminGlobalAuditLogPage() {
               </tr>
             </thead>
             <tbody>
-              {items.map((entry, index) => (
-                <tr
-                  key={`${entry.source}-${index}`}
-                  className="border-b border-line/50 last:border-0 hover:bg-secondary/20"
-                >
-                  <td className="px-4 py-3 font-mono text-xs text-ink-soft whitespace-nowrap">
-                    {new Date(entry.performedAt).toLocaleString("vi-VN")}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-xs font-medium border ${
-                        sourceColors[entry.source] ?? "bg-secondary text-ink-soft border-line"
-                      }`}
-                    >
-                      {sourceLabels[entry.source] ?? entry.source}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-ink font-medium">{entry.action}</td>
-                  <td className="px-4 py-3 text-ink-soft">
-                    {entry.entityType}
-                    {entry.entityId ? (
-                      <span className="text-xs font-mono ml-1">
-                        ({entry.entityId.slice(0, 8)}…)
+              {items.map((entry, index) => {
+                const detailText = formatDetails(entry.details, entry.action);
+                return (
+                  <tr
+                    key={`${entry.source}-${index}`}
+                    className="border-b border-line/50 last:border-0 hover:bg-secondary/20"
+                  >
+                    <td className="px-4 py-3 font-mono text-xs text-ink-soft whitespace-nowrap">
+                      {new Date(entry.performedAt).toLocaleString("vi-VN")}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-xs font-medium border ${
+                          sourceColors[entry.source] ?? "bg-secondary text-ink-soft border-line"
+                        }`}
+                      >
+                        {sourceLabels[entry.source] ?? entry.source}
                       </span>
-                    ) : null}
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs text-ink-soft">
-                    {entry.userId ? `${entry.userId.slice(0, 8)}…` : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-ink-soft max-w-xs truncate" title={entry.details ?? ""}>
-                    {formatDetails(entry.details)}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-4 py-3 text-ink font-medium">{formatAction(entry.action)}</td>
+                    <td className="px-4 py-3 text-ink-soft">
+                      {entry.entityType}
+                      {entry.entityId ? (
+                        <span className="text-xs font-mono ml-1">
+                          ({entry.entityId.slice(0, 8)}…)
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-ink-soft">
+                      {entry.userId ? `${entry.userId.slice(0, 8)}…` : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-ink-soft max-w-md truncate" title={detailText}>
+                      {detailText}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
